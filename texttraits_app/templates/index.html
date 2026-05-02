@@ -48,6 +48,17 @@
       }
 
 
+
+      .startup-warning {
+        margin: 0 0 22px;
+        padding: 10px 12px;
+        border: 1px solid #e9b2be;
+        border-radius: 6px;
+        background: #fff1f4;
+        color: #9f1239;
+        font-size: 14px;
+      }
+
       .status-panel {
         margin: 0 0 22px;
         padding: 14px 16px;
@@ -297,6 +308,14 @@
     <main>
       <h1>TextTraits</h1>
       <p>Enter a sample of writing and evaluate it with the local text classifiers trained from the included project data.</p>
+
+      {% if startup_error %}
+      <div class="startup-warning">
+        Model bundle is missing, so evaluation is disabled until you run <code>python extract_trained_model.py</code>.<br>
+        <strong>Details:</strong> {{ startup_error }}
+      </div>
+      {% endif %}
+
       <section class="status-panel" aria-label="Model status">
         <div class="status-head">Model/status panel</div>
         <div class="status-grid">
@@ -310,6 +329,7 @@
             <tr><th>Target</th><th>Model</th><th>Validation metrics</th></tr>
           </thead>
           <tbody>
+            {% if model_status.targets %}
             {% for target in model_status.targets %}
             <tr>
               <td>{{ target.name }}</td>
@@ -317,6 +337,11 @@
               <td>{{ target.metrics }}</td>
             </tr>
             {% endfor %}
+            {% else %}
+            <tr>
+              <td colspan="3">No target metrics available.</td>
+            </tr>
+            {% endif %}
           </tbody>
         </table>
       </section>
