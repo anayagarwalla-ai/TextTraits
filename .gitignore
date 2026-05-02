@@ -1,0 +1,13 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Local/runtime artifacts
+.playwright-mcp/
+*.log
+texttraits-updated-ui.png
+
+# Extracted research data and generated model binaries are too large for GitHub.
+legacy_project/
+texttraits_app/artifacts/
+texttraits_app/models/

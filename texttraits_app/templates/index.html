@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TextTraits</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #171717;
+        --muted: #666;
+        --line: #d8d8d8;
+        --accent: #0f766e;
+        --accent-dark: #115e59;
+        --accent-soft: #cde8e3;
+        --warm: #9a5b13;
+        --warm-soft: #f4dfbd;
+        --bg: #f7f7f4;
+        --panel: #fff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+
+      main {
+        width: min(860px, calc(100% - 32px));
+        margin: 48px auto;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 34px;
+        font-weight: 700;
+      }
+
+      p {
+        margin: 0 0 22px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      textarea {
+        display: block;
+        width: 100%;
+        min-height: 220px;
+        resize: vertical;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--ink);
+        font: 16px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      }
+
+      button {
+        margin-top: 14px;
+        padding: 11px 18px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: white;
+        font: 700 15px/1.1 Georgia, "Times New Roman", serif;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--accent-dark);
+      }
+
+      button:disabled {
+        opacity: 0.65;
+        cursor: wait;
+      }
+
+      #results {
+        margin-top: 28px;
+        display: grid;
+        gap: 18px;
+      }
+
+      .result {
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .value {
+        margin-top: 4px;
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .subvalue {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .bars {
+        display: grid;
+        gap: 9px;
+        margin-top: 12px;
+      }
+
+      .bar-row {
+        display: grid;
+        grid-template-columns: minmax(96px, 150px) 1fr 48px;
+        gap: 10px;
+        align-items: center;
+        position: relative;
+      }
+
+      .bar-name,
+      .bar-percent {
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .bar-percent {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .bar-track {
+        height: 13px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e5e2db;
+      }
+
+      .bar-fill {
+        height: 100%;
+        min-width: 2px;
+        border-radius: inherit;
+        background: var(--accent-soft);
+        transition: width 180ms ease;
+      }
+
+      .bar-row.is-top .bar-name,
+      .bar-row.is-top .bar-percent {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .bar-row.is-top .bar-fill {
+        background: var(--accent);
+      }
+
+      .bar-row::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 156px;
+        bottom: calc(100% + 6px);
+        z-index: 2;
+        display: none;
+        width: max-content;
+        max-width: min(280px, calc(100vw - 48px));
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--panel);
+        color: var(--ink);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+        font: 13px/1.3 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      }
+
+      .bar-row:hover::after,
+      .bar-row:focus-within::after {
+        display: block;
+      }
+
+      .mbti-code {
+        margin-top: 6px;
+        font-size: 42px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .dimension-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px 22px;
+        margin-top: 14px;
+      }
+
+      .dimension {
+        min-width: 0;
+      }
+
+      .dimension-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .dimension-title strong {
+        color: var(--ink);
+      }
+
+      .dimension .bar-fill {
+        background: var(--warm-soft);
+      }
+
+      .dimension .bar-row.is-top .bar-fill {
+        background: var(--warm);
+      }
+
+      .error {
+        color: #9f1239;
+        font-weight: 700;
+      }
+
+      @media (max-width: 640px) {
+        main {
+          margin: 28px auto;
+        }
+
+        .bar-row {
+          grid-template-columns: minmax(82px, 112px) 1fr 44px;
+          gap: 8px;
+        }
+
+        .bar-row::after {
+          left: 0;
+        }
+
+        .dimension-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .mbti-code {
+          font-size: 34px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>TextTraits</h1>
+      <p>Enter a sample of writing and evaluate it with the local text classifiers trained from the included project data.</p>
+      <textarea id="text" autofocus placeholder="Paste or type text here..."></textarea>
+      <button id="evaluate">Evaluate</button>
+      <section id="results" aria-live="polite"></section>
+    </main>
+
+    <script>
+      const textEl = document.querySelector("#text");
+      const buttonEl = document.querySelector("#evaluate");
+      const resultsEl = document.querySelector("#results");
+
+      function percent(value) {
+        return `${Math.round(value * 100)}%`;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function renderBars(prediction) {
+        const alternatives = prediction.alternatives || [];
+        if (!alternatives.length) return "";
+
+        return `
+          <div class="bars">
+            ${alternatives.map((item, index) => {
+              const label = escapeHtml(item.label);
+              const probability = Number(item.probability || 0);
+              const pct = percent(probability);
+              return `
+                <div class="bar-row ${index === 0 ? "is-top" : ""}" data-tooltip="${label}: ${pct}">
+                  <div class="bar-name">${label}</div>
+                  <div class="bar-track" aria-hidden="true">
+                    <div class="bar-fill" style="width: ${Math.max(probability * 100, 1)}%"></div>
+                  </div>
+                  <div class="bar-percent">${pct}</div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      }
+
+      function renderDistribution(name, prediction) {
+        const topProbability = prediction.confidence === undefined
+          ? ""
+          : `<div class="subvalue">Top probability: ${percent(prediction.confidence)}</div>`;
+        return `
+          <div class="result">
+            <div class="label">${name}</div>
+            <div class="value">${escapeHtml(prediction.label)}</div>
+            ${topProbability}
+            ${renderBars(prediction)}
+          </div>
+        `;
+      }
+
+      function renderAge(prediction) {
+        return `
+          <div class="result">
+            <div class="label">Age</div>
+            <div class="value">${escapeHtml(prediction.label)}</div>
+            ${renderBars(prediction)}
+          </div>
+        `;
+      }
+
+      function altProbability(prediction, label) {
+        const found = (prediction.alternatives || []).find(
+          item => String(item.label).toLowerCase() === label.toLowerCase()
+        );
+        return found ? Number(found.probability || 0) : 0;
+      }
+
+      function renderDimension(title, prediction, options) {
+        const raw = String(prediction.raw_label || prediction.label).toLowerCase();
+        const letter = options[raw] || "?";
+        return `
+          <div class="dimension">
+            <div class="dimension-title">
+              <span>${title}</span>
+              <strong>${letter}</strong>
+            </div>
+            ${renderBars(prediction)}
+          </div>
+        `;
+      }
+
+      function mbtiLetter(prediction, options) {
+        const raw = String(prediction.label || prediction.raw_label).toLowerCase();
+        return options[raw] || "?";
+      }
+
+      function renderMbti(predictions) {
+        const dims = predictions.mbti_dimensions;
+        const code = [
+          mbtiLetter(dims.energy, {extraverted: "E", introverted: "I"}),
+          mbtiLetter(dims.information, {sensing: "S", intuitive: "N"}),
+          mbtiLetter(dims.decisions, {thinking: "T", feeling: "F"}),
+          mbtiLetter(dims.structure, {judging: "J", perceiving: "P"}),
+        ].join("");
+
+        return `
+          <div class="result">
+            <div class="label">MBTI</div>
+            <div class="mbti-code">${code}</div>
+            <div class="dimension-grid">
+              ${renderDimension("Energy", dims.energy, {extraverted: "E", introverted: "I"})}
+              ${renderDimension("Information", dims.information, {sensing: "S", intuitive: "N"})}
+              ${renderDimension("Decisions", dims.decisions, {thinking: "T", feeling: "F"})}
+              ${renderDimension("Structure", dims.structure, {judging: "J", perceiving: "P"})}
+            </div>
+          </div>
+        `;
+      }
+
+      buttonEl.addEventListener("click", async () => {
+        const text = textEl.value.trim();
+        resultsEl.innerHTML = "";
+
+        if (!text) {
+          resultsEl.innerHTML = `<div class="error">Please enter text to evaluate.</div>`;
+          return;
+        }
+
+        buttonEl.disabled = true;
+        buttonEl.textContent = "Evaluating...";
+
+        try {
+          const response = await fetch("/evaluate", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({text}),
+          });
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Evaluation failed.");
+          }
+
+          const p = data.predictions;
+          resultsEl.innerHTML = [
+            renderDistribution("Gender", p.gender),
+            renderAge(p.age_estimate),
+            renderMbti(p),
+          ].join("");
+        } catch (error) {
+          resultsEl.innerHTML = `<div class="error">${error.message}</div>`;
+        } finally {
+          buttonEl.disabled = false;
+          buttonEl.textContent = "Evaluate";
+        }
+      });
+    </script>
+  </body>
+</html>
