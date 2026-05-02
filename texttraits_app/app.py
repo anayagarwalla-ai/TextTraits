@@ -13,7 +13,7 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 @app.get("/")
 def index():
-    return render_template("index.html", metrics=predictor.metrics)
+    return render_template("index.html", metrics=predictor.metrics, model_status=predictor.status_panel())
 
 
 @app.post("/evaluate")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -57,6 +58,47 @@ class TextTraitsPredictor:
         self.vectorizer = self.artifact.get("vectorizer")
         self.models = self.artifact["models"]
         self.metrics = self.artifact.get("metrics", self.artifact.get("selected_metrics", {}))
+
+    def status_panel(self) -> dict:
+        metadata = self.artifact.get("metadata", {})
+        trained_at = metadata.get("trained_at") or metadata.get("created_at")
+        if not trained_at:
+            trained_at = datetime.fromtimestamp(self.model_path.stat().st_mtime, tz=timezone.utc).isoformat()
+
+        dataset = metadata.get("dataset") or metadata.get("dataset_name") or "Included project dataset"
+        return {
+            "bundle": self.model_path.name,
+            "format": self.format,
+            "trained_at": str(trained_at),
+            "dataset": str(dataset),
+            "targets": self._status_targets(),
+        }
+
+    def _status_targets(self) -> list[dict]:
+        targets: list[dict] = []
+        metric_aliases = {
+            "accuracy": "Accuracy",
+            "macro_f1": "Macro-F1",
+            "f1_macro": "Macro-F1",
+            "roc_auc": "ROC-AUC",
+            "mae": "MAE",
+        }
+
+        for name in sorted(self.models.keys()):
+            raw_metrics = self.metrics.get(name, {}) if isinstance(self.metrics, dict) else {}
+            summary = []
+            if isinstance(raw_metrics, dict):
+                for key, label in metric_aliases.items():
+                    value = raw_metrics.get(key)
+                    if isinstance(value, (int, float)):
+                        summary.append(f"{label}: {value:.3f}")
+            targets.append({
+                "name": name,
+                "model": type(self.models[name]).__name__,
+                "metrics": ", ".join(summary) if summary else "Not available",
+            })
+
+        return targets
 
     def predict(self, text: str) -> dict:
         cleaned = text.strip()

@@ -47,6 +47,47 @@
         line-height: 1.45;
       }
 
+
+      .status-panel {
+        margin: 0 0 22px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+      }
+
+      .status-head {
+        margin-bottom: 10px;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 14px;
+        margin-bottom: 12px;
+      }
+
+      .status-meta {
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .status-targets {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      .status-targets th,
+      .status-targets td {
+        text-align: left;
+        border-top: 1px solid var(--line);
+        padding: 7px 4px;
+        vertical-align: top;
+      }
+
       textarea {
         display: block;
         width: 100%;
@@ -238,6 +279,10 @@
           left: 0;
         }
 
+        .status-grid {
+          grid-template-columns: 1fr;
+        }
+
         .dimension-grid {
           grid-template-columns: 1fr;
         }
@@ -252,6 +297,30 @@
     <main>
       <h1>TextTraits</h1>
       <p>Enter a sample of writing and evaluate it with the local text classifiers trained from the included project data.</p>
+      <section class="status-panel" aria-label="Model status">
+        <div class="status-head">Model/status panel</div>
+        <div class="status-grid">
+          <div class="status-meta"><strong>Bundle:</strong> {{ model_status.bundle }}</div>
+          <div class="status-meta"><strong>Format:</strong> {{ model_status.format }}</div>
+          <div class="status-meta"><strong>Trained:</strong> {{ model_status.trained_at }}</div>
+          <div class="status-meta"><strong>Dataset:</strong> {{ model_status.dataset }}</div>
+        </div>
+        <table class="status-targets" aria-label="Validation metrics per target">
+          <thead>
+            <tr><th>Target</th><th>Model</th><th>Validation metrics</th></tr>
+          </thead>
+          <tbody>
+            {% for target in model_status.targets %}
+            <tr>
+              <td>{{ target.name }}</td>
+              <td>{{ target.model }}</td>
+              <td>{{ target.metrics }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
       <textarea id="text" autofocus placeholder="Paste or type text here..."></textarea>
       <button id="evaluate">Evaluate</button>
       <section id="results" aria-live="polite"></section>
