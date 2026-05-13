@@ -8,26 +8,30 @@
     <style>
       :root {
         color-scheme: light;
-        --ink: #15201b;
-        --muted: #64736c;
-        --soft: #edf5f1;
-        --line: #d7e4dd;
-        --panel: rgba(255, 255, 255, 0.88);
+        --ink: #17211d;
+        --muted: #5f6d66;
+        --quiet: #7c8a82;
+        --soft: #f2f6f2;
+        --line: #d7e1da;
+        --panel: rgba(255, 255, 255, 0.9);
         --panel-solid: #ffffff;
-        --accent: #0f7a6c;
-        --accent-strong: #075e54;
-        --accent-soft: #dff5ee;
-        --blue: #2c6fb7;
-        --blue-soft: #e1effb;
-        --warn: #b94634;
-        --warn-soft: #ffe8e2;
-        --gold: #9c6b1d;
-        --gold-soft: #fff4d9;
-        --shadow: 0 24px 70px rgba(21, 32, 27, 0.08);
-        --radius-lg: 28px;
-        --radius-md: 18px;
-        --radius-sm: 12px;
-        --focus: 0 0 0 4px rgba(15, 122, 108, 0.2);
+        --accent: #0f766e;
+        --accent-strong: #0a5f59;
+        --accent-soft: #dff4ef;
+        --blue: #28568f;
+        --blue-soft: #e3edf8;
+        --warm: #f7f0e4;
+        --warm-line: #ead9be;
+        --warn: #a23d2e;
+        --warn-soft: #ffe9e4;
+        --gold: #8a5a13;
+        --gold-soft: #fff3d8;
+        --success: #1f6f53;
+        --shadow: 0 18px 48px rgba(23, 33, 29, 0.07);
+        --radius-lg: 8px;
+        --radius-md: 8px;
+        --radius-sm: 6px;
+        --focus: 0 0 0 4px rgba(15, 118, 110, 0.2);
       }
 
       * { box-sizing: border-box; }
@@ -37,21 +41,19 @@
         min-height: 100vh;
         color: var(--ink);
         font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
-        background:
-          radial-gradient(circle at 8% 10%, rgba(44, 111, 183, 0.12), transparent 28%),
-          radial-gradient(circle at 90% 8%, rgba(15, 122, 108, 0.14), transparent 32%),
-          linear-gradient(135deg, #fbfdfb 0%, #f2f8f5 56%, #eef6f2 100%);
+        background: linear-gradient(135deg, #fbfcfb 0%, #eef5f0 58%, #f7f0e4 100%);
       }
 
-      button, textarea, select {
+      button, input, textarea, select {
         font: inherit;
       }
 
-      button, select, textarea, summary {
+      button, input, select, textarea, summary {
         outline: none;
       }
 
       button:focus-visible,
+      input:focus-visible,
       select:focus-visible,
       textarea:focus-visible,
       summary:focus-visible {
@@ -61,16 +63,28 @@
       button {
         border: 0;
         border-radius: 999px;
-        padding: 12px 18px;
+        padding: 11px 16px;
         background: var(--accent);
         color: white;
         font-weight: 800;
         cursor: pointer;
-        transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
+        transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, opacity 160ms ease;
       }
 
-      button:hover { background: var(--accent-strong); transform: translateY(-1px); }
-      button:disabled { cursor: wait; opacity: 0.65; transform: none; }
+      button:hover:not(:disabled) {
+        background: var(--accent-strong);
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+        transform: none;
+      }
+
+      button.is-loading {
+        cursor: wait;
+      }
 
       .button-secondary {
         border: 1px solid var(--line);
@@ -78,31 +92,45 @@
         color: var(--ink);
       }
 
-      .button-secondary:hover { background: var(--panel-solid); }
+      .button-secondary:hover:not(:disabled) {
+        background: var(--panel-solid);
+        border-color: #b9c8c0;
+      }
+
+      .button-quiet {
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--accent-strong);
+      }
+
+      .button-quiet:hover:not(:disabled) {
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.72);
+      }
 
       .app-shell {
         width: min(1240px, calc(100% - 32px));
         min-height: 100vh;
         margin: 0 auto;
-        padding: 32px 0 24px;
+        padding: 22px 0 20px;
         display: grid;
         grid-template-rows: auto minmax(0, 1fr) auto;
-        gap: 18px;
+        gap: 14px;
       }
 
       .product-header {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+        gap: 18px;
         align-items: end;
       }
 
       .eyebrow {
-        margin: 0 0 8px;
+        margin: 0 0 7px;
         color: var(--accent-strong);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 900;
-        letter-spacing: 0.16em;
+        letter-spacing: 0;
         text-transform: uppercase;
       }
 
@@ -110,26 +138,25 @@
         max-width: 780px;
         margin: 0;
         font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(42px, 6vw, 72px);
-        line-height: 0.95;
-        letter-spacing: -0.055em;
+        font-size: 54px;
+        line-height: 1.03;
+        letter-spacing: 0;
       }
 
       .subtitle {
         max-width: 760px;
-        margin: 14px 0 0;
+        margin: 11px 0 0;
         color: var(--muted);
-        font-size: clamp(16px, 2vw, 19px);
-        line-height: 1.5;
+        font-size: 17px;
+        line-height: 1.48;
       }
 
       .trust-card {
-        max-width: 290px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--warm-line);
         border-radius: var(--radius-md);
-        padding: 14px 16px;
-        background: rgba(255, 255, 255, 0.72);
-        color: var(--muted);
+        padding: 13px 15px;
+        background: rgba(255, 250, 242, 0.82);
+        color: #674c27;
         font-size: 14px;
         line-height: 1.4;
       }
@@ -142,8 +169,8 @@
 
       .workspace {
         display: grid;
-        grid-template-columns: minmax(380px, 0.88fr) minmax(0, 1.12fr);
-        gap: 18px;
+        grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.18fr);
+        gap: 14px;
         min-height: 0;
       }
 
@@ -152,31 +179,31 @@
         border-radius: var(--radius-lg);
         background: var(--panel);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(18px);
+        backdrop-filter: blur(12px);
       }
 
       .composer {
         display: flex;
         min-height: 0;
         flex-direction: column;
-        padding: 20px;
+        padding: 18px;
       }
 
       .panel-heading {
         display: flex;
         justify-content: space-between;
-        gap: 16px;
+        gap: 14px;
         align-items: flex-start;
-        margin-bottom: 14px;
+        margin-bottom: 12px;
       }
 
       h2, h3 {
         margin: 0;
-        letter-spacing: -0.02em;
+        letter-spacing: 0;
       }
 
-      h2 { font-size: 22px; }
-      h3 { font-size: 17px; }
+      h2 { font-size: 21px; }
+      h3 { font-size: 16px; }
 
       .helper {
         margin: 7px 0 0;
@@ -188,121 +215,259 @@
       .status-pill {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 7px;
         white-space: nowrap;
         border: 1px solid var(--line);
         border-radius: 999px;
-        padding: 7px 10px;
-        background: rgba(255, 255, 255, 0.74);
-        color: var(--muted);
-        font-size: 13px;
-        font-weight: 700;
+        padding: 5px 9px;
+        background: rgba(255, 255, 255, 0.68);
+        color: var(--quiet);
+        font-size: 12px;
+        font-weight: 800;
       }
 
       .status-dot {
-        width: 8px;
-        height: 8px;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
-        background: var(--accent);
+        background: var(--success);
       }
 
       .status-dot.demo { background: var(--gold); }
 
+      .use-note {
+        margin: 0 0 12px;
+        border-left: 4px solid var(--gold);
+        padding: 10px 12px;
+        background: rgba(255, 243, 216, 0.68);
+        color: #5f441a;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .use-note strong {
+        color: var(--ink);
+      }
+
+      .ack-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 9px;
+        align-items: start;
+        margin: 0 0 12px;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .ack-row input {
+        width: 18px;
+        height: 18px;
+        margin: 1px 0 0;
+        accent-color: var(--accent);
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
       textarea {
         width: 100%;
-        min-height: 310px;
+        min-height: 260px;
         flex: 1;
         resize: vertical;
         border: 1px solid var(--line);
-        border-radius: 22px;
-        padding: 18px;
-        background: rgba(255, 255, 255, 0.86);
+        border-radius: var(--radius-md);
+        padding: 15px;
+        background: rgba(255, 255, 255, 0.88);
         color: var(--ink);
-        font: 16px/1.55 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+        font: 15px/1.55 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
       }
 
-      textarea::placeholder { color: #8b9992; }
+      textarea::placeholder {
+        color: #8b9992;
+      }
+
+      .input-quality {
+        margin: 10px 0 0;
+        display: grid;
+        gap: 8px;
+      }
 
       .input-meta {
         display: flex;
         justify-content: space-between;
         gap: 10px;
-        margin: 10px 2px 0;
         color: var(--muted);
         font-size: 13px;
         line-height: 1.35;
       }
 
+      .length-meter {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e6eee9;
+      }
+
+      .length-meter span {
+        display: block;
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent);
+        transition: width 180ms ease, background 180ms ease;
+      }
+
+      .length-meter span.is-caution {
+        background: var(--gold);
+      }
+
+      .privacy-warning {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .privacy-warning.is-warning {
+        color: var(--warn);
+        font-weight: 700;
+      }
+
       .controls {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto auto;
-        gap: 10px;
+        grid-template-columns: minmax(140px, 1fr) auto auto;
+        gap: 8px;
         align-items: center;
-        margin-top: 16px;
+        margin-top: 14px;
+      }
+
+      .controls button {
+        white-space: nowrap;
       }
 
       select {
         width: 100%;
+        min-width: 0;
         border: 1px solid var(--line);
         border-radius: 999px;
-        padding: 11px 14px;
-        background: rgba(255, 255, 255, 0.82);
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.86);
+        color: var(--ink);
+      }
+
+      .sample-meta,
+      .action-note {
+        margin: 8px 2px 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .sample-meta strong,
+      .action-note strong {
         color: var(--ink);
       }
 
       .analysis-panel {
         position: relative;
-        min-height: 560px;
+        min-height: 530px;
         overflow: hidden;
       }
 
       .report {
-        height: 100%;
-        padding: 20px;
+        min-height: 100%;
+        padding: 18px;
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 12px;
       }
 
       .state-card {
         min-height: 100%;
+        padding: 22px;
         display: grid;
-        place-items: center;
-        padding: 28px;
-        text-align: center;
+        align-content: center;
+        gap: 16px;
       }
 
-      .state-card-inner {
-        max-width: 430px;
-      }
-
-      .orb {
-        width: 82px;
-        height: 82px;
-        margin: 0 auto 18px;
-        border-radius: 30px;
-        background:
-          linear-gradient(135deg, rgba(15, 122, 108, 0.18), rgba(44, 111, 183, 0.16)),
-          var(--panel-solid);
+      .state-kicker {
+        display: inline-flex;
+        width: fit-content;
         border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
       }
 
       .state-title {
         margin: 0;
         font-family: Georgia, "Times New Roman", serif;
-        font-size: 34px;
-        letter-spacing: -0.045em;
+        font-size: 32px;
+        line-height: 1.08;
+        letter-spacing: 0;
       }
 
       .state-copy {
-        margin: 10px 0 0;
+        max-width: 620px;
+        margin: 0;
         color: var(--muted);
         line-height: 1.55;
       }
 
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .state-item,
+      .quick-card,
+      .detail-card,
+      .notice-card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.74);
+      }
+
+      .state-item {
+        padding: 12px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.42;
+      }
+
+      .state-item strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--ink);
+      }
+
+      .model-note {
+        border: 1px solid var(--warm-line);
+        border-radius: var(--radius-md);
+        padding: 13px;
+        background: rgba(255, 250, 242, 0.75);
+        color: #60451b;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .model-note strong {
+        color: var(--ink);
+      }
+
       .loading-line {
         height: 10px;
-        margin: 18px auto 0;
+        margin-top: 4px;
         overflow: hidden;
         border-radius: 999px;
         background: var(--soft);
@@ -310,7 +475,7 @@
 
       .loading-line span {
         display: block;
-        width: 44%;
+        width: 42%;
         height: 100%;
         border-radius: inherit;
         background: linear-gradient(90deg, var(--accent), var(--blue));
@@ -320,79 +485,98 @@
       .report-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 14px;
+        gap: 12px;
         align-items: start;
       }
 
       .summary-title {
-        margin: 5px 0 0;
+        margin: 4px 0 0;
         font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(32px, 4vw, 48px);
-        line-height: 0.98;
-        letter-spacing: -0.052em;
+        font-size: 32px;
+        line-height: 1.1;
+        letter-spacing: 0;
       }
 
       .summary-copy {
-        margin: 10px 0 0;
+        margin: 9px 0 0;
         color: var(--muted);
         line-height: 1.45;
       }
 
-      .confidence-chip {
+      .separation-chip {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 112px;
+        min-width: 126px;
+        border: 1px solid var(--line);
         border-radius: 999px;
         padding: 8px 12px;
         background: var(--accent-soft);
         color: var(--accent-strong);
         font-size: 13px;
         font-weight: 900;
+        white-space: nowrap;
       }
 
-      .confidence-chip.low {
+      .separation-chip.low {
         background: var(--warn-soft);
         color: var(--warn);
       }
 
-      .confidence-chip.demo {
+      .separation-chip.medium {
         background: var(--gold-soft);
         color: var(--gold);
       }
 
-      .quick-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
+      .separation-chip.demo {
+        background: var(--gold-soft);
+        color: var(--gold);
       }
 
-      .quick-card,
-      .detail-card,
-      .notice-card {
-        border: 1px solid var(--line);
+      .reading-card {
+        border: 1px solid var(--blue-soft);
         border-radius: var(--radius-md);
-        background: rgba(255, 255, 255, 0.74);
+        padding: 13px;
+        background: rgba(227, 237, 248, 0.56);
+        color: #31465f;
+        line-height: 1.45;
+      }
+
+      .reading-card strong {
+        color: var(--ink);
+      }
+
+      .reading-card ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      .reading-card li + li {
+        margin-top: 4px;
+      }
+
+      .result-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
       }
 
       .quick-card {
         min-width: 0;
-        padding: 13px;
-      }
-
-      .label {
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 900;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
+        padding: 12px;
       }
 
       .quick-value {
         margin-top: 7px;
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 900;
-        letter-spacing: -0.04em;
+        letter-spacing: 0;
         overflow-wrap: anywhere;
       }
 
@@ -412,25 +596,29 @@
 
       .section-tabs button {
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.7);
+        background: rgba(255, 255, 255, 0.74);
         color: var(--muted);
         padding: 8px 12px;
       }
 
+      .section-tabs button:hover:not(:disabled),
+      .section-tabs button:focus-visible {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
       .section-tabs button[aria-selected="true"] {
-        background: var(--ink);
-        border-color: var(--ink);
-        color: white;
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent-strong);
       }
 
       .result-section {
-        display: none;
+        display: block;
         min-height: 0;
-        overflow: auto;
         padding-right: 4px;
       }
-
-      .result-section.is-active { display: block; }
 
       .detail-grid {
         display: grid;
@@ -440,16 +628,17 @@
 
       .detail-card {
         min-width: 0;
-        padding: 14px;
+        padding: 13px;
       }
 
       .detail-card.wide { grid-column: 1 / -1; }
 
       .detail-value {
         margin-top: 8px;
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 900;
-        letter-spacing: -0.045em;
+        letter-spacing: 0;
+        overflow-wrap: anywhere;
       }
 
       .detail-copy {
@@ -465,9 +654,16 @@
         margin-top: 12px;
       }
 
+      .bar-explainer {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
       .bar-row {
         display: grid;
-        grid-template-columns: minmax(116px, 150px) minmax(100px, 1fr) 48px;
+        grid-template-columns: minmax(112px, 150px) minmax(96px, 1fr) minmax(52px, auto);
         gap: 10px;
         align-items: center;
       }
@@ -491,7 +687,7 @@
       }
 
       .bar-track {
-        height: 12px;
+        height: 11px;
         overflow: hidden;
         border-radius: 999px;
         background: #e6eee9;
@@ -515,9 +711,9 @@
 
       .mbti-code {
         font-family: Georgia, "Times New Roman", serif;
-        font-size: clamp(54px, 8vw, 84px);
-        line-height: 0.88;
-        letter-spacing: -0.055em;
+        font-size: 52px;
+        line-height: 0.95;
+        letter-spacing: 0;
       }
 
       .dimension-grid {
@@ -554,7 +750,7 @@
       }
 
       .notice-card {
-        padding: 14px;
+        padding: 13px;
         color: var(--muted);
         font-size: 14px;
         line-height: 1.5;
@@ -571,21 +767,29 @@
       }
 
       .demo-banner {
-        border-color: #efd39a;
+        border-color: var(--warm-line);
         background: var(--gold-soft);
         color: #62430f;
       }
 
-      details.public-details {
-        margin-top: 10px;
-        border-top: 1px solid var(--line);
-        padding-top: 10px;
+      details.public-details,
+      details.sensitive-details {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.72);
       }
 
-      details.public-details summary {
+      details.public-details[open],
+      details.sensitive-details[open] {
+        background: rgba(255, 255, 255, 0.86);
+      }
+
+      details.public-details summary,
+      details.sensitive-details summary {
         cursor: pointer;
         color: var(--ink);
-        font-weight: 800;
+        font-weight: 900;
       }
 
       .limitations {
@@ -608,7 +812,7 @@
       .footer-note {
         border: 1px solid var(--line);
         border-radius: var(--radius-md);
-        padding: 12px 14px;
+        padding: 10px 12px;
         background: rgba(255, 255, 255, 0.6);
         color: var(--muted);
         font-size: 13px;
@@ -639,6 +843,18 @@
         font: 12px/1.45 "Cascadia Mono", Consolas, monospace;
       }
 
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
       [hidden] { display: none !important; }
 
       @media (max-width: 980px) {
@@ -647,19 +863,25 @@
           grid-template-columns: 1fr;
         }
 
-        .trust-card { max-width: none; }
         .analysis-panel { min-height: auto; }
-        textarea { min-height: 240px; }
+        textarea { min-height: 220px; }
       }
 
       @media (max-width: 680px) {
         .app-shell {
           width: min(100% - 20px, 1240px);
-          padding-top: 18px;
+          padding-top: 16px;
+        }
+
+        h1 { font-size: 38px; }
+
+        .subtitle {
+          font-size: 15px;
         }
 
         .composer,
-        .report {
+        .report,
+        .state-card {
           padding: 14px;
         }
 
@@ -667,7 +889,8 @@
         .quick-grid,
         .detail-grid,
         .dimension-grid,
-        .style-grid {
+        .style-grid,
+        .state-grid {
           grid-template-columns: 1fr;
         }
 
@@ -676,29 +899,52 @@
         }
 
         .bar-row {
-          grid-template-columns: minmax(90px, 116px) minmax(90px, 1fr) 42px;
+          grid-template-columns: minmax(88px, 112px) minmax(80px, 1fr) 44px;
         }
 
-        h1 { font-size: 44px; }
+        .summary-title,
+        .state-title {
+          font-size: 28px;
+        }
       }
 
       @keyframes loading {
         from { transform: translateX(-28%); }
         to { transform: translateX(150%); }
       }
+
+      @media print {
+        body { background: white; }
+        .product-header,
+        .composer,
+        .section-tabs,
+        .result-actions,
+        .footer-note {
+          display: none;
+        }
+        .workspace {
+          display: block;
+        }
+        .analysis-panel {
+          box-shadow: none;
+          border: 0;
+        }
+      }
     </style>
   </head>
   <body>
     <main class="app-shell">
+      <div id="announcer" class="sr-only" aria-live="polite"></div>
+
       <header class="product-header">
         <div>
           <p class="eyebrow">TextTraits</p>
-          <h1>See what your writing might reveal.</h1>
-          <p class="subtitle">Paste a short writing sample and the app will explain which demographic, personality, and style signals a text model can detect. The results are estimates from language patterns, not facts about the person.</p>
+          <h1>Explore writing patterns carefully.</h1>
+          <p class="subtitle">Paste a sample to review language-pattern estimates, input quality, and model limits. The output is educational, may be wrong, and should never be used to make decisions about a person.</p>
         </div>
         <aside class="trust-card" aria-label="Responsible use note">
-          <strong>Educational, not definitive.</strong>
-          Do not use these predictions for hiring, admissions, policing, eligibility, or other consequential decisions.
+          <strong>Educational pattern reading.</strong>
+          Sensitive data-label outputs are optional and collapsed. They describe model behavior, not identity or truth.
         </aside>
       </header>
 
@@ -706,29 +952,45 @@
         <section class="panel composer" aria-labelledby="input-title">
           <div class="panel-heading">
             <div>
-              <h2 id="input-title">Your text</h2>
-              <p id="text-help" class="helper">Use text that sounds like a person writing naturally: a comment, email, reflection, forum post, or paragraph of notes. Around 40+ words works best.</p>
+              <h2 id="input-title">Writing sample</h2>
+              <p id="text-help" class="helper">Use natural writing that you are comfortable analyzing. Around 40+ words gives the model more context.</p>
             </div>
-            <span class="status-pill">
+            <span class="status-pill" aria-label="{% if public_model_info.demo %}Demo mode{% else %}Local model ready{% endif %}">
               <span class="status-dot{% if public_model_info.demo %} demo{% endif %}" aria-hidden="true"></span>
               {% if public_model_info.demo %}Demo mode{% else %}Model ready{% endif %}
             </span>
           </div>
 
-          <label class="label" for="text">Writing sample</label>
-          <textarea id="text" aria-describedby="text-help live-quality" autofocus placeholder="Paste a few sentences here. For example: a post, email, journal-style note, or comment you want to analyze."></textarea>
-          <div class="input-meta" aria-live="polite">
-            <span id="live-count">0 words</span>
-            <span id="live-quality">Paste a natural text sample to begin.</span>
+          <p class="use-note">
+            <strong>Use this responsibly:</strong> analyze only text you have permission to use. Do not use results for hiring, admissions, policing, eligibility, finance, housing, medical, or other consequential decisions.
+          </p>
+
+          <label class="ack-row" for="responsible-use">
+            <input id="responsible-use" type="checkbox">
+            <span>I understand this is an educational model reading, may be wrong, and must not be treated as a fact about a person.</span>
+          </label>
+
+          <label class="label" for="text">Text to analyze</label>
+          <textarea id="text" aria-describedby="text-help live-quality privacy-warning action-note" autofocus placeholder="Paste a note, email, comment, or reflection you are comfortable analyzing."></textarea>
+
+          <div class="input-quality" aria-live="polite">
+            <div class="input-meta">
+              <span id="live-count">0 words</span>
+              <span id="live-quality">Add a natural text sample to begin.</span>
+            </div>
+            <div class="length-meter" aria-hidden="true"><span id="length-meter-fill"></span></div>
+            <div id="privacy-warning" class="privacy-warning">Avoid private, copied, or third-party text unless you have permission to analyze it.</div>
           </div>
 
           <div class="controls">
             <select id="samples" aria-label="Try a sample text">
               <option value="">Try a sample...</option>
             </select>
-            <button id="evaluate" type="button">Analyze text</button>
-            <button id="reset" class="button-secondary" type="button">Reset</button>
+            <button id="evaluate" type="button" disabled>Analyze text</button>
+            <button id="reset" class="button-secondary" type="button" aria-label="Clear text and results">Clear text/results</button>
           </div>
+          <div id="sample-meta" class="sample-meta">Sample categories appear after choosing an example.</div>
+          <div id="action-note" class="action-note" aria-live="polite">Add text and confirm responsible use to analyze.</div>
 
           {% if dev_tools_enabled %}
           <div class="controls" aria-label="Developer model controls">
@@ -745,38 +1007,41 @@
           {% endif %}
         </section>
 
-        <section class="panel analysis-panel" aria-labelledby="report-title">
+        <section class="panel analysis-panel" aria-labelledby="reading-title">
           <div id="empty-state" class="state-card">
-            <div class="state-card-inner">
-              <div class="orb" aria-hidden="true"></div>
-              <h2 id="report-title" class="state-title">Your report appears here.</h2>
-              <p class="state-copy">The first view will summarize the strongest signals. Deeper details are grouped into clear sections so the model output stays readable.</p>
+            <span class="state-kicker">Pattern summary</span>
+            <h2 id="reading-title" class="state-title">Model reading will appear here.</h2>
+            <p class="state-copy">The first view starts with writing style, input quality, and model limits. Sensitive demographic-like data labels stay collapsed unless you choose to inspect them.</p>
+            <div class="state-grid" aria-label="How to read the model output">
+              <div class="state-item"><strong>Start with style.</strong> Word count, density, and input warnings are less personal and easier to interpret.</div>
+              <div class="state-item"><strong>Read separation carefully.</strong> Percentages describe model separation, not the chance that a label is true.</div>
+              <div class="state-item"><strong>Keep outputs low-stakes.</strong> Treat surprises as prompts to inspect the text and model limits.</div>
+            </div>
+            <div class="model-note">
+              <strong>Model and data note:</strong> this local inference bundle reflects patterns learned from its training data. It can reproduce dataset bias, topic artifacts, and label noise. Public deployments should document their data source and privacy handling.
             </div>
           </div>
 
           <div id="loading-state" class="state-card" hidden>
-            <div class="state-card-inner">
-              <div class="orb" aria-hidden="true"></div>
-              <h2 class="state-title">Reading the signal...</h2>
-              <p class="state-copy">The model is comparing your sample with learned text patterns. This usually takes less than a second locally.</p>
-              <div class="loading-line" aria-hidden="true"><span></span></div>
-            </div>
+            <span class="state-kicker">Analyzing</span>
+            <h2 class="state-title">Reading language patterns...</h2>
+            <p class="state-copy">The local model is comparing the sample with learned text patterns. This can take a moment depending on the machine.</p>
+            <div class="loading-line" aria-hidden="true"><span></span></div>
           </div>
 
           <div id="error-state" class="state-card" hidden>
-            <div class="state-card-inner">
-              <div class="orb" aria-hidden="true"></div>
-              <h2 class="state-title">Something needs attention.</h2>
-              <p id="error-copy" class="state-copy"></p>
-            </div>
+            <span class="state-kicker">Needs attention</span>
+            <h2 class="state-title">The reading did not run.</h2>
+            <p id="error-copy" class="state-copy"></p>
+            <button id="retry-analysis" class="button-secondary" type="button" hidden>Retry analysis</button>
           </div>
 
-          <div id="results" class="report" hidden></div>
+          <div id="results" class="report" tabindex="-1" role="region" aria-live="polite" aria-label="Model reading" hidden></div>
         </section>
       </section>
 
       <p class="footer-note">
-        <strong>Privacy and limits:</strong> only submit text you are comfortable analyzing. Predictions may be wrong, text can be misleading, and model confidence is not certainty. The tool describes patterns associated with text, not objective truth about a person.
+        <strong id="privacy-route">Local run:</strong> text is posted to this Flask app for analysis. The interface does not make results factual, private, or safe for consequential use.
       </p>
 
       {% if dev_tools_enabled %}
@@ -794,16 +1059,24 @@
       const DEV_TOOLS = {{ dev_tools_enabled|tojson }};
       const PUBLIC_MODEL = {{ public_model_info|tojson }};
       const textEl = document.querySelector("#text");
+      const responsibleEl = document.querySelector("#responsible-use");
       const samplesEl = document.querySelector("#samples");
       const evaluateEl = document.querySelector("#evaluate");
       const resetEl = document.querySelector("#reset");
       const liveCountEl = document.querySelector("#live-count");
       const liveQualityEl = document.querySelector("#live-quality");
+      const lengthMeterFillEl = document.querySelector("#length-meter-fill");
+      const privacyWarningEl = document.querySelector("#privacy-warning");
+      const sampleMetaEl = document.querySelector("#sample-meta");
+      const actionNoteEl = document.querySelector("#action-note");
+      const announcerEl = document.querySelector("#announcer");
       const emptyStateEl = document.querySelector("#empty-state");
       const loadingStateEl = document.querySelector("#loading-state");
       const errorStateEl = document.querySelector("#error-state");
       const errorCopyEl = document.querySelector("#error-copy");
+      const retryAnalysisEl = document.querySelector("#retry-analysis");
       const resultsEl = document.querySelector("#results");
+      const privacyRouteEl = document.querySelector("#privacy-route");
       {% if dev_tools_enabled %}
       const modelEl = document.querySelector("#model");
       const responseDebugEl = document.querySelector("#response-debug");
@@ -816,17 +1089,33 @@
       const downloadJsonEl = null;
       {% endif %}
       let latestData = null;
+      let latestText = "";
+      let currentState = "empty";
+      let retryText = "";
 
       const samples = [
-        ["Reflective comment", "I keep coming back to the same question: what information do people reveal without meaning to? A short comment can carry habits, confidence, uncertainty, and social cues, even when the writer is trying to stay neutral."],
-        ["Work email", "Thanks for sending the proposal. I reviewed the timeline and added notes on the assumptions. The main risk is that we are treating the launch window as fixed before the user research is complete."],
-        ["Forum reply", "I do not think the issue is whether the idea sounds clever. The real test is whether it works when people are tired, distracted, and using it in messy real-world situations."],
+        {
+          label: "Reflection",
+          category: "reflection",
+          value: "I keep returning to the same question after each planning session: what are people telling us indirectly through the way they describe a problem? The clearest notes are rarely dramatic. They are careful, specific, and honest about uncertainty, which makes them useful without pretending to settle everything."
+        },
+        {
+          label: "Project email",
+          category: "email",
+          value: "Thanks for sending the proposal. I reviewed the timeline, added notes on the assumptions, and flagged the parts that still depend on user research. My main concern is that we are treating the launch window as fixed before we know whether the onboarding changes solve the support issues."
+        },
+        {
+          label: "Forum reply",
+          category: "comment",
+          value: "I do not think the real test is whether the idea sounds clever in a meeting. The harder question is whether it still works when people are tired, distracted, and using it in messy real-world conditions where they cannot stop to decode every label or hidden assumption."
+        },
       ];
 
-      for (const [label, value] of samples) {
+      for (const sample of samples) {
         const option = document.createElement("option");
-        option.value = value;
-        option.textContent = label;
+        option.value = sample.value;
+        option.dataset.category = sample.category;
+        option.textContent = `${sample.category}: ${sample.label}`;
         samplesEl.append(option);
       }
 
@@ -841,6 +1130,11 @@
 
       function percent(value) {
         return `${Math.round(Number(value || 0) * 100)}%`;
+      }
+
+      function sentenceCase(value) {
+        const text = String(value || "");
+        return text ? `${text[0].toUpperCase()}${text.slice(1)}` : "";
       }
 
       function words(text) {
@@ -870,35 +1164,98 @@
         };
       }
 
+      function liveWarnings(text) {
+        const warnings = [];
+        if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(text) || /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(text)) {
+          warnings.push("Possible private contact details detected; remove personal details before analyzing.");
+        }
+        if (/\b(lorem ipsum|terms and conditions|privacy policy|unsubscribe|forwarded message)\b/i.test(text)) {
+          warnings.push("Boilerplate or copied-template text detected; results may reflect the template more than the author.");
+        }
+        if (/"[^"]{40,}"/.test(text) || /\b(copied from|quoted from|someone else wrote)\b/i.test(text)) {
+          warnings.push("Quoted or third-party text may need permission before analysis.");
+        }
+        return warnings;
+      }
+
       function updateLiveStats() {
         const stats = localStats(textEl.value);
+        const meter = Math.min((stats.words / 60) * 100, 100);
+        const warnings = liveWarnings(textEl.value);
+
         liveCountEl.textContent = `${stats.words} ${stats.words === 1 ? "word" : "words"}`;
+        lengthMeterFillEl.style.width = `${meter}%`;
+        lengthMeterFillEl.classList.toggle("is-caution", stats.words > 0 && stats.words < 40);
+
         if (!stats.words) {
-          liveQualityEl.textContent = "Paste a natural text sample to begin.";
-        } else if (stats.words < 35) {
-          liveQualityEl.textContent = "Short sample: results may be unstable.";
+          liveQualityEl.textContent = "Add a natural text sample to begin.";
+        } else if (stats.words < 40) {
+          liveQualityEl.textContent = "Short sample: aim for at least 40 words.";
         } else {
-          liveQualityEl.textContent = "Good sample length for a first pass.";
+          liveQualityEl.textContent = "Good first-pass length.";
+        }
+
+        if (warnings.length) {
+          privacyWarningEl.textContent = warnings.join(" ");
+          privacyWarningEl.classList.add("is-warning");
+        } else {
+          privacyWarningEl.textContent = "Avoid private, copied, or third-party text unless you have permission to analyze it.";
+          privacyWarningEl.classList.remove("is-warning");
+        }
+
+        updateActionState();
+      }
+
+      function updateActionState() {
+        const hasText = Boolean(textEl.value.trim());
+        const acknowledged = responsibleEl.checked;
+        evaluateEl.disabled = !(hasText && acknowledged);
+
+        if (!hasText) {
+          actionNoteEl.textContent = "Add text and confirm responsible use to analyze.";
+        } else if (!acknowledged) {
+          actionNoteEl.textContent = "Confirm responsible use to enable analysis.";
+        } else if (latestData && textEl.value.trim() !== latestText) {
+          actionNoteEl.textContent = "Text changed. Run analysis again to update the model reading.";
+        } else {
+          actionNoteEl.textContent = "Ready to analyze with the local model.";
         }
       }
 
       function showState(state) {
+        currentState = state;
         emptyStateEl.hidden = state !== "empty";
         loadingStateEl.hidden = state !== "loading";
         errorStateEl.hidden = state !== "error";
         resultsEl.hidden = state !== "results";
       }
 
-      function confidenceClass(prediction) {
-        const label = prediction?.confidence_label || "";
-        return label === "Low confidence" || label === "Unavailable" ? "low" : "";
+      function clearTransientError() {
+        if (currentState === "error" && !latestData) {
+          errorCopyEl.textContent = "";
+          retryAnalysisEl.hidden = true;
+          showState("empty");
+        }
       }
 
-      function confidenceText(prediction) {
-        if (!prediction) return "Unavailable";
-        const label = prediction.confidence_label || "Unavailable";
-        if (prediction.margin === undefined) return label;
-        return `${label}; margin ${percent(prediction.margin)}`;
+      function modelSeparation(prediction) {
+        if (!prediction?.alternatives?.length) return "unavailable";
+        const score = signalScore(prediction);
+        if (score > 0.66) return "high";
+        if (score > 0.33) return "medium";
+        return "low";
+      }
+
+      function separationClass(prediction) {
+        const label = modelSeparation(prediction);
+        return label === "low" || label === "unavailable" ? "low" : label === "medium" ? "medium" : "";
+      }
+
+      function separationText(prediction) {
+        if (!prediction?.alternatives?.length) return "Separation unavailable";
+        const label = sentenceCase(modelSeparation(prediction));
+        if (prediction.margin === undefined) return `${label} model separation`;
+        return `${label} model separation; margin ${percent(prediction.margin)}`;
       }
 
       function signalScore(prediction) {
@@ -906,11 +1263,60 @@
         return Math.max(Number(prediction.confidence || 0) - 0.5, 0) * 2;
       }
 
-      function signalLabel(prediction) {
-        const score = signalScore(prediction);
-        if (score > 0.66) return "strong";
-        if (score > 0.33) return "moderate";
-        return "uncertain";
+      function signalSummary(data) {
+        const items = flattenPatternPredictions(data).filter(([, value]) => value?.alternatives?.length);
+        if (!items.length) return ["Model separation unavailable", null];
+        const sorted = items.sort((a, b) => signalScore(b[1]) - signalScore(a[1]));
+        return sorted[0];
+      }
+
+      function flattenPatternPredictions(data) {
+        const p = data.predictions || {};
+        return [
+          ["Energy pattern", p.mbti_dimensions?.energy],
+          ["Information pattern", p.mbti_dimensions?.information],
+          ["Decision pattern", p.mbti_dimensions?.decisions],
+          ["Structure pattern", p.mbti_dimensions?.structure],
+        ].filter(([, value]) => value);
+      }
+
+      function flattenPredictions(data) {
+        const p = data.predictions || {};
+        return [
+          ["Sensitive data label", p.gender],
+          ["Age range label", p.age_estimate || p.age_bucket],
+          ["Energy pattern", p.mbti_dimensions?.energy],
+          ["Information pattern", p.mbti_dimensions?.information],
+          ["Decision pattern", p.mbti_dimensions?.decisions],
+          ["Structure pattern", p.mbti_dimensions?.structure],
+        ].filter(([, value]) => value);
+      }
+
+      function displayLabel(prediction, context = "") {
+        const raw = String(prediction?.raw_label || "").toLowerCase();
+        const label = String(prediction?.label || "Unavailable");
+        if (context === "sensitive" && (raw === "t" || /trans\/other/i.test(label))) {
+          return "Other / unspecified data label";
+        }
+        return label;
+      }
+
+      function ageRangeLabel(prediction) {
+        const raw = Number(prediction?.raw_value);
+        let value = Number.isFinite(raw) ? raw : NaN;
+        if (!Number.isFinite(value)) {
+          const match = String(prediction?.label || "").match(/(\d+(\.\d+)?)/);
+          value = match ? Number(match[1]) : NaN;
+        }
+        if (Number.isFinite(value)) {
+          if (value < 25) return "Under 25 range";
+          if (value < 35) return "25 to 34 range";
+          if (value < 45) return "35 to 44 range";
+          if (value < 55) return "45 to 54 range";
+          return "55+ range";
+        }
+        const label = String(prediction?.label || "Unavailable");
+        return label.replace(/(\d+)\.\d+\s*years?/i, "$1-year range");
       }
 
       function mbtiLetter(prediction, options) {
@@ -928,31 +1334,15 @@
         ].join("");
       }
 
-      function strongestSignal(data) {
-        const items = flattenPredictions(data).sort((a, b) => signalScore(b[1]) - signalScore(a[1]));
-        return items[0] || ["No clear signal", null];
-      }
-
-      function flattenPredictions(data) {
-        const p = data.predictions || {};
-        return [
-          ["Gender presentation", p.gender],
-          ["Age estimate", p.age_estimate || p.age_bucket],
-          ["Energy", p.mbti_dimensions?.energy],
-          ["Information", p.mbti_dimensions?.information],
-          ["Decisions", p.mbti_dimensions?.decisions],
-          ["Structure", p.mbti_dimensions?.structure],
-        ].filter(([, value]) => value);
-      }
-
-      function renderBars(prediction) {
+      function renderBars(prediction, context = "") {
         const alternatives = prediction?.alternatives || [];
-        if (!alternatives.length) return "";
+        if (!alternatives.length) return `<p class="detail-copy">No probability distribution is available for this model output.</p>`;
         return `
-          <div class="bars" aria-label="Probability distribution">
+          <p class="bar-explainer">Bars compare labels inside this classifier. They are not probabilities that a personal trait is true.</p>
+          <div class="bars" aria-label="Model label distribution">
             ${alternatives.map((item, index) => {
               const probability = Number(item.probability || 0);
-              const label = escapeHtml(item.label);
+              const label = escapeHtml(context === "sensitive" ? displayLabel(item, "sensitive") : item.label);
               return `
                 <div class="bar-row ${index === 0 ? "is-top" : ""}" title="${label}: ${percent(probability)}">
                   <div class="bar-name">${label}</div>
@@ -968,17 +1358,27 @@
       function cueTerms(prediction) {
         const terms = prediction?.cue_terms || [];
         if (!terms.length) return "";
-        return `<p class="detail-copy">Terms the model leaned on: ${terms.map(item => escapeHtml(item.term)).join(", ")}.</p>`;
+        return `<p class="detail-copy"><strong>Why did I get this?</strong> The model leaned on terms such as ${terms.map(item => escapeHtml(item.term)).join(", ")}.</p>`;
       }
 
-      function predictionCard(title, prediction, copy) {
+      function uncertaintyCopy(text) {
+        return `<p class="detail-copy"><strong>This may be wrong because</strong> ${escapeHtml(text)}</p>`;
+      }
+
+      function predictionCard(title, prediction, copy, options = {}) {
+        if (!prediction) {
+          return `<article class="notice-card"><strong>${escapeHtml(title)} unavailable.</strong> This model did not return enough data for this section.</article>`;
+        }
+        const context = options.context || "";
+        const value = options.value || displayLabel(prediction, context);
         return `
           <article class="detail-card">
             <div class="label">${escapeHtml(title)}</div>
-            <div class="detail-value">${escapeHtml(prediction?.label || "Unavailable")}</div>
-            <span class="confidence-chip ${confidenceClass(prediction)}">${escapeHtml(confidenceText(prediction))}</span>
+            <div class="detail-value">${escapeHtml(value)}</div>
+            <span class="separation-chip ${separationClass(prediction)}">${escapeHtml(separationText(prediction))}</span>
             <p class="detail-copy">${escapeHtml(copy)}</p>
-            ${renderBars(prediction)}
+            ${uncertaintyCopy(options.wrongBecause || "topic, genre, copied phrasing, or training-data bias can look like a personal signal.")}
+            ${renderBars(prediction, context)}
             ${cueTerms(prediction)}
           </article>
         `;
@@ -989,7 +1389,7 @@
         return `
           <div class="dimension">
             <div class="dimension-head"><span>${escapeHtml(title)}</span><strong>${letter}</strong></div>
-            <span class="confidence-chip ${confidenceClass(prediction)}">${escapeHtml(confidenceText(prediction))}</span>
+            <span class="separation-chip ${separationClass(prediction)}">${escapeHtml(separationText(prediction))}</span>
             ${renderBars(prediction)}
           </div>
         `;
@@ -997,17 +1397,18 @@
 
       function renderPersonality(data) {
         const dims = data.predictions.mbti_dimensions;
-        if (!dims) return `<div class="notice-card">Personality-related dimensions are unavailable for this model.</div>`;
+        if (!dims) return `<div class="notice-card">Personality-related pattern labels are unavailable for this model.</div>`;
         return `
           <article class="detail-card wide mbti-card">
-            <div class="label">Personality-related pattern</div>
+            <div class="label">Personality-style label</div>
             <div class="mbti-code">${escapeHtml(mbtiCode(dims))}</div>
-            <p class="detail-copy">This is built from four separate dimension classifiers. It is best read as a language-pattern summary, not as a personality test result.</p>
+            <p class="detail-copy"><strong>Why did I get this?</strong> The code is assembled from four separate text classifiers, so it is a language-pattern label rather than a personality test result.</p>
+            ${uncertaintyCopy("a short sample, work context, community phrasing, or copied text can shift the four dimension classifiers.")}
             <div class="dimension-grid">
-              ${dimension("Energy", dims.energy, {extraverted: "E", introverted: "I"})}
-              ${dimension("Information", dims.information, {sensing: "S", intuitive: "N"})}
-              ${dimension("Decisions", dims.decisions, {thinking: "T", feeling: "F"})}
-              ${dimension("Structure", dims.structure, {judging: "J", perceiving: "P"})}
+              ${dimension("Energy pattern", dims.energy, {extraverted: "E", introverted: "I"})}
+              ${dimension("Information pattern", dims.information, {sensing: "S", intuitive: "N"})}
+              ${dimension("Decision pattern", dims.decisions, {thinking: "T", feeling: "F"})}
+              ${dimension("Structure pattern", dims.structure, {judging: "J", perceiving: "P"})}
             </div>
           </article>
         `;
@@ -1018,12 +1419,13 @@
         const quality = data.predictions.input_quality || {warnings: []};
         return `
           <div class="style-grid">
-            <div class="quick-card"><div class="label">Words</div><div class="quick-value">${stats.words || 0}</div><div class="quick-note">Longer samples tend to be more stable.</div></div>
-            <div class="quick-card"><div class="label">Reading</div><div class="quick-value">${escapeHtml(stats.reading_level || "Unknown")}</div><div class="quick-note">Approximate density of the writing.</div></div>
+            <div class="quick-card"><div class="label">Words</div><div class="quick-value">${stats.words || 0}</div><div class="quick-note">More context usually improves stability.</div></div>
+            <div class="quick-card"><div class="label">Reading density</div><div class="quick-value">${escapeHtml(stats.reading_level || "Unknown")}</div><div class="quick-note">Approximate text density, not quality.</div></div>
             <div class="quick-card"><div class="label">Characters</div><div class="quick-value">${stats.characters || 0}</div><div class="quick-note">Total submitted text length.</div></div>
-            <div class="quick-card"><div class="label">Punctuation</div><div class="quick-value">${percent(stats.punctuation_density || 0)}</div><div class="quick-note">A rough style cue, not a quality score.</div></div>
+            <div class="quick-card"><div class="label">Punctuation</div><div class="quick-value">${percent(stats.punctuation_density || 0)}</div><div class="quick-note">A style cue, not a score.</div></div>
           </div>
           ${quality.warnings?.length ? `<div class="notice-card warning-card"><strong>Input caution:</strong> ${quality.warnings.map(escapeHtml).join(" ")}</div>` : `<div class="notice-card"><strong>Input quality:</strong> This sample is usable for a first pass. Results can still be wrong or misleading.</div>`}
+          <div class="notice-card"><strong>Private or third-party text:</strong> remove personal details and analyze only text you have permission to use.</div>
         `;
       }
 
@@ -1031,39 +1433,85 @@
         const rows = flattenPredictions(data)
           .filter(([, prediction]) => prediction?.alternatives?.length)
           .map(([name, prediction]) => `
-            <div class="bar-row" title="${escapeHtml(name)}: ${signalLabel(prediction)}">
+            <div class="bar-row" title="${escapeHtml(name)}: ${modelSeparation(prediction)} model separation">
               <div class="bar-name">${escapeHtml(name)}</div>
               <div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width: ${Math.max(signalScore(prediction) * 100, 4)}%"></div></div>
-              <div class="bar-percent">${signalLabel(prediction)}</div>
+              <div class="bar-percent">${escapeHtml(modelSeparation(prediction))}</div>
             </div>
           `).join("");
         return `
           <article class="notice-card">
-            <strong>Model confidence is not certainty.</strong> A high bar means the winning label separated from alternatives in this model, not that the label is true.
-            <div class="bars">${rows}</div>
+            <strong>Model separation is not truth confidence.</strong> A high bar means the winning model label separated from alternatives in this classifier. It does not mean the label is true about a person.
+            <div class="bars">${rows || `<div class="notice-card">No model-separation rows are available for this result.</div>`}</div>
           </article>
           <ul class="limitations">
             <li>Text can carry signals from topic, community, genre, or copied phrasing rather than from the person writing it.</li>
-            <li>The model may reflect bias or gaps in the training data. Sensitive predictions should be treated with extra caution.</li>
+            <li>The model may reflect bias, label noise, and gaps in the training data.</li>
             <li>Do not use this for decisions about real people, including hiring, admissions, eligibility, policing, finance, housing, or medical contexts.</li>
           </ul>
         `;
       }
 
-      function setActiveTab(tabName) {
-        document.querySelectorAll("[data-tab]").forEach(button => {
-          button.setAttribute("aria-selected", String(button.dataset.tab === tabName));
+      function renderSensitiveData(data) {
+        const p = data.predictions;
+        return `
+          <div class="notice-card warning-card">
+            <strong>Optional sensitive data-label output.</strong> This section is collapsed because demographic-like labels are easy to overread. Inspect it only as model/data behavior.
+          </div>
+          <details class="sensitive-details">
+            <summary>Show optional sensitive data-label output</summary>
+            <div class="detail-grid" style="margin-top: 12px;">
+              ${predictionCard("Dataset label association", p.gender, "This is a trained data label association, not an identity prediction.", {context: "sensitive", wrongBecause: "training labels can be coarse, biased, context-dependent, or unrelated to the writer."})}
+              <article class="detail-card">
+                <div class="label">Age-range association</div>
+                <div class="detail-value">${escapeHtml(ageRangeLabel(p.age_estimate || p.age_bucket))}</div>
+                <p class="detail-copy"><strong>Why did I get this?</strong> The model found language patterns associated with an age range in its training data.</p>
+                ${uncertaintyCopy("age signals can come from topic, platform, genre, or copied phrasing rather than the writer.")}
+              </article>
+            </div>
+          </details>
+        `;
+      }
+
+      function setActiveTab(tabName, focusTab = false) {
+        resultsEl.querySelectorAll("[role='tab']").forEach(button => {
+          const selected = button.dataset.tab === tabName;
+          button.setAttribute("aria-selected", String(selected));
+          button.tabIndex = selected ? 0 : -1;
+          if (selected && focusTab) button.focus();
         });
-        document.querySelectorAll("[data-section]").forEach(section => {
-          section.classList.toggle("is-active", section.dataset.section === tabName);
+        resultsEl.querySelectorAll("[role='tabpanel']").forEach(section => {
+          section.hidden = section.dataset.section !== tabName;
         });
+      }
+
+      function handleTabKeys(event) {
+        const tabs = Array.from(resultsEl.querySelectorAll("[role='tab']"));
+        const currentIndex = tabs.indexOf(event.currentTarget);
+        if (currentIndex < 0) return;
+        let nextIndex = currentIndex;
+        if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
+        if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+        if (event.key === "Home") nextIndex = 0;
+        if (event.key === "End") nextIndex = tabs.length - 1;
+        if (nextIndex !== currentIndex || ["Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          setActiveTab(tabs[nextIndex].dataset.tab, true);
+        }
+      }
+
+      function summaryText(data) {
+        const p = data.predictions;
+        const stats = p.text_stats || localStats(textEl.value);
+        const [name, prediction] = signalSummary(data);
+        return `TextTraits model reading: ${stats.words || 0} words, ${stats.reading_level || "unknown"} reading density, strongest non-sensitive classifier movement is ${name} with ${modelSeparation(prediction)} model separation. Treat all labels as model/data behavior, not facts.`;
       }
 
       function renderReport(data) {
         const p = data.predictions;
-        const dims = p.mbti_dimensions;
-        const code = mbtiCode(dims);
-        const [strongName, strongPrediction] = strongestSignal(data);
+        const stats = p.text_stats || localStats(textEl.value);
+        const [strongName, strongPrediction] = signalSummary(data);
+        const quality = p.input_quality || {level: "unknown", warnings: []};
         const demoBanner = data.demo || p.demo_notice
           ? `<div class="notice-card demo-banner"><strong>Demo mode:</strong> ${escapeHtml(p.demo_notice || "These are mock predictions because the trained model is unavailable.")}</div>`
           : "";
@@ -1071,65 +1519,91 @@
         resultsEl.innerHTML = `
           <div class="report-header">
             <div>
-              <div class="label">Analysis summary</div>
-              <div class="summary-title">${escapeHtml(code)}-style text pattern; estimated age ${escapeHtml(p.age_estimate?.label || p.age_bucket?.label || "unclear")}</div>
-              <p class="summary-copy">The strongest signal in this sample is associated with <strong>${escapeHtml(strongName)}</strong>${strongPrediction ? ` (${signalLabel(strongPrediction)} confidence)` : ""}. This does not identify the writer; it describes patterns the model detected in the text.</p>
+              <div class="label">Model reading</div>
+              <h2 id="result-heading" class="summary-title">Pattern summary for ${stats.words || 0} words</h2>
+              <p class="summary-copy">Start with writing style and model limits. The strongest non-sensitive classifier movement is <strong>${escapeHtml(strongName)}</strong>${strongPrediction ? ` with ${escapeHtml(modelSeparation(strongPrediction))} model separation` : ""}. Labels are model/data associations, not facts about the writer.</p>
             </div>
-            <span class="confidence-chip ${data.demo ? "demo" : confidenceClass(strongPrediction)}">${data.demo ? "Mock output" : escapeHtml(signalLabel(strongPrediction))}</span>
+            <span class="separation-chip ${data.demo ? "demo" : separationClass(strongPrediction)}">${data.demo ? "Mock output" : escapeHtml(modelSeparation(strongPrediction))}</span>
           </div>
           ${demoBanner}
-          <div class="quick-grid">
-            <div class="quick-card"><div class="label">Gender-related signal</div><div class="quick-value">${escapeHtml(p.gender?.label || "Unavailable")}</div><div class="quick-note">Model-detected language association, not identity.</div></div>
-            <div class="quick-card"><div class="label">Estimated age</div><div class="quick-value">${escapeHtml(p.age_estimate?.label || p.age_bucket?.label || "Unavailable")}</div><div class="quick-note">Shown as one estimate to avoid conflicting bucket labels.</div></div>
-            <div class="quick-card"><div class="label">Personality pattern</div><div class="quick-value">${escapeHtml(code)}</div><div class="quick-note">Composed from four separate text classifiers.</div></div>
+          <article class="reading-card">
+            <strong>How to read this</strong>
+            <ul>
+              <li>Model separation compares labels inside a classifier; it is not certainty.</li>
+              <li>Short, copied, private, or topic-heavy text can distort outputs.</li>
+              <li>Sensitive data-label outputs are collapsed and should stay low-stakes.</li>
+            </ul>
+          </article>
+          <div class="result-actions" aria-label="Result actions">
+            <button type="button" class="button-secondary" data-action="another">Analyze another sample</button>
+            <button type="button" class="button-secondary" data-action="print">Print reading</button>
+            <button type="button" class="button-secondary" data-action="copy">Copy summary</button>
           </div>
-          <nav class="section-tabs" aria-label="Report sections">
-            <button type="button" data-tab="signals" aria-selected="true">Likely signals</button>
-            <button type="button" data-tab="personality" aria-selected="false">Personality</button>
-            <button type="button" data-tab="style" aria-selected="false">Writing style</button>
-            <button type="button" data-tab="limits" aria-selected="false">Confidence and limits</button>
+          <div class="quick-grid">
+            <div class="quick-card"><div class="label">Input quality</div><div class="quick-value">${escapeHtml(sentenceCase(quality.level || "unknown"))}</div><div class="quick-note">${quality.warnings?.length ? "Warnings found before analysis." : "Usable for a first pass."}</div></div>
+            <div class="quick-card"><div class="label">Words</div><div class="quick-value">${stats.words || 0}</div><div class="quick-note">Longer samples tend to be more stable.</div></div>
+            <div class="quick-card"><div class="label">Reading density</div><div class="quick-value">${escapeHtml(stats.reading_level || "Unknown")}</div><div class="quick-note">A style cue, not a quality score.</div></div>
+            <div class="quick-card"><div class="label">Strongest movement</div><div class="quick-value">${escapeHtml(modelSeparation(strongPrediction))}</div><div class="quick-note">Model separation, not truth confidence.</div></div>
+          </div>
+          <nav class="section-tabs" role="tablist" aria-label="Model reading sections">
+            <button type="button" role="tab" id="tab-limits" data-tab="limits" aria-controls="panel-limits" aria-selected="true">Model limits</button>
+            <button type="button" role="tab" id="tab-style" data-tab="style" aria-controls="panel-style" aria-selected="false" tabindex="-1">Writing signals</button>
+            <button type="button" role="tab" id="tab-patterns" data-tab="patterns" aria-controls="panel-patterns" aria-selected="false" tabindex="-1">Pattern labels</button>
+            <button type="button" role="tab" id="tab-data" data-tab="data" aria-controls="panel-data" aria-selected="false" tabindex="-1">Data-label output</button>
           </nav>
-          <section class="result-section is-active" data-section="signals">
-            <div class="detail-grid">
-              ${predictionCard("Demographic or identity-related prediction", p.gender, "The model detects text patterns associated with this label. It may be wrong, especially when probabilities are close.")}
-              <article class="detail-card">
-                <div class="label">Age-related estimate</div>
-                <div class="detail-value">${escapeHtml(p.age_estimate?.label || p.age_bucket?.label || "Unavailable")}</div>
-                <p class="detail-copy">Age is shown as a single public-facing estimate because simultaneous bucket and numeric outputs can be confusing.</p>
-              </article>
-            </div>
-          </section>
-          <section class="result-section" data-section="personality">
-            <div class="detail-grid">${renderPersonality(data)}</div>
-          </section>
-          <section class="result-section" data-section="style">
-            ${renderStyle(data)}
-          </section>
-          <section class="result-section" data-section="limits">
+          <section class="result-section" role="tabpanel" id="panel-limits" aria-labelledby="tab-limits" data-section="limits">
             ${renderLimits(data)}
           </section>
-          <details class="public-details">
+          <section class="result-section" role="tabpanel" id="panel-style" aria-labelledby="tab-style" data-section="style" hidden>
+            ${renderStyle(data)}
+          </section>
+          <section class="result-section" role="tabpanel" id="panel-patterns" aria-labelledby="tab-patterns" data-section="patterns" hidden>
+            <div class="detail-grid">${renderPersonality(data)}</div>
+          </section>
+          <section class="result-section" role="tabpanel" id="panel-data" aria-labelledby="tab-data" data-section="data" hidden>
+            ${renderSensitiveData(data)}
+          </section>
+          <details class="public-details" open>
             <summary>What should I take from this?</summary>
-            <p class="detail-copy">Use the report as a way to learn how text can leak signals. If a result feels surprising, that is a prompt to inspect the language and the model limitations, not proof that the model discovered something true.</p>
+            <p class="detail-copy">Use the reading to learn how classifiers react to language. If a result feels surprising, inspect the text, the bars, and the limitations rather than treating the label as a discovery.</p>
           </details>
         `;
 
-        resultsEl.querySelectorAll("[data-tab]").forEach(button => {
+        resultsEl.querySelectorAll("[role='tab']").forEach(button => {
           button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+          button.addEventListener("keydown", handleTabKeys);
+        });
+        resultsEl.querySelector("[data-action='another']").addEventListener("click", prepareAnotherSample);
+        resultsEl.querySelector("[data-action='print']").addEventListener("click", () => window.print());
+        resultsEl.querySelector("[data-action='copy']").addEventListener("click", async () => {
+          await navigator.clipboard.writeText(summaryText(data));
+          announcerEl.textContent = "Summary copied.";
         });
       }
 
-      async function evaluate() {
-        const text = textEl.value.trim();
+      async function evaluate(overrideText = null) {
+        const text = (overrideText ?? textEl.value).trim();
         if (!text) {
           errorCopyEl.textContent = "Paste a writing sample before analyzing.";
+          retryAnalysisEl.hidden = true;
           showState("error");
+          announcerEl.textContent = "Paste a writing sample before analyzing.";
+          return;
+        }
+        if (!responsibleEl.checked) {
+          errorCopyEl.textContent = "Confirm responsible use before analyzing.";
+          retryAnalysisEl.hidden = true;
+          showState("error");
+          announcerEl.textContent = "Confirm responsible use before analyzing.";
           return;
         }
 
         evaluateEl.disabled = true;
+        evaluateEl.classList.add("is-loading");
         evaluateEl.textContent = "Analyzing...";
+        retryText = text;
         showState("loading");
+        announcerEl.textContent = "Analysis started.";
 
         try {
           const response = await fetch("/evaluate", {
@@ -1140,42 +1614,74 @@
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "The analysis failed.");
           latestData = data;
+          latestText = text;
           renderReport(data);
           showState("results");
+          actionNoteEl.textContent = "Model reading updated.";
+          announcerEl.textContent = "Model reading complete.";
+          requestAnimationFrame(() => resultsEl.focus());
           if (responseDebugEl) responseDebugEl.textContent = JSON.stringify(data, null, 2);
           if (copyJsonEl) copyJsonEl.disabled = false;
           if (downloadJsonEl) downloadJsonEl.disabled = false;
         } catch (error) {
-          errorCopyEl.textContent = error.message;
+          errorCopyEl.textContent = `${error.message} Check that the local Flask server is running, then retry.`;
+          retryAnalysisEl.hidden = false;
           showState("error");
+          announcerEl.textContent = "Analysis failed. Retry is available.";
         } finally {
-          evaluateEl.disabled = false;
+          evaluateEl.classList.remove("is-loading");
           evaluateEl.textContent = "Analyze text";
+          updateActionState();
         }
       }
 
-      function reset() {
+      function reset(message = "Text and model reading cleared.") {
         textEl.value = "";
         samplesEl.value = "";
+        sampleMetaEl.textContent = "Sample categories appear after choosing an example.";
         latestData = null;
+        latestText = "";
+        retryText = "";
+        retryAnalysisEl.hidden = true;
         updateLiveStats();
         showState("empty");
+        actionNoteEl.textContent = message;
+        announcerEl.textContent = message;
         if (responseDebugEl) responseDebugEl.textContent = "{}";
         if (copyJsonEl) copyJsonEl.disabled = true;
         if (downloadJsonEl) downloadJsonEl.disabled = true;
         textEl.focus();
       }
 
+      function prepareAnotherSample() {
+        reset("Ready for another sample.");
+      }
+
       samplesEl.addEventListener("change", () => {
-        if (!samplesEl.value) return;
+        if (!samplesEl.value) {
+          sampleMetaEl.textContent = "Sample categories appear after choosing an example.";
+          return;
+        }
+        const selected = samplesEl.options[samplesEl.selectedIndex];
         textEl.value = samplesEl.value;
+        sampleMetaEl.innerHTML = `<strong>Sample category:</strong> ${escapeHtml(selected.dataset.category || "sample")}. Example text is over 40 words for a steadier first pass.`;
+        clearTransientError();
         updateLiveStats();
       });
-      textEl.addEventListener("input", updateLiveStats);
-      evaluateEl.addEventListener("click", evaluate);
-      resetEl.addEventListener("click", reset);
+
+      textEl.addEventListener("input", () => {
+        clearTransientError();
+        updateLiveStats();
+      });
+      responsibleEl.addEventListener("change", () => {
+        clearTransientError();
+        updateActionState();
+      });
+      evaluateEl.addEventListener("click", () => evaluate());
+      resetEl.addEventListener("click", () => reset());
+      retryAnalysisEl.addEventListener("click", () => evaluate(retryText));
       textEl.addEventListener("keydown", event => {
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") evaluate();
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !evaluateEl.disabled) evaluate();
       });
 
       if (copyJsonEl) {
@@ -1195,6 +1701,12 @@
           link.click();
           URL.revokeObjectURL(link.href);
         });
+      }
+
+      if (["127.0.0.1", "localhost", "::1"].includes(window.location.hostname)) {
+        privacyRouteEl.textContent = "Local run:";
+      } else {
+        privacyRouteEl.textContent = "Deployment note:";
       }
 
       updateLiveStats();
