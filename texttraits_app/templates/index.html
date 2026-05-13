@@ -8,20 +8,20 @@
       :root {
         color-scheme: light;
         --ink: #171717;
-        --muted: #666;
+        --muted: #626262;
         --line: #d8d8d8;
         --accent: #0f766e;
         --accent-dark: #115e59;
         --accent-soft: #cde8e3;
         --warm: #9a5b13;
         --warm-soft: #f4dfbd;
+        --risk: #9f1239;
+        --risk-soft: #ffe4e6;
         --bg: #f7f7f4;
         --panel: #fff;
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       body {
         margin: 0;
@@ -31,8 +31,8 @@
       }
 
       main {
-        width: min(860px, calc(100% - 32px));
-        margin: 48px auto;
+        width: min(1120px, calc(100% - 32px));
+        margin: 38px auto;
       }
 
       h1 {
@@ -42,27 +42,38 @@
       }
 
       p {
-        margin: 0 0 22px;
+        margin: 0 0 20px;
         color: var(--muted);
         line-height: 1.45;
       }
 
-      textarea {
+      textarea, select {
         display: block;
         width: 100%;
-        min-height: 220px;
-        resize: vertical;
-        padding: 16px;
         border: 1px solid var(--line);
         border-radius: 6px;
         background: var(--panel);
         color: var(--ink);
+      }
+
+      textarea {
+        min-height: 236px;
+        resize: vertical;
+        padding: 16px;
         font: 16px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
       }
 
+      .compare-textarea {
+        min-height: 176px;
+      }
+
+      select {
+        padding: 10px 12px;
+        font: 15px/1.2 Georgia, "Times New Roman", serif;
+      }
+
       button {
-        margin-top: 14px;
-        padding: 11px 18px;
+        padding: 11px 16px;
         border: 0;
         border-radius: 6px;
         background: var(--accent);
@@ -71,13 +82,169 @@
         cursor: pointer;
       }
 
-      button:hover {
-        background: var(--accent-dark);
+      button:hover { background: var(--accent-dark); }
+      button:disabled { opacity: 0.65; cursor: wait; }
+
+      .secondary {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--ink);
       }
 
-      button:disabled {
-        opacity: 0.65;
-        cursor: wait;
+      .secondary:hover { background: #eeeae2; }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+        gap: 26px;
+        align-items: start;
+      }
+
+      .toolbar, .target-toggles, .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .toolbar { margin: 12px 0; }
+      .actions { margin-top: 14px; }
+
+      .intro-panel {
+        margin: 14px 0;
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .intro-panel p {
+        margin: 0;
+      }
+
+      .target-toggles {
+        margin: 14px 0 2px;
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      label.toggle {
+        display: inline-flex;
+        gap: 7px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .compare-panel, .guided-panel {
+        margin-top: 16px;
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+
+      .compare-panel[hidden], .guided-panel[hidden] {
+        display: none;
+      }
+
+      .compare-grid, .comparison-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .compare-column {
+        min-width: 0;
+      }
+
+      .compare-column h2 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .guided-steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .guided-step {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 9px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .guided-step.is-active {
+        border-color: var(--accent);
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .small-panel {
+        padding: 15px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .small-panel h2, details summary {
+        margin: 0 0 10px;
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .meta-grid, .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .model-list, .history-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .model-row, .history-button {
+        display: grid;
+        grid-template-columns: 88px 1fr;
+        gap: 10px;
+        align-items: start;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .model-row strong {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .history-button {
+        width: 100%;
+        grid-template-columns: auto 1fr;
+        text-align: left;
+        color: var(--ink);
+      }
+
+      .metric {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px;
+        background: var(--panel);
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .metric-value {
+        margin-top: 3px;
+        font-size: 17px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
       }
 
       #results {
@@ -102,10 +269,27 @@
         font-weight: 700;
       }
 
-      .subvalue {
-        margin-top: 4px;
+      .subvalue, .note, .warning-list, .history-item {
+        margin-top: 6px;
         color: var(--muted);
         font-size: 14px;
+        line-height: 1.4;
+      }
+
+      .confidence {
+        display: inline-flex;
+        margin-top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent-dark);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .confidence.low {
+        background: var(--risk-soft);
+        color: var(--risk);
       }
 
       .bars {
@@ -122,8 +306,7 @@
         position: relative;
       }
 
-      .bar-name,
-      .bar-percent {
+      .bar-name, .bar-percent {
         font-size: 14px;
         color: var(--muted);
       }
@@ -154,32 +337,7 @@
         font-weight: 700;
       }
 
-      .bar-row.is-top .bar-fill {
-        background: var(--accent);
-      }
-
-      .bar-row::after {
-        content: attr(data-tooltip);
-        position: absolute;
-        left: 156px;
-        bottom: calc(100% + 6px);
-        z-index: 2;
-        display: none;
-        width: max-content;
-        max-width: min(280px, calc(100vw - 48px));
-        padding: 7px 9px;
-        border: 1px solid var(--line);
-        border-radius: 5px;
-        background: var(--panel);
-        color: var(--ink);
-        box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
-        font: 13px/1.3 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-      }
-
-      .bar-row:hover::after,
-      .bar-row:focus-within::after {
-        display: block;
-      }
+      .bar-row.is-top .bar-fill { background: var(--accent); }
 
       .mbti-code {
         margin-top: 6px;
@@ -195,9 +353,7 @@
         margin-top: 14px;
       }
 
-      .dimension {
-        min-width: 0;
-      }
+      .dimension { min-width: 0; }
 
       .dimension-title {
         display: flex;
@@ -207,63 +363,266 @@
         font-size: 14px;
       }
 
-      .dimension-title strong {
-        color: var(--ink);
+      .dimension-title strong { color: var(--ink); }
+      .dimension .bar-fill { background: var(--warm-soft); }
+      .dimension .bar-row.is-top .bar-fill { background: var(--warm); }
+
+      .risk-meter {
+        margin-top: 8px;
+        display: grid;
+        grid-template-columns: 92px 1fr 72px;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+        color: var(--muted);
       }
 
-      .dimension .bar-fill {
-        background: var(--warm-soft);
+      .risk-fill {
+        height: 9px;
+        border-radius: 999px;
+        background: var(--risk);
       }
 
-      .dimension .bar-row.is-top .bar-fill {
-        background: var(--warm);
-      }
-
-      .error {
-        color: #9f1239;
+      .delta {
+        color: var(--accent-dark);
+        font-size: 13px;
         font-weight: 700;
       }
 
+      .delta.is-negative {
+        color: var(--risk);
+      }
+
+      .comparison-card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 12px;
+        background: var(--panel);
+      }
+
+      .comparison-card h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .debug-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr);
+        gap: 16px;
+      }
+
+      .ready {
+        color: var(--accent-dark);
+        font-weight: 700;
+      }
+
+      .error, .warning {
+        color: var(--risk);
+        font-weight: 700;
+      }
+
+      details {
+        margin-top: 16px;
+        border-top: 1px solid var(--line);
+        padding-top: 14px;
+      }
+
+      pre {
+        overflow: auto;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      }
+
+      @media (max-width: 840px) {
+        .layout { grid-template-columns: 1fr; }
+        .debug-grid { grid-template-columns: 1fr; }
+        .compare-grid, .comparison-grid, .guided-steps { grid-template-columns: 1fr; }
+      }
+
       @media (max-width: 640px) {
-        main {
-          margin: 28px auto;
-        }
-
-        .bar-row {
-          grid-template-columns: minmax(82px, 112px) 1fr 44px;
-          gap: 8px;
-        }
-
-        .bar-row::after {
-          left: 0;
-        }
-
-        .dimension-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .mbti-code {
-          font-size: 34px;
-        }
+        main { margin: 28px auto; }
+        .bar-row { grid-template-columns: minmax(82px, 112px) 1fr 44px; gap: 8px; }
+        .dimension-grid, .meta-grid, .stats-grid { grid-template-columns: 1fr; }
+        .mbti-code { font-size: 34px; }
       }
     </style>
   </head>
   <body>
     <main>
       <h1>TextTraits</h1>
-      <p>Enter a sample of writing and evaluate it with the local text classifiers trained from the included project data.</p>
-      <textarea id="text" autofocus placeholder="Paste or type text here..."></textarea>
-      <button id="evaluate">Evaluate</button>
-      <section id="results" aria-live="polite"></section>
+      <p>Evaluate statistical writing signals with the local text classifiers. Results are associations learned from training data, not facts about the author.</p>
+
+      <div class="layout">
+        <section>
+          <div class="intro-panel">
+            <p>Start with a sample or paste at least a few sentences. TextTraits will show probability margins, confidence labels, privacy leakage, and cue terms when the model can explain them.</p>
+          </div>
+          <div class="toolbar">
+            <select id="samples" aria-label="Sample texts">
+              <option value="">Choose sample text...</option>
+            </select>
+            <select id="model" aria-label="Model">
+              {% for model in available_models %}
+                {% if model.available %}
+                  <option value="{{ model.id }}">{{ model.name }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+            <button id="guided" class="secondary" type="button">Guided demo</button>
+          </div>
+          <textarea id="text" autofocus placeholder="Paste or type text here..."></textarea>
+
+          <div class="target-toggles" aria-label="Targets">
+            <label class="toggle"><input type="checkbox" value="gender" checked> Gender</label>
+            <label class="toggle"><input type="checkbox" value="age" checked> Age</label>
+            <label class="toggle"><input type="checkbox" value="mbti" checked> MBTI dimensions</label>
+          </div>
+
+          <div class="actions">
+            <button id="evaluate" type="button">Evaluate</button>
+            <button id="compare" class="secondary" type="button">Compare texts</button>
+            <button id="copy" class="secondary" type="button" disabled>Copy summary</button>
+            <button id="download" class="secondary" type="button" disabled>Download JSON</button>
+          </div>
+
+          <section id="compare-panel" class="compare-panel" hidden>
+            <div class="compare-grid">
+              <div class="compare-column">
+                <h2>Original</h2>
+                <textarea id="compare-a" class="compare-textarea" placeholder="Original text..."></textarea>
+              </div>
+              <div class="compare-column">
+                <h2>Edited</h2>
+                <textarea id="compare-b" class="compare-textarea" placeholder="Edited text..."></textarea>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="evaluate-pair" type="button">Evaluate both</button>
+              <button id="use-main-as-original" class="secondary" type="button">Use main text</button>
+            </div>
+          </section>
+
+          <section id="guided-panel" class="guided-panel" hidden>
+            <div class="label">Guided demo</div>
+            <div id="guided-copy" class="note"></div>
+            <div class="guided-steps">
+              <div class="guided-step" data-step="0">Sample</div>
+              <div class="guided-step" data-step="1">Evaluate</div>
+              <div class="guided-step" data-step="2">Edit</div>
+              <div class="guided-step" data-step="3">Compare</div>
+            </div>
+            <div class="actions">
+              <button id="guided-next" type="button">Next step</button>
+              <button id="guided-reset" class="secondary" type="button">Reset demo</button>
+            </div>
+          </section>
+
+          <section id="results" aria-live="polite"></section>
+        </section>
+
+        <aside>
+          <section class="small-panel">
+            <h2>Model status</h2>
+            <div class="meta-grid">
+              <div class="metric">
+                <div class="metric-label">Bundle</div>
+                <div class="metric-value">{{ model_info.bundle_format }}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Targets</div>
+                <div class="metric-value">{{ model_info.model_count }}</div>
+              </div>
+            </div>
+            <div id="model-details" class="model-list"></div>
+            <div id="run-status" class="note">Model is ready. Paste text or choose a sample.</div>
+          </section>
+
+          <section class="small-panel">
+            <h2>Text stats</h2>
+            <div id="stats" class="stats-grid">
+              <div class="metric"><div class="metric-label">Words</div><div class="metric-value">0</div></div>
+              <div class="metric"><div class="metric-label">Characters</div><div class="metric-value">0</div></div>
+            </div>
+            <div id="quality" class="warning-list"></div>
+          </section>
+
+          <section class="small-panel">
+            <h2>History</h2>
+            <div id="history" class="note">No evaluations yet.</div>
+          </section>
+        </aside>
+      </div>
+
+      <details>
+        <summary>Advanced/debug view</summary>
+        <div class="debug-grid">
+          <div>
+            <h2>Metrics</h2>
+            <pre id="metrics-debug">{}</pre>
+          </div>
+          <div>
+            <h2>Latest response</h2>
+            <pre id="debug">{}</pre>
+          </div>
+        </div>
+      </details>
     </main>
 
     <script>
       const textEl = document.querySelector("#text");
       const buttonEl = document.querySelector("#evaluate");
+      const compareEl = document.querySelector("#compare");
+      const comparePanelEl = document.querySelector("#compare-panel");
+      const compareAEl = document.querySelector("#compare-a");
+      const compareBEl = document.querySelector("#compare-b");
+      const evaluatePairEl = document.querySelector("#evaluate-pair");
+      const useMainAsOriginalEl = document.querySelector("#use-main-as-original");
+      const copyEl = document.querySelector("#copy");
+      const downloadEl = document.querySelector("#download");
+      const modelEl = document.querySelector("#model");
       const resultsEl = document.querySelector("#results");
+      const samplesEl = document.querySelector("#samples");
+      const statsEl = document.querySelector("#stats");
+      const qualityEl = document.querySelector("#quality");
+      const historyEl = document.querySelector("#history");
+      const debugEl = document.querySelector("#debug");
+      const metricsDebugEl = document.querySelector("#metrics-debug");
+      const modelDetailsEl = document.querySelector("#model-details");
+      const runStatusEl = document.querySelector("#run-status");
+      const guidedEl = document.querySelector("#guided");
+      const guidedPanelEl = document.querySelector("#guided-panel");
+      const guidedCopyEl = document.querySelector("#guided-copy");
+      const guidedNextEl = document.querySelector("#guided-next");
+      const guidedResetEl = document.querySelector("#guided-reset");
+      const metrics = {{ metrics|tojson }};
+      const modelInfo = {{ model_info|tojson }};
+      const availableModels = {{ available_models|tojson }};
+      let latestData = null;
+      let previousData = null;
+      let latestComparison = null;
+      let guidedStep = 0;
+      let history = [];
+
+      const samples = [
+        ["Reddit comment", "I keep seeing people argue past each other on this. My read is that the policy sounds simple until you ask who actually has to enforce it and what happens when the edge cases show up."],
+        ["Professional email", "Thanks for sending the deck. I reviewed the numbers and left notes on the assumptions tab. The main issue is timing: we need a clearer launch window before finance can approve the forecast."],
+        ["Casual text", "Honestly I was going to stay in tonight, but if everyone is meeting after dinner I can probably swing by for a bit. Just text me where you end up."],
+        ["Political comment", "The proposal is being sold as practical, but it shifts costs to people who have the least room to absorb them. Any serious version needs enforcement, funding, and public reporting."],
+      ];
+
+      for (const [name, value] of samples) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = name;
+        samplesEl.append(option);
+      }
 
       function percent(value) {
-        return `${Math.round(value * 100)}%`;
+        return `${Math.round(Number(value || 0) * 100)}%`;
       }
 
       function escapeHtml(value) {
@@ -275,23 +634,61 @@
           .replaceAll("'", "&#039;");
       }
 
+      function selectedTargets() {
+        return new Set([...document.querySelectorAll(".target-toggles input:checked")].map(item => item.value));
+      }
+
+      function metricFor(name) {
+        const metricKey = name.replace(" ", "_");
+        const item = metrics[name] || metrics[metricKey] || metrics[`val_${metricKey}`] || {};
+        const value = typeof item === "number" ? item : item.macro_f1 ?? item.f1 ?? item.accuracy ?? item.score;
+        if (item.mean_absolute_error !== undefined) {
+          return `<div class="subvalue">Mean absolute error: ${Number(item.mean_absolute_error).toFixed(1)} years</div>`;
+        }
+        const label = typeof item === "number"
+          ? "Validation"
+          : item.metric || (item.macro_f1 !== undefined ? "Macro-F1" : item.accuracy !== undefined ? "Accuracy" : "Validation");
+        return value === undefined ? "" : `<div class="subvalue">${escapeHtml(label)}: ${Math.round(Number(value) * 100)}%</div>`;
+      }
+
+      function renderModelDetails() {
+        const targets = (modelInfo.targets || []).slice(0, 8);
+        const modelOptions = availableModels
+          .map(model => `${model.name}${model.available ? "" : " (unavailable)"}`)
+          .join(", ");
+        modelDetailsEl.innerHTML = `
+          <div class="model-row"><strong>Dataset</strong><span>${escapeHtml(modelInfo.dataset || "Unknown")}</span></div>
+          <div class="model-row"><strong>Trained</strong><span>${escapeHtml(modelInfo.trained_at || "Unknown")}</span></div>
+          <div class="model-row"><strong>Path</strong><span>${escapeHtml(modelInfo.model_path || "Unavailable")}</span></div>
+          <div class="model-row"><strong>Targets</strong><span>${targets.length ? targets.map(escapeHtml).join(", ") : "Unavailable"}${(modelInfo.targets || []).length > targets.length ? ", ..." : ""}</span></div>
+          <div class="model-row"><strong>Models</strong><span>${escapeHtml(modelOptions)}</span></div>
+        `;
+        metricsDebugEl.textContent = JSON.stringify(metrics, null, 2);
+      }
+
+      function renderConfidence(prediction) {
+        if (!prediction.alternatives || !prediction.alternatives.length) return "";
+        const label = prediction.confidence_label || "Unavailable";
+        const low = label === "Low confidence" ? " low" : "";
+        const margin = prediction.margin === undefined ? "" : `; top-two margin ${percent(prediction.margin)}`;
+        return `<div class="confidence${low}">${escapeHtml(label)}${margin}</div>`;
+      }
+
       function renderBars(prediction) {
         const alternatives = prediction.alternatives || [];
         if (!alternatives.length) return "";
-
         return `
           <div class="bars">
             ${alternatives.map((item, index) => {
               const label = escapeHtml(item.label);
               const probability = Number(item.probability || 0);
-              const pct = percent(probability);
               return `
-                <div class="bar-row ${index === 0 ? "is-top" : ""}" data-tooltip="${label}: ${pct}">
+                <div class="bar-row ${index === 0 ? "is-top" : ""}">
                   <div class="bar-name">${label}</div>
                   <div class="bar-track" aria-hidden="true">
                     <div class="bar-fill" style="width: ${Math.max(probability * 100, 1)}%"></div>
                   </div>
-                  <div class="bar-percent">${pct}</div>
+                  <div class="bar-percent">${percent(probability)}</div>
                 </div>
               `;
             }).join("")}
@@ -299,16 +696,46 @@
         `;
       }
 
-      function renderDistribution(name, prediction) {
-        const topProbability = prediction.confidence === undefined
-          ? ""
-          : `<div class="subvalue">Top probability: ${percent(prediction.confidence)}</div>`;
+      function riskMeter(name, prediction) {
+        if (!prediction.alternatives || !prediction.alternatives.length) return "";
+        const signal = Math.max(Number(prediction.confidence || 0) - 0.5, 0) * 2;
+        const label = signal > 0.66 ? "strong" : signal > 0.33 ? "moderate" : "weak";
+        return `
+          <div class="risk-meter">
+            <span>${name} signal</span>
+            <div class="bar-track"><div class="risk-fill" style="width: ${Math.max(signal * 100, 4)}%"></div></div>
+            <strong>${label}</strong>
+          </div>
+        `;
+      }
+
+      function renderPrivacyOverview(data) {
+        const rows = flattenPredictions(data).map(([name, prediction]) => riskMeter(name, prediction)).join("");
+        return `
+          <div class="result">
+            <div class="label">Privacy leakage overview</div>
+            <div class="note">This estimates how strongly the current text exposes each model target.</div>
+            ${rows}
+          </div>
+        `;
+      }
+
+      function renderCueTerms(prediction) {
+        const terms = prediction.cue_terms || [];
+        if (!terms.length) return `<div class="subvalue">Cue terms: unavailable for this model.</div>`;
+        return `<div class="subvalue">Cue terms: ${terms.map(item => escapeHtml(item.term)).join(", ")}</div>`;
+      }
+
+      function renderDistribution(name, prediction, metricName) {
         return `
           <div class="result">
             <div class="label">${name}</div>
             <div class="value">${escapeHtml(prediction.label)}</div>
-            ${topProbability}
+            ${renderConfidence(prediction)}
+            ${metricFor(metricName)}
+            ${riskMeter(name, prediction)}
             ${renderBars(prediction)}
+            ${renderCueTerms(prediction)}
           </div>
         `;
       }
@@ -316,30 +743,10 @@
       function renderAge(prediction) {
         return `
           <div class="result">
-            <div class="label">Age</div>
+            <div class="label">Estimated age</div>
             <div class="value">${escapeHtml(prediction.label)}</div>
-            ${renderBars(prediction)}
-          </div>
-        `;
-      }
-
-      function altProbability(prediction, label) {
-        const found = (prediction.alternatives || []).find(
-          item => String(item.label).toLowerCase() === label.toLowerCase()
-        );
-        return found ? Number(found.probability || 0) : 0;
-      }
-
-      function renderDimension(title, prediction, options) {
-        const raw = String(prediction.raw_label || prediction.label).toLowerCase();
-        const letter = options[raw] || "?";
-        return `
-          <div class="dimension">
-            <div class="dimension-title">
-              <span>${title}</span>
-              <strong>${letter}</strong>
-            </div>
-            ${renderBars(prediction)}
+            ${metricFor("age_estimate")}
+            ${renderCueTerms(prediction)}
           </div>
         `;
       }
@@ -349,8 +756,28 @@
         return options[raw] || "?";
       }
 
+      function renderDimension(title, prediction, options, metricName) {
+        const raw = String(prediction.raw_label || prediction.label).toLowerCase();
+        const letter = options[raw] || "?";
+        return `
+          <div class="dimension">
+            <div class="dimension-title">
+              <span>${title}</span>
+              <strong>${letter}</strong>
+            </div>
+            ${renderConfidence(prediction)}
+            ${metricFor(metricName)}
+            ${renderBars(prediction)}
+            ${renderCueTerms(prediction)}
+          </div>
+        `;
+      }
+
       function renderMbti(predictions) {
         const dims = predictions.mbti_dimensions;
+        const dimensionConfidence = [dims.energy, dims.information, dims.decisions, dims.structure]
+          .map(item => Number(item.confidence || 0));
+        const showType = dimensionConfidence.every(value => value >= 0.62);
         const code = [
           mbtiLetter(dims.energy, {extraverted: "E", introverted: "I"}),
           mbtiLetter(dims.information, {sensing: "S", intuitive: "N"}),
@@ -360,22 +787,183 @@
 
         return `
           <div class="result">
-            <div class="label">MBTI</div>
-            <div class="mbti-code">${code}</div>
+            <div class="label">MBTI dimensions</div>
+            ${showType ? `<div class="mbti-code">${code}</div>` : `<div class="value">Full type hidden</div>`}
+            <div class="note">The four binary dimensions are shown separately because full MBTI type accuracy can be weaker than its component signals.</div>
             <div class="dimension-grid">
-              ${renderDimension("Energy", dims.energy, {extraverted: "E", introverted: "I"})}
-              ${renderDimension("Information", dims.information, {sensing: "S", intuitive: "N"})}
-              ${renderDimension("Decisions", dims.decisions, {thinking: "T", feeling: "F"})}
-              ${renderDimension("Structure", dims.structure, {judging: "J", perceiving: "P"})}
+              ${renderDimension("Energy", dims.energy, {extraverted: "E", introverted: "I"}, "introverted")}
+              ${renderDimension("Information", dims.information, {sensing: "S", intuitive: "N"}, "intuitive")}
+              ${renderDimension("Decisions", dims.decisions, {thinking: "T", feeling: "F"}, "thinking")}
+              ${renderDimension("Structure", dims.structure, {judging: "J", perceiving: "P"}, "perceiving")}
             </div>
           </div>
         `;
       }
 
-      buttonEl.addEventListener("click", async () => {
+      function renderStats(stats) {
+        statsEl.innerHTML = `
+          <div class="metric"><div class="metric-label">Words</div><div class="metric-value">${stats.words}</div></div>
+          <div class="metric"><div class="metric-label">Characters</div><div class="metric-value">${stats.characters}</div></div>
+          <div class="metric"><div class="metric-label">Reading</div><div class="metric-value">${escapeHtml(stats.reading_level)}</div></div>
+          <div class="metric"><div class="metric-label">Punctuation</div><div class="metric-value">${Math.round(stats.punctuation_density * 100)}%</div></div>
+        `;
+      }
+
+      function estimateSyllables(word) {
+        const groups = word.toLowerCase().match(/[aeiouy]+/g) || [];
+        let count = groups.length;
+        if (word.toLowerCase().endsWith("e") && count > 1) count -= 1;
+        return Math.max(count, 1);
+      }
+
+      function localTextStats(text) {
+        const words = text.match(/[A-Za-z0-9']+/g) || [];
+        const sentences = text.split(/[.!?]+/).filter(part => part.trim()).length || 1;
+        const syllables = words.reduce((total, word) => total + estimateSyllables(word), 0);
+        const score = words.length
+          ? 0.39 * (words.length / sentences) + 11.8 * (syllables / words.length) - 15.59
+          : 0;
+        const punctuation = (text.match(/[^\w\s]/g) || []).length;
+        let reading = "Unavailable";
+        if (words.length) {
+          reading = score < 6 ? "Plain" : score < 10 ? "Moderate" : score < 14 ? "Dense" : "Very dense";
+        }
+        return {
+          words: words.length,
+          characters: text.length,
+          reading_level: reading,
+          punctuation_density: text.length ? punctuation / text.length : 0,
+        };
+      }
+
+      function localInputQuality(text) {
+        const words = (text.toLowerCase().match(/[A-Za-z0-9']+/g) || []);
+        const uniqueRatio = words.length ? new Set(words).size / words.length : 0;
+        const warnings = [];
+        if (words.length && words.length < 35) warnings.push("Text is short; predictions may be unstable.");
+        if (words.length >= 35 && uniqueRatio < 0.35) warnings.push("Text has repeated wording; it may carry limited author signal.");
+        if (/lorem ipsum|terms and conditions|privacy policy|unsubscribe/i.test(text)) warnings.push("Text looks boilerplate-like; results may reflect the template more than the author.");
+        if (text.length && ((text.match(/[A-Za-z]/g) || []).length / text.length) < 0.55) warnings.push("Text has low natural-language density.");
+        return {warnings};
+      }
+
+      function updateLiveStats() {
+        const text = textEl.value;
+        renderStats(localTextStats(text));
+        renderQuality(localInputQuality(text));
+      }
+
+      function updateExportState() {
+        const hasExportableResult = Boolean(latestData || latestComparison);
+        copyEl.disabled = !hasExportableResult;
+        downloadEl.disabled = !hasExportableResult;
+      }
+
+      function renderQuality(quality) {
+        if (!quality || !quality.warnings || !quality.warnings.length) {
+          qualityEl.innerHTML = "Input quality looks usable.";
+          return;
+        }
+        qualityEl.innerHTML = quality.warnings.map(item => `<div class="warning">${escapeHtml(item)}</div>`).join("");
+      }
+
+      function flattenPredictions(data) {
+        const p = data.predictions;
+        return [
+          ["Gender", p.gender],
+          ["Age", p.age_bucket || p.age_estimate],
+          ["Energy", p.mbti_dimensions?.energy],
+          ["Information", p.mbti_dimensions?.information],
+          ["Decisions", p.mbti_dimensions?.decisions],
+          ["Structure", p.mbti_dimensions?.structure],
+        ].filter(([, value]) => value);
+      }
+
+      function renderShifts(current, previous) {
+        if (!previous) return "";
+        const previousMap = new Map(flattenPredictions(previous).map(([name, pred]) => [name, pred]));
+        const rows = flattenPredictions(current).map(([name, pred]) => {
+          const before = previousMap.get(name);
+          if (!before || !pred.alternatives || !before.alternatives) return "";
+          const top = pred.alternatives[0];
+          const oldMatch = before.alternatives.find(item => item.label === top.label);
+          const delta = Number(top.probability || 0) - Number(oldMatch?.probability || 0);
+          if (Math.abs(delta) < 0.01) return "";
+          return `<div class="delta ${delta < 0 ? "is-negative" : ""}">${name} ${escapeHtml(top.label)} ${delta > 0 ? "+" : ""}${percent(delta)}</div>`;
+        }).join("");
+        return rows ? `<div class="result"><div class="label">Signal shift after edits</div>${rows}</div>` : "";
+      }
+
+      function compactSummary(data) {
+        if (!data) return "Unavailable";
+        return flattenPredictions(data)
+          .map(([name, pred]) => `${name}: ${pred.label} (${pred.confidence_label || "unavailable"})`)
+          .join("\n");
+      }
+
+      function renderComparison(a, b) {
+        latestComparison = {original: a, edited: b};
+        const shifts = renderShifts(b, a);
+        resultsEl.innerHTML = `
+          <div class="result">
+            <div class="label">Live comparison</div>
+            <div class="comparison-grid">
+              <div class="comparison-card">
+                <h3>Original</h3>
+                <pre>${escapeHtml(compactSummary(a))}</pre>
+              </div>
+              <div class="comparison-card">
+                <h3>Edited</h3>
+                <pre>${escapeHtml(compactSummary(b))}</pre>
+              </div>
+            </div>
+          </div>
+          ${shifts}
+          <div class="note">Comparison uses the selected model for both texts.</div>
+        `;
+        debugEl.textContent = JSON.stringify(latestComparison, null, 2);
+        runStatusEl.textContent = "Comparison loaded.";
+        updateExportState();
+      }
+
+      function renderHistory() {
+        if (!history.length) {
+          historyEl.innerHTML = "No evaluations yet.";
+          return;
+        }
+        historyEl.innerHTML = history.map((item, index) => `
+          <button class="secondary history-button" type="button" data-history-index="${index}">
+            <strong>${index + 1}.</strong>
+            <span>${escapeHtml(item.summary)}</span>
+          </button>
+        `).join("");
+      }
+
+      function renderAll(data, compareWith = null) {
+        latestComparison = null;
+        const p = data.predictions;
+        const targets = selectedTargets();
+        const sections = [];
+        if (targets.has("gender")) sections.push(renderDistribution("Gender", p.gender, "gender"));
+        if (targets.has("age")) {
+          sections.push(renderAge(p.age_estimate));
+          if (p.age_bucket) sections.push(renderDistribution("Age bucket", p.age_bucket, "age_bucket"));
+        }
+        if (targets.has("mbti") && p.mbti_dimensions) sections.push(renderMbti(p));
+        sections.push(renderPrivacyOverview(data));
+        sections.push(renderShifts(data, compareWith));
+        sections.push(`<div class="note">These outputs describe model-learned statistical associations in the text, not identity, intent, or ground truth.</div>`);
+        resultsEl.innerHTML = sections.join("");
+        renderStats(p.text_stats || {words: 0, characters: 0, reading_level: "Unavailable", punctuation_density: 0});
+        renderQuality(p.input_quality);
+        debugEl.textContent = JSON.stringify(data, null, 2);
+        runStatusEl.textContent = data.response_ms === undefined ? "Latest response loaded." : `Latest response: ${data.response_ms} ms.`;
+        updateExportState();
+      }
+
+      async function evaluate(compareWith = null) {
         const text = textEl.value.trim();
         resultsEl.innerHTML = "";
-
         if (!text) {
           resultsEl.innerHTML = `<div class="error">Please enter text to evaluate.</div>`;
           return;
@@ -383,31 +971,181 @@
 
         buttonEl.disabled = true;
         buttonEl.textContent = "Evaluating...";
+        resultsEl.innerHTML = `<div class="note">Loading model response...</div>`;
+        runStatusEl.textContent = "Evaluating...";
+        const started = performance.now();
 
         try {
           const response = await fetch("/evaluate", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({text}),
+            body: JSON.stringify({text, model: modelEl.value}),
           });
           const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.error || "Evaluation failed.");
-          }
-
-          const p = data.predictions;
-          resultsEl.innerHTML = [
-            renderDistribution("Gender", p.gender),
-            renderAge(p.age_estimate),
-            renderMbti(p),
-          ].join("");
+          if (!response.ok) throw new Error(data.error || "Evaluation failed.");
+          data.response_ms = Math.round(performance.now() - started);
+          previousData = latestData;
+          latestData = data;
+          renderAll(data, compareWith);
+          history.unshift({
+            summary: `${data.predictions.gender?.label || "Unknown"}; ${data.predictions.age_estimate?.label || "Unknown"}; ${data.predictions.text_stats?.words || 0} words`,
+            data,
+          });
+          history = history.slice(0, 5);
+          renderHistory();
         } catch (error) {
-          resultsEl.innerHTML = `<div class="error">${error.message}</div>`;
+          resultsEl.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+          runStatusEl.textContent = "Evaluation failed.";
         } finally {
           buttonEl.disabled = false;
           buttonEl.textContent = "Evaluate";
         }
+      }
+
+      async function evaluateText(text) {
+        const started = performance.now();
+        const response = await fetch("/evaluate", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({text, model: modelEl.value}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Evaluation failed.");
+        data.response_ms = Math.round(performance.now() - started);
+        return data;
+      }
+
+      async function evaluatePair() {
+        const original = compareAEl.value.trim();
+        const edited = compareBEl.value.trim();
+        if (!original || !edited) {
+          resultsEl.innerHTML = `<div class="error">Enter both original and edited text before comparing.</div>`;
+          return;
+        }
+        evaluatePairEl.disabled = true;
+        evaluatePairEl.textContent = "Evaluating...";
+        runStatusEl.textContent = "Evaluating comparison...";
+        try {
+          const [a, b] = await Promise.all([evaluateText(original), evaluateText(edited)]);
+          latestData = b;
+          previousData = a;
+          renderComparison(a, b);
+        } catch (error) {
+          resultsEl.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+          runStatusEl.textContent = "Comparison failed.";
+        } finally {
+          evaluatePairEl.disabled = false;
+          evaluatePairEl.textContent = "Evaluate both";
+        }
+      }
+
+      function renderGuidedStep() {
+        const messages = [
+          "Start with a sample text, then evaluate its baseline signals.",
+          "Review confidence, calibration, privacy leakage, and cue terms.",
+          "Edit the text to change tone, specificity, or personal details.",
+          "Compare original and edited text to inspect signal shifts.",
+        ];
+        guidedCopyEl.textContent = messages[guidedStep];
+        document.querySelectorAll(".guided-step").forEach(item => {
+          item.classList.toggle("is-active", Number(item.dataset.step) === guidedStep);
+        });
+      }
+
+      async function runGuidedStep() {
+        if (guidedStep === 0) {
+          samplesEl.selectedIndex = 1;
+          textEl.value = samplesEl.value;
+        } else if (guidedStep === 1) {
+          await evaluate();
+        } else if (guidedStep === 2) {
+          comparePanelEl.hidden = false;
+          compareAEl.value = textEl.value;
+          compareBEl.value = `${textEl.value} I am trying to keep the argument practical, specific, and focused on implementation details instead of broad identity cues.`;
+        } else if (guidedStep === 3) {
+          await evaluatePair();
+        }
+        guidedStep = Math.min(guidedStep + 1, 3);
+        renderGuidedStep();
+      }
+
+      renderModelDetails();
+      updateLiveStats();
+      updateExportState();
+
+      samplesEl.addEventListener("change", () => {
+        if (samplesEl.value) {
+          textEl.value = samplesEl.value;
+          updateLiveStats();
+        }
+      });
+      textEl.addEventListener("input", updateLiveStats);
+
+      buttonEl.addEventListener("click", () => evaluate());
+      compareEl.addEventListener("click", () => {
+        comparePanelEl.hidden = !comparePanelEl.hidden;
+        if (!comparePanelEl.hidden && !compareAEl.value) {
+          compareAEl.value = textEl.value;
+        }
+      });
+      useMainAsOriginalEl.addEventListener("click", () => {
+        compareAEl.value = textEl.value;
+      });
+      evaluatePairEl.addEventListener("click", () => evaluatePair());
+      document.querySelectorAll(".target-toggles input").forEach(input => {
+        input.addEventListener("change", () => {
+          if (latestData) renderAll(latestData);
+        });
+      });
+      historyEl.addEventListener("click", event => {
+        const button = event.target.closest("[data-history-index]");
+        if (!button) return;
+        const item = history[Number(button.dataset.historyIndex)];
+        if (!item) return;
+        latestData = item.data;
+        renderAll(item.data);
+      });
+
+      copyEl.addEventListener("click", async () => {
+        if (!latestData && !latestComparison) return;
+        const lines = latestComparison
+          ? [
+              "Original",
+              compactSummary(latestComparison.original),
+              "",
+              "Edited",
+              compactSummary(latestComparison.edited),
+            ]
+          : flattenPredictions(latestData).map(([name, pred]) => `${name}: ${pred.label} (${pred.confidence_label || "no confidence label"})`);
+        await navigator.clipboard.writeText(lines.join("\n"));
+      });
+
+      downloadEl.addEventListener("click", () => {
+        if (!latestData && !latestComparison) return;
+        const payload = {
+          exported_at: new Date().toISOString(),
+          model: modelEl.value,
+          latest: latestData,
+          comparison: latestComparison,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "texttraits-results.json";
+        link.click();
+        URL.revokeObjectURL(link.href);
+      });
+
+      guidedEl.addEventListener("click", () => {
+        guidedPanelEl.hidden = !guidedPanelEl.hidden;
+        renderGuidedStep();
+      });
+      guidedNextEl.addEventListener("click", () => runGuidedStep());
+      guidedResetEl.addEventListener("click", () => {
+        guidedStep = 0;
+        comparePanelEl.hidden = true;
+        guidedPanelEl.hidden = false;
+        renderGuidedStep();
       });
     </script>
   </body>
