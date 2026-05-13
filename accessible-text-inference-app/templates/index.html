@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TextTraits</title>
+    <link rel="icon" href="data:,">
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #15201b;
+        --muted: #64736c;
+        --soft: #edf5f1;
+        --line: #d7e4dd;
+        --panel: rgba(255, 255, 255, 0.88);
+        --panel-solid: #ffffff;
+        --accent: #0f7a6c;
+        --accent-strong: #075e54;
+        --accent-soft: #dff5ee;
+        --blue: #2c6fb7;
+        --blue-soft: #e1effb;
+        --warn: #b94634;
+        --warn-soft: #ffe8e2;
+        --gold: #9c6b1d;
+        --gold-soft: #fff4d9;
+        --shadow: 0 24px 70px rgba(21, 32, 27, 0.08);
+        --radius-lg: 28px;
+        --radius-md: 18px;
+        --radius-sm: 12px;
+        --focus: 0 0 0 4px rgba(15, 122, 108, 0.2);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(circle at 8% 10%, rgba(44, 111, 183, 0.12), transparent 28%),
+          radial-gradient(circle at 90% 8%, rgba(15, 122, 108, 0.14), transparent 32%),
+          linear-gradient(135deg, #fbfdfb 0%, #f2f8f5 56%, #eef6f2 100%);
+      }
+
+      button, textarea, select {
+        font: inherit;
+      }
+
+      button, select, textarea, summary {
+        outline: none;
+      }
+
+      button:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible,
+      summary:focus-visible {
+        box-shadow: var(--focus);
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 18px;
+        background: var(--accent);
+        color: white;
+        font-weight: 800;
+        cursor: pointer;
+        transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
+      }
+
+      button:hover { background: var(--accent-strong); transform: translateY(-1px); }
+      button:disabled { cursor: wait; opacity: 0.65; transform: none; }
+
+      .button-secondary {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--ink);
+      }
+
+      .button-secondary:hover { background: var(--panel-solid); }
+
+      .app-shell {
+        width: min(1240px, calc(100% - 32px));
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 32px 0 24px;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        gap: 18px;
+      }
+
+      .product-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: end;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--accent-strong);
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 780px;
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(42px, 6vw, 72px);
+        line-height: 0.95;
+        letter-spacing: -0.055em;
+      }
+
+      .subtitle {
+        max-width: 760px;
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: clamp(16px, 2vw, 19px);
+        line-height: 1.5;
+      }
+
+      .trust-card {
+        max-width: 290px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.4;
+      }
+
+      .trust-card strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--ink);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(380px, 0.88fr) minmax(0, 1.12fr);
+        gap: 18px;
+        min-height: 0;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .composer {
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        padding: 20px;
+      }
+
+      .panel-heading {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+        margin-bottom: 14px;
+      }
+
+      h2, h3 {
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+
+      h2 { font-size: 22px; }
+      h3 { font-size: 17px; }
+
+      .helper {
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 7px 10px;
+        background: rgba(255, 255, 255, 0.74);
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .status-dot.demo { background: var(--gold); }
+
+      textarea {
+        width: 100%;
+        min-height: 310px;
+        flex: 1;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 18px;
+        background: rgba(255, 255, 255, 0.86);
+        color: var(--ink);
+        font: 16px/1.55 "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+      }
+
+      textarea::placeholder { color: #8b9992; }
+
+      .input-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 10px 2px 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 10px;
+        align-items: center;
+        margin-top: 16px;
+      }
+
+      select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 11px 14px;
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--ink);
+      }
+
+      .analysis-panel {
+        position: relative;
+        min-height: 560px;
+        overflow: hidden;
+      }
+
+      .report {
+        height: 100%;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .state-card {
+        min-height: 100%;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        text-align: center;
+      }
+
+      .state-card-inner {
+        max-width: 430px;
+      }
+
+      .orb {
+        width: 82px;
+        height: 82px;
+        margin: 0 auto 18px;
+        border-radius: 30px;
+        background:
+          linear-gradient(135deg, rgba(15, 122, 108, 0.18), rgba(44, 111, 183, 0.16)),
+          var(--panel-solid);
+        border: 1px solid var(--line);
+      }
+
+      .state-title {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 34px;
+        letter-spacing: -0.045em;
+      }
+
+      .state-copy {
+        margin: 10px 0 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .loading-line {
+        height: 10px;
+        margin: 18px auto 0;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--soft);
+      }
+
+      .loading-line span {
+        display: block;
+        width: 44%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--accent), var(--blue));
+        animation: loading 900ms ease-in-out infinite alternate;
+      }
+
+      .report-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .summary-title {
+        margin: 5px 0 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(32px, 4vw, 48px);
+        line-height: 0.98;
+        letter-spacing: -0.052em;
+      }
+
+      .summary-copy {
+        margin: 10px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .confidence-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 112px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .confidence-chip.low {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+
+      .confidence-chip.demo {
+        background: var(--gold-soft);
+        color: var(--gold);
+      }
+
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .quick-card,
+      .detail-card,
+      .notice-card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.74);
+      }
+
+      .quick-card {
+        min-width: 0;
+        padding: 13px;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .quick-value {
+        margin-top: 7px;
+        font-size: 24px;
+        font-weight: 900;
+        letter-spacing: -0.04em;
+        overflow-wrap: anywhere;
+      }
+
+      .quick-note {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .section-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 2px;
+      }
+
+      .section-tabs button {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--muted);
+        padding: 8px 12px;
+      }
+
+      .section-tabs button[aria-selected="true"] {
+        background: var(--ink);
+        border-color: var(--ink);
+        color: white;
+      }
+
+      .result-section {
+        display: none;
+        min-height: 0;
+        overflow: auto;
+        padding-right: 4px;
+      }
+
+      .result-section.is-active { display: block; }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .detail-card {
+        min-width: 0;
+        padding: 14px;
+      }
+
+      .detail-card.wide { grid-column: 1 / -1; }
+
+      .detail-value {
+        margin-top: 8px;
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: -0.045em;
+      }
+
+      .detail-copy {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .bars {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .bar-row {
+        display: grid;
+        grid-template-columns: minmax(116px, 150px) minmax(100px, 1fr) 48px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .bar-name,
+      .bar-percent {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .bar-name {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        line-height: 1.2;
+      }
+
+      .bar-row.is-top .bar-name,
+      .bar-row.is-top .bar-percent {
+        color: var(--ink);
+        font-weight: 900;
+      }
+
+      .bar-track {
+        height: 12px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e6eee9;
+      }
+
+      .bar-fill {
+        height: 100%;
+        min-width: 2px;
+        border-radius: inherit;
+        background: var(--blue-soft);
+        transition: width 180ms ease;
+      }
+
+      .bar-row.is-top .bar-fill { background: var(--blue); }
+      .mbti-card .bar-row.is-top .bar-fill { background: var(--accent); }
+
+      .bar-percent {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .mbti-code {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(54px, 8vw, 84px);
+        line-height: 0.88;
+        letter-spacing: -0.055em;
+      }
+
+      .dimension-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .dimension {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 12px;
+        background: rgba(245, 250, 247, 0.82);
+      }
+
+      .dimension-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .dimension-head strong {
+        color: var(--ink);
+        font-size: 16px;
+      }
+
+      .style-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .notice-card {
+        padding: 14px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .notice-card strong {
+        color: var(--ink);
+      }
+
+      .warning-card {
+        border-color: #f2b5aa;
+        background: var(--warn-soft);
+        color: #723024;
+      }
+
+      .demo-banner {
+        border-color: #efd39a;
+        background: var(--gold-soft);
+        color: #62430f;
+      }
+
+      details.public-details {
+        margin-top: 10px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      details.public-details summary {
+        cursor: pointer;
+        color: var(--ink);
+        font-weight: 800;
+      }
+
+      .limitations {
+        display: grid;
+        gap: 8px;
+        margin: 10px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .limitations li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.62);
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
+      .footer-note {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .footer-note strong { color: var(--ink); }
+
+      .dev-tools {
+        border: 1px dashed #9aa8a1;
+        border-radius: var(--radius-md);
+        padding: 14px;
+        background: rgba(255, 255, 255, 0.78);
+      }
+
+      .dev-tools summary {
+        cursor: pointer;
+        font-weight: 900;
+      }
+
+      pre {
+        overflow: auto;
+        max-height: 340px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 12px;
+        background: #f7faf8;
+        font: 12px/1.45 "Cascadia Mono", Consolas, monospace;
+      }
+
+      [hidden] { display: none !important; }
+
+      @media (max-width: 980px) {
+        .product-header,
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .trust-card { max-width: none; }
+        .analysis-panel { min-height: auto; }
+        textarea { min-height: 240px; }
+      }
+
+      @media (max-width: 680px) {
+        .app-shell {
+          width: min(100% - 20px, 1240px);
+          padding-top: 18px;
+        }
+
+        .composer,
+        .report {
+          padding: 14px;
+        }
+
+        .controls,
+        .quick-grid,
+        .detail-grid,
+        .dimension-grid,
+        .style-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .report-header {
+          grid-template-columns: 1fr;
+        }
+
+        .bar-row {
+          grid-template-columns: minmax(90px, 116px) minmax(90px, 1fr) 42px;
+        }
+
+        h1 { font-size: 44px; }
+      }
+
+      @keyframes loading {
+        from { transform: translateX(-28%); }
+        to { transform: translateX(150%); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="product-header">
+        <div>
+          <p class="eyebrow">TextTraits</p>
+          <h1>See what your writing might reveal.</h1>
+          <p class="subtitle">Paste a short writing sample and the app will explain which demographic, personality, and style signals a text model can detect. The results are estimates from language patterns, not facts about the person.</p>
+        </div>
+        <aside class="trust-card" aria-label="Responsible use note">
+          <strong>Educational, not definitive.</strong>
+          Do not use these predictions for hiring, admissions, policing, eligibility, or other consequential decisions.
+        </aside>
+      </header>
+
+      <section class="workspace" aria-label="Text analysis workspace">
+        <section class="panel composer" aria-labelledby="input-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="input-title">Your text</h2>
+              <p id="text-help" class="helper">Use text that sounds like a person writing naturally: a comment, email, reflection, forum post, or paragraph of notes. Around 40+ words works best.</p>
+            </div>
+            <span class="status-pill">
+              <span class="status-dot{% if public_model_info.demo %} demo{% endif %}" aria-hidden="true"></span>
+              {% if public_model_info.demo %}Demo mode{% else %}Model ready{% endif %}
+            </span>
+          </div>
+
+          <label class="label" for="text">Writing sample</label>
+          <textarea id="text" aria-describedby="text-help live-quality" autofocus placeholder="Paste a few sentences here. For example: a post, email, journal-style note, or comment you want to analyze."></textarea>
+          <div class="input-meta" aria-live="polite">
+            <span id="live-count">0 words</span>
+            <span id="live-quality">Paste a natural text sample to begin.</span>
+          </div>
+
+          <div class="controls">
+            <select id="samples" aria-label="Try a sample text">
+              <option value="">Try a sample...</option>
+            </select>
+            <button id="evaluate" type="button">Analyze text</button>
+            <button id="reset" class="button-secondary" type="button">Reset</button>
+          </div>
+
+          {% if dev_tools_enabled %}
+          <div class="controls" aria-label="Developer model controls">
+            <select id="model" aria-label="Model">
+              {% for model in available_models %}
+                {% if model.available %}
+                  <option value="{{ model.id }}">{{ model.name }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+            <button id="copy-json" class="button-secondary" type="button" disabled>Copy JSON</button>
+            <button id="download-json" class="button-secondary" type="button" disabled>Download JSON</button>
+          </div>
+          {% endif %}
+        </section>
+
+        <section class="panel analysis-panel" aria-labelledby="report-title">
+          <div id="empty-state" class="state-card">
+            <div class="state-card-inner">
+              <div class="orb" aria-hidden="true"></div>
+              <h2 id="report-title" class="state-title">Your report appears here.</h2>
+              <p class="state-copy">The first view will summarize the strongest signals. Deeper details are grouped into clear sections so the model output stays readable.</p>
+            </div>
+          </div>
+
+          <div id="loading-state" class="state-card" hidden>
+            <div class="state-card-inner">
+              <div class="orb" aria-hidden="true"></div>
+              <h2 class="state-title">Reading the signal...</h2>
+              <p class="state-copy">The model is comparing your sample with learned text patterns. This usually takes less than a second locally.</p>
+              <div class="loading-line" aria-hidden="true"><span></span></div>
+            </div>
+          </div>
+
+          <div id="error-state" class="state-card" hidden>
+            <div class="state-card-inner">
+              <div class="orb" aria-hidden="true"></div>
+              <h2 class="state-title">Something needs attention.</h2>
+              <p id="error-copy" class="state-copy"></p>
+            </div>
+          </div>
+
+          <div id="results" class="report" hidden></div>
+        </section>
+      </section>
+
+      <p class="footer-note">
+        <strong>Privacy and limits:</strong> only submit text you are comfortable analyzing. Predictions may be wrong, text can be misleading, and model confidence is not certainty. The tool describes patterns associated with text, not objective truth about a person.
+      </p>
+
+      {% if dev_tools_enabled %}
+      <details class="dev-tools">
+        <summary>Developer tools</summary>
+        <p class="helper">Visible because <code>ENABLE_DEV_TOOLS=true</code>. Keep this disabled in public deployments.</p>
+        <pre id="model-debug">{{ model_info|tojson(indent=2) }}</pre>
+        <pre id="metrics-debug">{{ metrics|tojson(indent=2) }}</pre>
+        <pre id="response-debug">{}</pre>
+      </details>
+      {% endif %}
+    </main>
+
+    <script>
+      const DEV_TOOLS = {{ dev_tools_enabled|tojson }};
+      const PUBLIC_MODEL = {{ public_model_info|tojson }};
+      const textEl = document.querySelector("#text");
+      const samplesEl = document.querySelector("#samples");
+      const evaluateEl = document.querySelector("#evaluate");
+      const resetEl = document.querySelector("#reset");
+      const liveCountEl = document.querySelector("#live-count");
+      const liveQualityEl = document.querySelector("#live-quality");
+      const emptyStateEl = document.querySelector("#empty-state");
+      const loadingStateEl = document.querySelector("#loading-state");
+      const errorStateEl = document.querySelector("#error-state");
+      const errorCopyEl = document.querySelector("#error-copy");
+      const resultsEl = document.querySelector("#results");
+      {% if dev_tools_enabled %}
+      const modelEl = document.querySelector("#model");
+      const responseDebugEl = document.querySelector("#response-debug");
+      const copyJsonEl = document.querySelector("#copy-json");
+      const downloadJsonEl = document.querySelector("#download-json");
+      {% else %}
+      const modelEl = null;
+      const responseDebugEl = null;
+      const copyJsonEl = null;
+      const downloadJsonEl = null;
+      {% endif %}
+      let latestData = null;
+
+      const samples = [
+        ["Reflective comment", "I keep coming back to the same question: what information do people reveal without meaning to? A short comment can carry habits, confidence, uncertainty, and social cues, even when the writer is trying to stay neutral."],
+        ["Work email", "Thanks for sending the proposal. I reviewed the timeline and added notes on the assumptions. The main risk is that we are treating the launch window as fixed before the user research is complete."],
+        ["Forum reply", "I do not think the issue is whether the idea sounds clever. The real test is whether it works when people are tired, distracted, and using it in messy real-world situations."],
+      ];
+
+      for (const [label, value] of samples) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        samplesEl.append(option);
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function percent(value) {
+        return `${Math.round(Number(value || 0) * 100)}%`;
+      }
+
+      function words(text) {
+        return text.match(/[A-Za-z0-9']+/g) || [];
+      }
+
+      function estimateSyllables(word) {
+        const groups = word.toLowerCase().match(/[aeiouy]+/g) || [];
+        let count = groups.length;
+        if (word.toLowerCase().endsWith("e") && count > 1) count -= 1;
+        return Math.max(count, 1);
+      }
+
+      function localStats(text) {
+        const wordList = words(text);
+        const sentences = text.split(/[.!?]+/).filter(part => part.trim()).length || 1;
+        const syllables = wordList.reduce((total, word) => total + estimateSyllables(word), 0);
+        const score = wordList.length
+          ? 0.39 * (wordList.length / sentences) + 11.8 * (syllables / wordList.length) - 15.59
+          : 0;
+        const punctuation = (text.match(/[^\w\s]/g) || []).length;
+        return {
+          words: wordList.length,
+          characters: text.length,
+          reading_level: !wordList.length ? "Unavailable" : score < 6 ? "Plain" : score < 10 ? "Moderate" : score < 14 ? "Dense" : "Very dense",
+          punctuation_density: text.length ? punctuation / text.length : 0,
+        };
+      }
+
+      function updateLiveStats() {
+        const stats = localStats(textEl.value);
+        liveCountEl.textContent = `${stats.words} ${stats.words === 1 ? "word" : "words"}`;
+        if (!stats.words) {
+          liveQualityEl.textContent = "Paste a natural text sample to begin.";
+        } else if (stats.words < 35) {
+          liveQualityEl.textContent = "Short sample: results may be unstable.";
+        } else {
+          liveQualityEl.textContent = "Good sample length for a first pass.";
+        }
+      }
+
+      function showState(state) {
+        emptyStateEl.hidden = state !== "empty";
+        loadingStateEl.hidden = state !== "loading";
+        errorStateEl.hidden = state !== "error";
+        resultsEl.hidden = state !== "results";
+      }
+
+      function confidenceClass(prediction) {
+        const label = prediction?.confidence_label || "";
+        return label === "Low confidence" || label === "Unavailable" ? "low" : "";
+      }
+
+      function confidenceText(prediction) {
+        if (!prediction) return "Unavailable";
+        const label = prediction.confidence_label || "Unavailable";
+        if (prediction.margin === undefined) return label;
+        return `${label}; margin ${percent(prediction.margin)}`;
+      }
+
+      function signalScore(prediction) {
+        if (!prediction?.alternatives?.length) return 0;
+        return Math.max(Number(prediction.confidence || 0) - 0.5, 0) * 2;
+      }
+
+      function signalLabel(prediction) {
+        const score = signalScore(prediction);
+        if (score > 0.66) return "strong";
+        if (score > 0.33) return "moderate";
+        return "uncertain";
+      }
+
+      function mbtiLetter(prediction, options) {
+        const raw = String(prediction?.label || prediction?.raw_label || "").toLowerCase();
+        return options[raw] || "?";
+      }
+
+      function mbtiCode(dims) {
+        if (!dims) return "----";
+        return [
+          mbtiLetter(dims.energy, {extraverted: "E", introverted: "I"}),
+          mbtiLetter(dims.information, {sensing: "S", intuitive: "N"}),
+          mbtiLetter(dims.decisions, {thinking: "T", feeling: "F"}),
+          mbtiLetter(dims.structure, {judging: "J", perceiving: "P"}),
+        ].join("");
+      }
+
+      function strongestSignal(data) {
+        const items = flattenPredictions(data).sort((a, b) => signalScore(b[1]) - signalScore(a[1]));
+        return items[0] || ["No clear signal", null];
+      }
+
+      function flattenPredictions(data) {
+        const p = data.predictions || {};
+        return [
+          ["Gender presentation", p.gender],
+          ["Age estimate", p.age_estimate || p.age_bucket],
+          ["Energy", p.mbti_dimensions?.energy],
+          ["Information", p.mbti_dimensions?.information],
+          ["Decisions", p.mbti_dimensions?.decisions],
+          ["Structure", p.mbti_dimensions?.structure],
+        ].filter(([, value]) => value);
+      }
+
+      function renderBars(prediction) {
+        const alternatives = prediction?.alternatives || [];
+        if (!alternatives.length) return "";
+        return `
+          <div class="bars" aria-label="Probability distribution">
+            ${alternatives.map((item, index) => {
+              const probability = Number(item.probability || 0);
+              const label = escapeHtml(item.label);
+              return `
+                <div class="bar-row ${index === 0 ? "is-top" : ""}" title="${label}: ${percent(probability)}">
+                  <div class="bar-name">${label}</div>
+                  <div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width: ${Math.max(probability * 100, 2)}%"></div></div>
+                  <div class="bar-percent">${percent(probability)}</div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+      }
+
+      function cueTerms(prediction) {
+        const terms = prediction?.cue_terms || [];
+        if (!terms.length) return "";
+        return `<p class="detail-copy">Terms the model leaned on: ${terms.map(item => escapeHtml(item.term)).join(", ")}.</p>`;
+      }
+
+      function predictionCard(title, prediction, copy) {
+        return `
+          <article class="detail-card">
+            <div class="label">${escapeHtml(title)}</div>
+            <div class="detail-value">${escapeHtml(prediction?.label || "Unavailable")}</div>
+            <span class="confidence-chip ${confidenceClass(prediction)}">${escapeHtml(confidenceText(prediction))}</span>
+            <p class="detail-copy">${escapeHtml(copy)}</p>
+            ${renderBars(prediction)}
+            ${cueTerms(prediction)}
+          </article>
+        `;
+      }
+
+      function dimension(title, prediction, options) {
+        const letter = mbtiLetter(prediction, options);
+        return `
+          <div class="dimension">
+            <div class="dimension-head"><span>${escapeHtml(title)}</span><strong>${letter}</strong></div>
+            <span class="confidence-chip ${confidenceClass(prediction)}">${escapeHtml(confidenceText(prediction))}</span>
+            ${renderBars(prediction)}
+          </div>
+        `;
+      }
+
+      function renderPersonality(data) {
+        const dims = data.predictions.mbti_dimensions;
+        if (!dims) return `<div class="notice-card">Personality-related dimensions are unavailable for this model.</div>`;
+        return `
+          <article class="detail-card wide mbti-card">
+            <div class="label">Personality-related pattern</div>
+            <div class="mbti-code">${escapeHtml(mbtiCode(dims))}</div>
+            <p class="detail-copy">This is built from four separate dimension classifiers. It is best read as a language-pattern summary, not as a personality test result.</p>
+            <div class="dimension-grid">
+              ${dimension("Energy", dims.energy, {extraverted: "E", introverted: "I"})}
+              ${dimension("Information", dims.information, {sensing: "S", intuitive: "N"})}
+              ${dimension("Decisions", dims.decisions, {thinking: "T", feeling: "F"})}
+              ${dimension("Structure", dims.structure, {judging: "J", perceiving: "P"})}
+            </div>
+          </article>
+        `;
+      }
+
+      function renderStyle(data) {
+        const stats = data.predictions.text_stats || localStats(textEl.value);
+        const quality = data.predictions.input_quality || {warnings: []};
+        return `
+          <div class="style-grid">
+            <div class="quick-card"><div class="label">Words</div><div class="quick-value">${stats.words || 0}</div><div class="quick-note">Longer samples tend to be more stable.</div></div>
+            <div class="quick-card"><div class="label">Reading</div><div class="quick-value">${escapeHtml(stats.reading_level || "Unknown")}</div><div class="quick-note">Approximate density of the writing.</div></div>
+            <div class="quick-card"><div class="label">Characters</div><div class="quick-value">${stats.characters || 0}</div><div class="quick-note">Total submitted text length.</div></div>
+            <div class="quick-card"><div class="label">Punctuation</div><div class="quick-value">${percent(stats.punctuation_density || 0)}</div><div class="quick-note">A rough style cue, not a quality score.</div></div>
+          </div>
+          ${quality.warnings?.length ? `<div class="notice-card warning-card"><strong>Input caution:</strong> ${quality.warnings.map(escapeHtml).join(" ")}</div>` : `<div class="notice-card"><strong>Input quality:</strong> This sample is usable for a first pass. Results can still be wrong or misleading.</div>`}
+        `;
+      }
+
+      function renderLimits(data) {
+        const rows = flattenPredictions(data)
+          .filter(([, prediction]) => prediction?.alternatives?.length)
+          .map(([name, prediction]) => `
+            <div class="bar-row" title="${escapeHtml(name)}: ${signalLabel(prediction)}">
+              <div class="bar-name">${escapeHtml(name)}</div>
+              <div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width: ${Math.max(signalScore(prediction) * 100, 4)}%"></div></div>
+              <div class="bar-percent">${signalLabel(prediction)}</div>
+            </div>
+          `).join("");
+        return `
+          <article class="notice-card">
+            <strong>Model confidence is not certainty.</strong> A high bar means the winning label separated from alternatives in this model, not that the label is true.
+            <div class="bars">${rows}</div>
+          </article>
+          <ul class="limitations">
+            <li>Text can carry signals from topic, community, genre, or copied phrasing rather than from the person writing it.</li>
+            <li>The model may reflect bias or gaps in the training data. Sensitive predictions should be treated with extra caution.</li>
+            <li>Do not use this for decisions about real people, including hiring, admissions, eligibility, policing, finance, housing, or medical contexts.</li>
+          </ul>
+        `;
+      }
+
+      function setActiveTab(tabName) {
+        document.querySelectorAll("[data-tab]").forEach(button => {
+          button.setAttribute("aria-selected", String(button.dataset.tab === tabName));
+        });
+        document.querySelectorAll("[data-section]").forEach(section => {
+          section.classList.toggle("is-active", section.dataset.section === tabName);
+        });
+      }
+
+      function renderReport(data) {
+        const p = data.predictions;
+        const dims = p.mbti_dimensions;
+        const code = mbtiCode(dims);
+        const [strongName, strongPrediction] = strongestSignal(data);
+        const demoBanner = data.demo || p.demo_notice
+          ? `<div class="notice-card demo-banner"><strong>Demo mode:</strong> ${escapeHtml(p.demo_notice || "These are mock predictions because the trained model is unavailable.")}</div>`
+          : "";
+
+        resultsEl.innerHTML = `
+          <div class="report-header">
+            <div>
+              <div class="label">Analysis summary</div>
+              <div class="summary-title">${escapeHtml(code)}-style text pattern; estimated age ${escapeHtml(p.age_estimate?.label || p.age_bucket?.label || "unclear")}</div>
+              <p class="summary-copy">The strongest signal in this sample is associated with <strong>${escapeHtml(strongName)}</strong>${strongPrediction ? ` (${signalLabel(strongPrediction)} confidence)` : ""}. This does not identify the writer; it describes patterns the model detected in the text.</p>
+            </div>
+            <span class="confidence-chip ${data.demo ? "demo" : confidenceClass(strongPrediction)}">${data.demo ? "Mock output" : escapeHtml(signalLabel(strongPrediction))}</span>
+          </div>
+          ${demoBanner}
+          <div class="quick-grid">
+            <div class="quick-card"><div class="label">Gender-related signal</div><div class="quick-value">${escapeHtml(p.gender?.label || "Unavailable")}</div><div class="quick-note">Model-detected language association, not identity.</div></div>
+            <div class="quick-card"><div class="label">Estimated age</div><div class="quick-value">${escapeHtml(p.age_estimate?.label || p.age_bucket?.label || "Unavailable")}</div><div class="quick-note">Shown as one estimate to avoid conflicting bucket labels.</div></div>
+            <div class="quick-card"><div class="label">Personality pattern</div><div class="quick-value">${escapeHtml(code)}</div><div class="quick-note">Composed from four separate text classifiers.</div></div>
+          </div>
+          <nav class="section-tabs" aria-label="Report sections">
+            <button type="button" data-tab="signals" aria-selected="true">Likely signals</button>
+            <button type="button" data-tab="personality" aria-selected="false">Personality</button>
+            <button type="button" data-tab="style" aria-selected="false">Writing style</button>
+            <button type="button" data-tab="limits" aria-selected="false">Confidence and limits</button>
+          </nav>
+          <section class="result-section is-active" data-section="signals">
+            <div class="detail-grid">
+              ${predictionCard("Demographic or identity-related prediction", p.gender, "The model detects text patterns associated with this label. It may be wrong, especially when probabilities are close.")}
+              <article class="detail-card">
+                <div class="label">Age-related estimate</div>
+                <div class="detail-value">${escapeHtml(p.age_estimate?.label || p.age_bucket?.label || "Unavailable")}</div>
+                <p class="detail-copy">Age is shown as a single public-facing estimate because simultaneous bucket and numeric outputs can be confusing.</p>
+              </article>
+            </div>
+          </section>
+          <section class="result-section" data-section="personality">
+            <div class="detail-grid">${renderPersonality(data)}</div>
+          </section>
+          <section class="result-section" data-section="style">
+            ${renderStyle(data)}
+          </section>
+          <section class="result-section" data-section="limits">
+            ${renderLimits(data)}
+          </section>
+          <details class="public-details">
+            <summary>What should I take from this?</summary>
+            <p class="detail-copy">Use the report as a way to learn how text can leak signals. If a result feels surprising, that is a prompt to inspect the language and the model limitations, not proof that the model discovered something true.</p>
+          </details>
+        `;
+
+        resultsEl.querySelectorAll("[data-tab]").forEach(button => {
+          button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+        });
+      }
+
+      async function evaluate() {
+        const text = textEl.value.trim();
+        if (!text) {
+          errorCopyEl.textContent = "Paste a writing sample before analyzing.";
+          showState("error");
+          return;
+        }
+
+        evaluateEl.disabled = true;
+        evaluateEl.textContent = "Analyzing...";
+        showState("loading");
+
+        try {
+          const response = await fetch("/evaluate", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({text, model: modelEl?.value || "local"}),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "The analysis failed.");
+          latestData = data;
+          renderReport(data);
+          showState("results");
+          if (responseDebugEl) responseDebugEl.textContent = JSON.stringify(data, null, 2);
+          if (copyJsonEl) copyJsonEl.disabled = false;
+          if (downloadJsonEl) downloadJsonEl.disabled = false;
+        } catch (error) {
+          errorCopyEl.textContent = error.message;
+          showState("error");
+        } finally {
+          evaluateEl.disabled = false;
+          evaluateEl.textContent = "Analyze text";
+        }
+      }
+
+      function reset() {
+        textEl.value = "";
+        samplesEl.value = "";
+        latestData = null;
+        updateLiveStats();
+        showState("empty");
+        if (responseDebugEl) responseDebugEl.textContent = "{}";
+        if (copyJsonEl) copyJsonEl.disabled = true;
+        if (downloadJsonEl) downloadJsonEl.disabled = true;
+        textEl.focus();
+      }
+
+      samplesEl.addEventListener("change", () => {
+        if (!samplesEl.value) return;
+        textEl.value = samplesEl.value;
+        updateLiveStats();
+      });
+      textEl.addEventListener("input", updateLiveStats);
+      evaluateEl.addEventListener("click", evaluate);
+      resetEl.addEventListener("click", reset);
+      textEl.addEventListener("keydown", event => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") evaluate();
+      });
+
+      if (copyJsonEl) {
+        copyJsonEl.addEventListener("click", async () => {
+          if (!latestData) return;
+          await navigator.clipboard.writeText(JSON.stringify(latestData, null, 2));
+        });
+      }
+
+      if (downloadJsonEl) {
+        downloadJsonEl.addEventListener("click", () => {
+          if (!latestData) return;
+          const blob = new Blob([JSON.stringify(latestData, null, 2)], {type: "application/json"});
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = "texttraits-analysis.json";
+          link.click();
+          URL.revokeObjectURL(link.href);
+        });
+      }
+
+      updateLiveStats();
+    </script>
+  </body>
+</html>

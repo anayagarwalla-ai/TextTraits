@@ -1,6 +1,7 @@
 {
-  "runtime_model_path": "C:\\Users\\simsa\\OneDrive\\Desktop\\TextTraits\\TextTraits\\texttraits_app\\models\\texttraits_inference_bundle.joblib",
-  "source_training_artifact": "C:\\Users\\simsa\\OneDrive\\Desktop\\TextTraits\\TextTraits\\texttraits_app\\artifacts\\texttraits_model.joblib",
+  "runtime_model_path": "texttraits_app/models/texttraits_inference_bundle.joblib",
+  "source_training_artifact": "texttraits_app/artifacts/texttraits_model.joblib",
+  "source_training_artifact_included": false,
   "vectorizer": "TfidfVectorizer",
   "models": {
     "gender": "LogisticRegression",
@@ -13,7 +14,7 @@
     "age_estimate": "Ridge"
   },
   "metrics": {
-    "data_path": "C:\\Users\\simsa\\OneDrive\\Desktop\\TextTraits\\TextTraits\\legacy_project\\Data\\pandora_big_info.csv",
+    "dataset_note": "Trained from a local PANDORA-derived research export. Raw datasets are not included in this repository.",
     "rows_sampled": 120000,
     "vectorizer_features": 60000,
     "gender": {
@@ -111,7 +112,7 @@
     "gender": {
       "m": "male",
       "f": "female",
-      "t": "trans/other label in source data"
+      "t": "trans/other source label"
     },
     "age_bucket": "under 25, 25-34, or 35+",
     "mbti": "16-class MBTI type prediction plus the four binary MBTI dimensions"

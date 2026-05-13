@@ -50,6 +50,7 @@ MBTI_LABELS = {
 
 class TextTraitsPredictor:
     def __init__(self, model_path: Path | str = DEFAULT_MODEL_PATH) -> None:
+        self.is_demo = False
         self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(
