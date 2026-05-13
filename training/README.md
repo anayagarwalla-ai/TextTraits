@@ -24,6 +24,33 @@ drive.mount("/content/drive/")
 !python training/colab_one_shot_export.py
 ```
 
+## Better Logged Colab Command
+
+If a run appears frozen, use the logged trainer. It starts with faster model
+candidates, prints heartbeat/memory logs during long fits, and writes checkpoint
+artifacts after each completed target.
+
+```python
+from google.colab import drive
+drive.mount("/content/drive/")
+
+!git clone https://github.com/csboi/TextTraits.git
+%cd TextTraits
+!python training/colab_one_shot_export_logged.py --candidate-profile balanced --selection-sample 500000
+```
+
+For a very fast debugging run:
+
+```python
+!python training/colab_one_shot_export_logged.py --candidate-profile fast --selection-sample 200000 --no-full-refit
+```
+
+For a slower maximum-search run:
+
+```python
+!python training/colab_one_shot_export_logged.py --candidate-profile heavy --selection-sample 1000000
+```
+
 For a faster smoke test:
 
 ```python
@@ -43,6 +70,9 @@ Expected files:
 - `texttraits_full_metrics.csv`: candidate-by-candidate validation metrics.
 - `texttraits_linear_js_bundle.json.gz`: portable linear model data for future
   JavaScript/browser-extension inference.
+- `texttraits_checkpoint_latest.joblib`: partial checkpoint from the logged
+  trainer after the latest completed target.
+- `texttraits_checkpoint_state.json`: checkpoint state and completed targets.
 
 The JS bundle is intentionally a data export, not a finished JS runtime. It
 contains TF-IDF vocabularies, IDF values, linear coefficients, intercepts, class
