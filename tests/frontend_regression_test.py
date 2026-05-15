@@ -53,7 +53,7 @@ def main() -> int:
     enterprise_requirements = (
         "Today's work",
         "Review queue",
-        "Copy Variant",
+        "Copy draft",
         "CSV",
         "CRM setup",
         "Email setup",

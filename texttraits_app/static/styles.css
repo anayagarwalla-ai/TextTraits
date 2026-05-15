@@ -44,6 +44,7 @@ body {
   color: var(--ink);
   font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
   background: linear-gradient(135deg, #fbfcfb 0%, #eef5f0 58%, #f8f1e6 100%);
+  overflow-x: hidden;
 }
 
 button, input, textarea, select {
@@ -120,6 +121,7 @@ button:disabled {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 10px;
+  overflow-x: clip;
 }
 
 body.app-compact .app-shell {
@@ -204,6 +206,7 @@ body.has-work .topbar {
   padding: 10px;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 10px 30px rgba(17, 19, 24, 0.05);
+  min-width: 0;
 }
 
 .account-card {
@@ -318,6 +321,9 @@ body.has-work .topbar {
   color: var(--muted);
   padding: 8px 12px;
   font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   transition: none;
 }
@@ -325,9 +331,9 @@ body.has-work .topbar {
 .mode-switch button[aria-pressed="true"],
 .mini-tabs button[aria-selected="true"] {
   border-color: var(--line);
-  background: var(--ink);
-  color: #fff;
-  box-shadow: 0 8px 18px rgba(17, 19, 24, 0.12);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  box-shadow: 0 8px 18px rgba(17, 19, 24, 0.1);
 }
 
 .persona-strip {
@@ -344,7 +350,7 @@ body.has-work .topbar {
 .guide-card,
 .strategy-card,
 .sample-card {
-  border: 1px solid var(--line);
+  border: 1px solid rgba(216, 226, 220, 0.78);
   border-radius: var(--radius);
   background: var(--panel);
 }
@@ -406,7 +412,7 @@ body.enterprise-collapsed .input-panel {
 
 .input-panel,
 .output-panel {
-  min-height: 560px;
+  min-height: 520px;
   padding: 18px;
 }
 
@@ -474,22 +480,28 @@ h3 { font-size: 16px; }
 }
 
 body[data-mode="enterprise"] #generate-enterprise,
-body[data-mode="enterprise"] [data-copy-email],
 body[data-mode="enterprise"] [data-save-campaign],
 body[data-mode="enterprise"] .enterprise-actions > button:not(.button-secondary),
 body[data-mode="enterprise"] .next-step-card button,
 body[data-mode="enterprise"] .today-grid button {
-  background: #3a4050;
+  background: #4a5263;
   box-shadow: none;
 }
 
 body[data-mode="enterprise"] #generate-enterprise:hover:not(:disabled),
-body[data-mode="enterprise"] [data-copy-email]:hover:not(:disabled),
 body[data-mode="enterprise"] [data-save-campaign]:hover:not(:disabled),
 body[data-mode="enterprise"] .enterprise-actions > button:not(.button-secondary):hover:not(:disabled),
 body[data-mode="enterprise"] .next-step-card button:hover:not(:disabled),
 body[data-mode="enterprise"] .today-grid button:hover:not(:disabled) {
-  background: #171b22;
+  background: #262c38;
+}
+
+body[data-mode="enterprise"] .button-secondary,
+body[data-mode="enterprise"] .action-menu summary,
+body[data-mode="enterprise"] .workspace-toolbar > button {
+  border-color: #d9dee7;
+  background: rgba(255, 255, 255, 0.88);
+  color: #252b36;
 }
 
 .field-grid,
@@ -729,14 +741,14 @@ body[data-mode="enterprise"] .empty-hero {
 
 .empty-hero h2,
 .result-header h2 {
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 32px;
-  line-height: 1.1;
+  font-family: "Aptos Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 28px;
+  line-height: 1.08;
 }
 
 body[data-mode="enterprise"] .result-header h2 {
   font-family: "Aptos Display", "Segoe UI", system-ui, sans-serif;
-  font-size: 28px;
+  font-size: 26px;
 }
 
 .guide-grid,
@@ -943,6 +955,18 @@ body[data-mode="enterprise"] .result-header h2 {
   margin-top: 4px;
 }
 
+.coach-card > .label,
+.one-action-card > .label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.coach-card > strong,
+.one-action-card > strong {
+  display: block;
+  margin-top: 0;
+}
+
 .daily-card p,
 .writing-log-card p {
   margin: 7px 0 0;
@@ -975,6 +999,11 @@ body[data-mode="enterprise"] .result-header h2 {
 
 .profile-preview-card {
   background: linear-gradient(135deg, #fff, #f6fbf8);
+}
+
+.one-action-card {
+  max-width: 720px;
+  background: linear-gradient(135deg, #fff, #f7fbf8);
 }
 
 .prompt-library {
@@ -1252,7 +1281,7 @@ body[data-mode="enterprise"] .result-header h2 {
 
 .workspace-tabs {
   padding: 5px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(205, 211, 220, 0.82);
   border-radius: 999px;
   background: #f7f8fa;
 }
@@ -1266,7 +1295,7 @@ body[data-mode="enterprise"] .result-header h2 {
   border-color: #c6ccd6;
   background: #fff;
   color: var(--ink);
-  box-shadow: 0 10px 22px rgba(17, 19, 24, 0.08);
+  box-shadow: 0 8px 18px rgba(17, 19, 24, 0.07);
 }
 
 .tab-panel {
@@ -1543,7 +1572,7 @@ body[data-mode="enterprise"] .result-header h2 {
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .workspace-toolbar > button,
@@ -1555,6 +1584,34 @@ body[data-mode="enterprise"] .result-header h2 {
   flex: 1 1 220px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.quality-summary,
+.editor-secondary-actions,
+.analytics-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.quality-summary summary,
+.editor-secondary-actions summary,
+.analytics-section summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.quality-summary[open],
+.editor-secondary-actions[open],
+.analytics-section[open] {
+  display: grid;
+  gap: 10px;
+}
+
+.analytics-section {
+  background: rgba(255, 255, 255, 0.58);
 }
 
 .toolbar-menu {
@@ -2473,9 +2530,14 @@ body.enterprise-collapsed .project-sidebar {
 }
 
 .footer-note {
+  display: none;
   color: var(--quiet);
   font-size: 12px;
   text-align: right;
+}
+
+body.is-local-runtime .footer-note {
+  display: block;
 }
 
 .dev-tools {
@@ -2542,13 +2604,58 @@ body.enterprise-collapsed .project-sidebar {
   }
 
   .app-shell {
-    width: min(100% - 20px, 1280px);
-    padding-top: 10px;
-    gap: 10px;
+    width: calc(100% - 16px);
+    padding-top: 8px;
+    gap: 8px;
+    overflow-x: hidden;
+  }
+
+  .topbar,
+  body.app-compact .topbar,
+  body[data-mode="enterprise"] .topbar {
+    grid-template-columns: 1fr !important;
+    gap: 8px;
+  }
+
+  .brand-block {
+    min-width: 0;
+  }
+
+  .mode-card {
+    width: 100%;
+    padding: 8px;
+    border-radius: 14px;
+  }
+
+  .account-card {
+    justify-items: stretch;
+  }
+
+  .account-menu,
+  .sync-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mode-card p,
+  .brand-block p:last-child {
+    display: none;
+  }
+
+  .mode-switch {
+    grid-auto-flow: initial;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mode-switch button {
+    padding: 7px 8px;
+    font-size: 12px;
   }
 
   h1 {
-    font-size: 24px;
+    max-width: 320px;
+    font-size: 22px;
+    line-height: 1.05;
   }
 
   body.has-work h1 {
@@ -2561,11 +2668,6 @@ body.enterprise-collapsed .project-sidebar {
 
   body.has-work .mode-card {
     padding: 8px;
-  }
-
-  .brand-block p:last-child,
-  .mode-card p {
-    font-size: 13px;
   }
 
   body[data-mode="enterprise"] .topbar {
@@ -2589,6 +2691,7 @@ body.enterprise-collapsed .project-sidebar {
   .input-panel,
   .output-panel {
     padding: 12px;
+    min-height: auto;
   }
 
   body.has-work .input-panel {
@@ -2657,7 +2760,7 @@ body.enterprise-collapsed .project-sidebar {
 
   .grouped-tabs,
   .tool-switcher {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .grouped-tabs button,
@@ -2666,8 +2769,13 @@ body.enterprise-collapsed .project-sidebar {
     font-size: 11px;
   }
 
-  .project-sidebar {
+  .project-sidebar,
+  body.enterprise-collapsed .project-sidebar {
     display: none;
+  }
+
+  body.enterprise-collapsed .enterprise-workspace-grid {
+    grid-template-columns: 1fr;
   }
 
   .campaign-summary-bar {
@@ -2714,6 +2822,7 @@ body.enterprise-collapsed .project-sidebar {
   .workspace-toolbar {
     align-items: stretch;
     gap: 6px;
+    padding: 6px;
   }
 
   .workspace-toolbar button,
@@ -2749,7 +2858,7 @@ body.enterprise-collapsed .project-sidebar {
   }
 
   textarea {
-    min-height: 180px;
+    min-height: 150px;
     font-size: 14px;
   }
 
@@ -2783,11 +2892,19 @@ body.enterprise-collapsed .project-sidebar {
   body[data-mode="enterprise"] .guide-card,
   body[data-mode="enterprise"] .advanced-card,
   body[data-mode="enterprise"] .metric-card {
-    padding: 11px;
+    padding: 10px;
+  }
+
+  body[data-mode="enterprise"] .primary-context {
+    margin-top: 2px;
   }
 
   body[data-mode="enterprise"] .flow-path article:nth-child(n+4),
   body[data-mode="enterprise"] .preview-note {
+    display: none;
+  }
+
+  body.is-local-runtime .footer-note {
     display: none;
   }
 

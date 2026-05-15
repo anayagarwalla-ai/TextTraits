@@ -42,7 +42,7 @@ def main() -> int:
     app_js = client.get("/static/app.js")
     assert_true(app_js.status_code == 200, f"app.js returned {app_js.status_code}")
     js = app_js.get_data(as_text=True)
-    assert_true("Core campaign context" in js, "enterprise campaign context missing")
+    assert_true("Campaign basics" in js, "enterprise campaign context missing")
     assert_true("Generated email draft" in js, "enterprise draft path missing")
     assert_true("{{first_name}}" in js, "merge field placeholder missing")
     assert_true("Copy subject lines" in js, "subject copy action missing")

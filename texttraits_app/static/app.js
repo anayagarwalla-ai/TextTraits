@@ -23,7 +23,7 @@ const state = {
   latestData: null,
   latestText: "",
   compareText: "",
-  activeExplorerTab: "overview",
+  activeExplorerTab: "style",
   activeEnterpriseTab: "dashboard",
   activeEnterpriseTool: "batch",
   activeChannel: "email",
@@ -188,13 +188,34 @@ const industryPlaybooks = [
 ];
 
 const dailyPrompts = [
-  "Write five sentences about one thing you understood better today.",
-  "Explain a decision you made today as if you were telling a friend.",
-  "Describe a problem you are working through without trying to solve it yet.",
-  "Write a short note about something that felt harder than expected.",
-  "Summarize one idea you want to remember tomorrow.",
-  "Rewrite a message you sent today so it sounds clearer and kinder.",
-  "Describe what you noticed today in plain, specific language.",
+  {
+    title: "One thing you understood better today",
+    sample: "Today I understood that the problem was not the amount of work in front of me, but the way I was trying to hold every detail at once. Once I wrote down the next two decisions, the whole situation felt calmer and easier to explain to someone else.",
+  },
+  {
+    title: "A decision you made today",
+    sample: "I decided to slow down and ask for one clearer example before moving forward. I had enough information to guess, but guessing would probably create more work later. The better choice was to name what I did not understand yet and make the next step smaller.",
+  },
+  {
+    title: "A problem you are working through",
+    sample: "I am trying to work through a problem that has too many possible starting points. The goal is clear, but the path still feels messy. I think the next useful move is to separate what matters today from what can wait, then explain that decision simply.",
+  },
+  {
+    title: "Something harder than expected",
+    sample: "Something felt harder than expected today because I kept treating a small mistake like proof that the whole plan was weak. When I looked again, the mistake was specific and fixable. I want my next message to sound honest without making the situation feel bigger than it is.",
+  },
+  {
+    title: "One idea to remember tomorrow",
+    sample: "The idea I want to remember tomorrow is that clarity usually comes from removing one extra thought, not adding three new explanations. If I can say the main point first, then give one example and one next step, the message becomes easier to trust.",
+  },
+  {
+    title: "A message that could be clearer and kinder",
+    sample: "I want to rewrite a message so it sounds clearer and kinder. The original version explains the issue, but it may feel sharper than I intend. I want to keep the boundary, remove the extra frustration, and make the next step obvious for the other person.",
+  },
+  {
+    title: "Something you noticed today",
+    sample: "Today I noticed that people responded better when I gave the reason before the request. The request did not change, but the context made it feel less abrupt. That is a useful reminder: a short explanation can make a practical message feel more respectful.",
+  },
 ];
 
 const consumerPromptLibrary = [
@@ -403,7 +424,7 @@ const campaignCards = [
 
 const tiers = [
   ["Free Explorer", "Single-sample analysis, style map, and technical readout."],
-  ["Enterprise Preview", "Campaign briefs, variants, exports, and team workflow placeholders."],
+  ["Enterprise Workspace", "Campaign briefs, variants, exports, and team review screens."],
   ["Enterprise Team", "Coming soon: SSO, admin settings, API keys, usage analytics, and approvals."],
 ];
 
@@ -466,13 +487,21 @@ function dailyPrompt() {
   return dailyPrompts[day % dailyPrompts.length];
 }
 
+function dailyPromptTitle() {
+  return dailyPrompt().title || dailyPrompt();
+}
+
+function dailyPromptSample() {
+  return dailyPrompt().sample || dailyPrompt();
+}
+
 function setMode(mode) {
   state.mode = mode;
   state.latestData = null;
   state.latestText = "";
   state.enterpriseDrafts = [];
   state.campaignSaved = false;
-  state.activeExplorerTab = "overview";
+  state.activeExplorerTab = "style";
   state.activeEnterpriseTab = "dashboard";
   state.activeEnterpriseTool = "batch";
   els.body.dataset.mode = mode;
@@ -489,7 +518,7 @@ function renderModeChrome() {
   if (state.mode === "enterprise") {
     els.heroTitle.textContent = state.latestData ? "Enterprise" : "Outreach workspace.";
     els.heroSubtitle.textContent = state.latestData ? "Drafts, queues, replies, and exports." : "Review drafts, reply queues, batches, and exports from one focused workspace.";
-    els.modeNote.textContent = "Enterprise Preview keeps integrations clearly marked until real accounts are connected.";
+    els.modeNote.textContent = "Enterprise keeps integrations visibly disabled until real accounts are connected.";
     els.personaStrip.setAttribute("hidden", "");
     els.personaStrip.innerHTML = "";
     return;
@@ -497,7 +526,7 @@ function renderModeChrome() {
 
   els.heroTitle.textContent = state.latestData ? "Explorer" : "Write a little clearer every day.";
   els.heroSubtitle.textContent = state.latestData ? "One paragraph, one plain read, one better draft." : "A simple daily writing coach for turning one paragraph into one useful next edit.";
-  els.modeNote.textContent = "Explorer is for personal writing. Enterprise is a separate outreach workspace preview.";
+  els.modeNote.textContent = "Explorer is for personal writing. Enterprise is a separate outreach workspace.";
   els.personaStrip.setAttribute("hidden", "");
   els.personaStrip.innerHTML = "";
 }
@@ -523,6 +552,7 @@ function renderAccountCard() {
       </details>
     `;
   } else {
+    const demoButton = config.devTools ? `<button class="button-secondary" type="button" data-demo-account>Use demo sync</button>` : "";
     els.accountCard.innerHTML = `
       <details class="account-menu">
         <summary><span class="avatar-dot">?</span><span>Sign in</span></summary>
@@ -532,9 +562,9 @@ function renderAccountCard() {
           <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" placeholder="you@example.com"></label>
           <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 8 characters"></label>
           <div class="auth-actions">
-            <button type="button" data-signup>Create sync account</button>
+            <button type="button" data-signup>Create account</button>
             <button class="button-secondary" type="button" data-login>Sign in</button>
-            <button class="button-secondary" type="button" data-demo-account>Use demo sync</button>
+            ${demoButton}
             <button class="button-secondary" type="button" data-request-reset>Reset password</button>
           </div>
         </div>
@@ -679,7 +709,7 @@ function renderExplorerInput() {
     <div class="daily-card">
       <div>
         <span class="label">Today's prompt</span>
-        <strong>${escapeHtml(dailyPrompt())}</strong>
+        <strong>${escapeHtml(dailyPromptTitle())}</strong>
         <p>${escapeHtml(explorerLogSummary())} ${explorerStreak() ? `${explorerStreak()}-day streak.` : "Start a streak with today's reading."}</p>
       </div>
       <button class="button-secondary" type="button" data-use-daily-prompt>Use prompt</button>
@@ -772,7 +802,7 @@ function renderEnterpriseInput() {
         <h2>Campaign setup</h2>
         <p class="helper">Start with the prospect's words and a plain description of what you sell. Add advanced context only when you need it.</p>
       </div>
-      <span class="preview-badge">Enterprise Preview</span>
+      <span class="preview-badge">Setup required</span>
     </div>
 
     <div class="field">
@@ -787,18 +817,18 @@ function renderEnterpriseInput() {
     <div class="meter"><span id="enterprise-meter"></span></div>
 
     <div class="guide-card primary-context compact-context">
-      <strong>Core campaign context</strong>
+      <strong>Campaign basics</strong>
       <div class="enterprise-field-grid field-grid-spaced compact-enterprise-fields">
         ${field("project", "Campaign name", ctx.project || "Q3 pipeline quality")}
         ${field("offer", "What do you sell?", ctx.offer || "Revenue workflow software")}
-        ${field("role", "Who are you writing to?", ctx.role || "VP Revenue")}
-        ${selectField("goal", "Campaign goal", goals, ctx.goal)}
       </div>
     </div>
 
     <details class="advanced-card">
       <summary>Edit setup</summary>
       <div class="enterprise-field-grid">
+        ${field("role", "Who are you writing to?", ctx.role || "VP Revenue")}
+        ${selectField("goal", "Campaign goal", goals, ctx.goal)}
         ${field("folder", "Folder", ctx.folder || "RevOps")}
         ${field("company", "Your company", ctx.company || "Northstar Analytics")}
         ${field("pain", "Pain hypothesis", ctx.pain || "forecast risk and manager visibility")}
@@ -868,6 +898,7 @@ function selectField(id, label, values, selected = "") {
 
 function renderExplorerEmpty() {
   const profile = explorerProfileSummary();
+  const hasJournal = state.explorerHistory.length >= 2;
   els.outputPanel.innerHTML = `
     <div class="empty-layout fade-in calm-empty">
       <div class="empty-hero coaching-empty">
@@ -876,6 +907,7 @@ function renderExplorerEmpty() {
         <p class="muted">Explorer will keep the first read simple: how it sounds, what is already working, and one next edit.</p>
       </div>
 
+      ${hasJournal ? `
       <div class="daily-product-grid daily-home-focus">
         <article class="guide-card profile-preview-card">
           <span class="label">${escapeHtml(profile.title)}</span>
@@ -888,6 +920,13 @@ function renderExplorerEmpty() {
           <p>Save a few short readings to see how your writing changes over time.</p>
         </article>
       </div>
+      ` : `
+      <article class="guide-card one-action-card">
+        <span class="label">First step</span>
+        <strong>Paste writing or use today’s prompt.</strong>
+        <p>After the first read, Explorer will show one practical rewrite and keep the deeper details tucked away.</p>
+      </article>
+      `}
 
       ${renderOnboardingCard("explorer")}
 
@@ -920,7 +959,7 @@ function renderEnterpriseEmpty() {
   els.outputPanel.innerHTML = `
     <div class="empty-layout fade-in enterprise-empty calm-enterprise-home">
       <div class="empty-hero enterprise-home-hero">
-        <span class="preview-badge">Preview workspace</span>
+        <span class="preview-badge">Workspace</span>
         <h2>Today’s work</h2>
         <p class="muted">One operating loop: import prospects, generate drafts, review the queue, export, then track outcomes.</p>
       </div>
@@ -953,7 +992,7 @@ function renderEnterpriseEmpty() {
       ${renderOnboardingCard("enterprise")}
 
       <details class="advanced-card preview-note">
-        <summary>Integrations and admin preview</summary>
+        <summary>Integration setup and admin</summary>
         <div class="campaign-grid">
         ${state.savedCampaigns.map((campaign) => `
           <article class="project-card">
@@ -980,7 +1019,7 @@ function renderEnterpriseEmpty() {
             "Team comments and approvals",
             "Learn from winning replies",
             "Manager coaching dashboard",
-          ].map((item) => `<span>${escapeHtml(item)} / preview</span>`).join("")}
+          ].map((item) => `<span>${escapeHtml(item)} / setup</span>`).join("")}
         </div>
       </details>
     </div>
@@ -1412,7 +1451,10 @@ function renderExplorerResult(data) {
   const currentClarity = clarityScore(stats, strongestRow);
   const rewritePreview = makeExplorerRewrite(state.latestText, state.explorerRewriteMode);
   if (!["overview", "style", "rewrite", "technical"].includes(state.activeExplorerTab)) {
-    state.activeExplorerTab = "overview";
+    state.activeExplorerTab = "style";
+  }
+  if (state.activeExplorerTab === "overview" || state.activeExplorerTab === "rewrite") {
+    state.activeExplorerTab = "style";
   }
 
   els.outputPanel.innerHTML = `
@@ -1420,13 +1462,12 @@ function renderExplorerResult(data) {
       <div class="result-header">
         <div>
           <p class="label">Explorer coach</p>
-          <h2>Your first read.</h2>
-          <p class="muted">${stats.words} words analyzed. Start with how it comes across, then choose one rewrite.</p>
+          <h2>How this comes across.</h2>
+          <p class="muted">${stats.words} words analyzed. Start with the plain read, then choose one small rewrite.</p>
         </div>
         <div class="toolbar">
           <button class="button-secondary" data-edit-explorer-input>Edit input</button>
-          <button class="button-secondary" data-copy-summary>Copy summary</button>
-          <button class="button-secondary" data-new-sample>Try another sample</button>
+          <button class="button-secondary" data-new-sample>Analyze another piece</button>
         </div>
       </div>
 
@@ -1437,7 +1478,7 @@ function renderExplorerResult(data) {
           <p>${escapeHtml(summary)}</p>
           <div class="friendly-score">
             <strong>${escapeHtml(clarityBand(currentClarity))}</strong>
-            <span>${currentClarity}/100 / ${stats.words} words / ${escapeHtml(streakCopy())}</span>
+            <span>${stats.words} words / ${escapeHtml(streakCopy())}</span>
           </div>
           <details class="feedback-menu">
             <summary>Give feedback</summary>
@@ -1464,6 +1505,7 @@ function renderExplorerResult(data) {
           <div class="result-actions">
             <button type="button" data-copy-rewrite>Copy rewrite</button>
             <button class="button-secondary" type="button" data-save-reading>Save reading</button>
+            <button class="button-secondary" data-copy-summary>Copy summary</button>
           </div>
         </article>
       </div>
@@ -1493,10 +1535,8 @@ function renderExplorerResult(data) {
       </details>
 
       <nav class="tabs" role="tablist" aria-label="Explorer result sections">
-        ${tabButton("overview", "More details", state.activeExplorerTab)}
         ${tabButton("style", "What stands out", state.activeExplorerTab)}
-        ${tabButton("rewrite", "Rewrite", state.activeExplorerTab)}
-        ${tabButton("technical", "Details", state.activeExplorerTab)}
+        ${tabButton("technical", "Technical details", state.activeExplorerTab)}
       </nav>
 
       <div id="panel-${state.activeExplorerTab}" class="tab-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeExplorerTab}">
@@ -1546,7 +1586,7 @@ function renderExplorerResult(data) {
       const before = state.latestText;
       const after = makeExplorerRewrite(state.latestText, button.dataset.explorerRewrite);
       recordVersion("Explorer rewrite", button.textContent.trim(), before, after, `${button.textContent.trim()} generated`);
-      state.activeExplorerTab = "rewrite";
+      state.activeExplorerTab = "style";
       state.explorerRewriteMode = button.dataset.explorerRewrite;
       renderExplorerResult(data);
       showToast(els.outputPanel.querySelector(`[data-explorer-rewrite="${button.dataset.explorerRewrite}"]`) || button, `${button.textContent.trim()} version ready.`);
@@ -1555,7 +1595,7 @@ function renderExplorerResult(data) {
   els.outputPanel.querySelectorAll("[data-rewrite-goal]").forEach((button) => {
     button.addEventListener("click", () => {
       state.explorerRewriteGoal = button.dataset.rewriteGoal;
-      state.activeExplorerTab = "rewrite";
+      state.activeExplorerTab = "style";
       trackEvent("explorer_rewrite_goal", {goal: state.explorerRewriteGoal});
       persistWorkspace();
       renderExplorerResult(data);
@@ -1990,9 +2030,8 @@ function renderEnterpriseResult(data) {
       </div>
 
       <div class="workspace-toolbar">
-        <button data-copy-email>Copy Variant ${escapeHtml(active?.key || "A")} email</button>
         <details class="action-menu">
-          <summary>Send / export</summary>
+          <summary>Export</summary>
           <div>
             <button class="button-secondary" data-export-csv>Export CSV</button>
             <button class="button-secondary" data-copy-all>Copy campaign brief</button>
@@ -2040,7 +2079,6 @@ function renderEnterpriseResult(data) {
 
   const allText = enterpriseBriefText(context, variants, angles, sequence);
   bindCopy("[data-copy-all]", allText, "Enterprise brief copied.");
-  bindCopy("[data-copy-email]", draftText(active), "Selected email copied.");
   bindCopy("[data-copy-subjects]", variants.map((draft) => draft.subject).join("\\n"), "Subject lines copied.");
   els.outputPanel.querySelector("[data-export-csv]").addEventListener("click", (event) => {
     const validation = validateMergeFields(variants);
@@ -2516,9 +2554,7 @@ function draftsWorkspace(context, variants) {
     <div class="drafts-workspace">
       <aside class="review-queue">
         <strong>Review queue</strong>
-        <div class="queue-status-row">
-          ${["Needs review", "Approved", "Exported", "Sent", "Replied", "Booked"].map((status) => `<span>${escapeHtml(status)}</span>`).join("")}
-        </div>
+        <p class="muted tiny-copy">Pick a draft, polish it, then approve or export.</p>
         ${variants.map((item) => `
           <button type="button" data-select-variant="${item.key}" aria-pressed="${String(item.key === draft.key)}">
             <span>Variant ${escapeHtml(item.key)}${item.key === best?.key ? " / best" : ""}</span>
@@ -2547,19 +2583,27 @@ function draftsWorkspace(context, variants) {
           </div>
           <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
           <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
-          <div class="score-strip comparison-score compact-score-strip">
-            ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(scoreLabel(label))}</span>`).join("")}
-          </div>
-          <div class="result-actions">
+          <details class="quality-summary">
+            <summary>Quality check: ${averageScore(draft)} overall</summary>
+            <div class="score-strip comparison-score compact-score-strip">
+              ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(scoreLabel(label))}</span>`).join("")}
+            </div>
+          </details>
+          <div class="result-actions editor-primary-actions">
             <button type="button" data-copy-text="${escapeHtml(draftText(draft))}">Copy draft</button>
             <button class="button-secondary" type="button" data-approve-draft="${draft.key}">Approve</button>
+            <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
+            <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
+          </div>
+          <details class="editor-secondary-actions">
+            <summary>More status actions</summary>
+            <div class="result-actions">
             <button class="button-secondary" type="button" data-export-draft="${draft.key}">Mark exported</button>
             <button class="button-secondary" type="button" data-outcome="sent">Mark sent</button>
             <button class="button-secondary" type="button" data-outcome="replied">Mark replied</button>
             <button class="button-secondary" type="button" data-outcome="booked">Mark booked</button>
-            <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
-            <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
-          </div>
+            </div>
+          </details>
           <details class="feedback-menu">
             <summary>Draft feedback</summary>
             ${feedbackButtons("Enterprise draft")}
@@ -2814,41 +2858,50 @@ function analyticsWorkspace(context, angles) {
         <strong>Reply outcome tracking</strong>
         ${outcomeGrid()}
       </article>
-      <article class="strategy-card">
-        <strong>CRM import/export status</strong>
-        <p>Integrations stay disabled until credentials, OAuth scopes, and field mappings are configured.</p>
-        ${integrationSetupCards()}
-      </article>
-      <article class="strategy-card">
-        <strong>Export history</strong>
-        ${state.exportHistory.length ? `
-          <div class="export-history">
-            ${state.exportHistory.slice(0, 6).map((item) => `
-              <span><strong>${escapeHtml(item.type)}</strong>${escapeHtml(item.project)} / ${escapeHtml(item.rows)} rows / ${escapeHtml(item.date)}</span>
-            `).join("")}
+      <details class="analytics-section" open>
+        <summary>Outcomes and exports</summary>
+        <article class="strategy-card">
+          <strong>Export history</strong>
+          ${state.exportHistory.length ? `
+            <div class="export-history">
+              ${state.exportHistory.slice(0, 6).map((item) => `
+                <span><strong>${escapeHtml(item.type)}</strong>${escapeHtml(item.project)} / ${escapeHtml(item.rows)} rows / ${escapeHtml(item.date)}</span>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">No exports yet. Export a campaign or batch to start the audit trail.</p>`}
+        </article>
+      </details>
+      <details class="analytics-section">
+        <summary>Integrations and admin</summary>
+        <article class="strategy-card">
+          <strong>CRM import/export status</strong>
+          <p>Integrations stay disabled until credentials, OAuth scopes, and field mappings are configured.</p>
+          ${integrationSetupCards()}
+        </article>
+        <article class="strategy-card">
+          <strong>Admin controls</strong>
+          <p>Workspace settings, seats, permissions, SSO, API keys, approved assets, and audit logs are represented here for production rollout.</p>
+          <div class="admin-grid">
+            ${summaryItem("Workspace", state.adminSettings.workspaceName)}
+            ${summaryItem("Seats", `${state.adminSettings.seats}`)}
+            ${summaryItem("SSO", state.adminSettings.sso)}
+            ${summaryItem("API key", state.adminSettings.apiKey)}
+            ${summaryItem("Retention", state.adminSettings.retention)}
+            ${summaryItem("Audit log", state.adminSettings.auditLog)}
           </div>
-        ` : `<p class="muted">No exports yet. Export a campaign or batch to start the audit trail.</p>`}
-      </article>
-      <article class="strategy-card">
-        <strong>Admin controls</strong>
-        <p>Workspace settings, seats, permissions, SSO, API keys, approved assets, and audit logs are represented here for production rollout.</p>
-        <div class="admin-grid">
-          ${summaryItem("Workspace", state.adminSettings.workspaceName)}
-          ${summaryItem("Seats", `${state.adminSettings.seats}`)}
-          ${summaryItem("SSO", state.adminSettings.sso)}
-          ${summaryItem("API key", state.adminSettings.apiKey)}
-          ${summaryItem("Retention", state.adminSettings.retention)}
-          ${summaryItem("Audit log", state.adminSettings.auditLog)}
+        </article>
+      </details>
+      <details class="analytics-section">
+        <summary>Coaching and message quality</summary>
+        <div class="detail-grid">
+          <article class="strategy-card"><strong>Message angles ranked by fit</strong>${angles.map(([name, fit, copy]) => `<div class="metric-card"><span class="strength">${fit}% strength</span><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p><p><strong>Why this angle:</strong> It maps directly to the prospect's stated operating concern.</p></div>`).join("")}</article>
+          <article class="strategy-card"><strong>Deliverability checks</strong>${scoreGrid([["Length", 84], ["Links", 96], ["Spam phrasing", 88], ["Personalization", 91]])}<p>Checks include length, links, spammy phrasing, personalization density, merge fields, and unsubscribe token support.</p></article>
+          <article class="strategy-card"><strong>Words to mirror</strong>${tokens(["cleaner signal", "manager visibility", "forecast risk", "operating rhythm", context.pain])}</article>
+          <article class="strategy-card"><strong>Words to avoid</strong>${tokens(["game-changing", "revolutionary", "just checking in", "circle back", "synergy"])}</article>
+          <article class="strategy-card"><strong>Team learning system</strong><p>Winner patterns now influence review guidance and future draft variants.</p><div class="feature-list">${winnerPatterns().map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></article>
+          <article class="strategy-card"><strong>Manager coaching dashboard</strong>${scoreGrid([["Vague CTA", state.feedbackMemory.tooVague + 4], ["Missing proof", 3], ["Too generic", state.feedbackMemory.moreLikeMe + 2], ["Too long", state.feedbackMemory.tooLong + 5]])}<p>Managers can see where drafts need coaching before they reach CRM export.</p></article>
         </div>
-      </article>
-      <div class="detail-grid">
-        <article class="strategy-card"><strong>Message angles ranked by fit</strong>${angles.map(([name, fit, copy]) => `<div class="metric-card"><span class="strength">${fit}% strength</span><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p><p><strong>Why this angle:</strong> It maps directly to the prospect's stated operating concern.</p></div>`).join("")}</article>
-        <article class="strategy-card"><strong>Deliverability checks</strong>${scoreGrid([["Length", 84], ["Links", 96], ["Spam phrasing", 88], ["Personalization", 91]])}<p>Checks include length, links, spammy phrasing, personalization density, merge fields, and unsubscribe token support.</p></article>
-        <article class="strategy-card"><strong>Words to mirror</strong>${tokens(["cleaner signal", "manager visibility", "forecast risk", "operating rhythm", context.pain])}</article>
-        <article class="strategy-card"><strong>Words to avoid</strong>${tokens(["game-changing", "revolutionary", "just checking in", "circle back", "synergy"])}</article>
-        <article class="strategy-card"><strong>Team learning system</strong><p>Winner patterns now influence review guidance and future draft variants.</p><div class="feature-list">${winnerPatterns().map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></article>
-        <article class="strategy-card"><strong>Manager coaching dashboard</strong>${scoreGrid([["Vague CTA", state.feedbackMemory.tooVague + 4], ["Missing proof", 3], ["Too generic", state.feedbackMemory.moreLikeMe + 2], ["Too long", state.feedbackMemory.tooLong + 5]])}<p>Managers can see where drafts need coaching before they reach CRM export.</p></article>
-      </div>
+      </details>
     </div>
   `;
 }
@@ -3115,7 +3168,7 @@ function renderEnterpriseTab(data, context, profile, variants, angles, sequence)
         <article class="strategy-card"><strong>Email quality score</strong>${scoreGrid([["Clarity", 92], ["Specificity", 87], ["CTA strength", 90], ["Skimmability", 86]])}</article>
         <article class="strategy-card"><strong>Exports and integrations</strong><div class="integration-list"><span data-status="connected">CSV connected</span><span data-status="soon">HubSpot coming soon</span><span data-status="soon">Salesforce coming soon</span><span data-status="disabled">Outreach disabled</span><span data-status="disabled">Salesloft disabled</span></div></article>
         <article class="strategy-card"><strong>Merge fields manager</strong>${tokens(["{{first_name}}", "{{company}}", "{{recent_signal}}", "{{pipeline_priority}}", "{{unsubscribe_link}}"])}</article>
-        <article class="strategy-card"><strong>Admin controls</strong><p>Approved claims, proof assets, unsubscribe tokens, API keys, seats, and prompt presets are represented in this workspace preview.</p></article>
+        <article class="strategy-card"><strong>Admin controls</strong><p>Approved claims, proof assets, unsubscribe tokens, API keys, seats, and prompt presets are represented in this workspace setup.</p></article>
       </div>
     </div>
   `;
@@ -3460,7 +3513,7 @@ function wireInput() {
       persistWorkspace();
     });
     document.querySelector("[data-use-daily-prompt]")?.addEventListener("click", () => {
-      input.value = `${dailyPrompt()}\n\n`;
+      input.value = dailyPromptSample();
       input.focus();
       state.latestText = input.value;
       updateInputStats("explorer", input.value);
@@ -3631,7 +3684,7 @@ async function runAnalysis(text) {
     state.campaignSaved = false;
     state.lastActionNote = "Next: review the recommended draft, then approve or export.";
   } else {
-    state.activeExplorerTab = "overview";
+    state.activeExplorerTab = "style";
     state.explorerSavedMessage = "";
   }
   els.outputPanel.innerHTML = `<div class="empty-hero fade-in"><span class="status-pill">Analyzing</span><h2>Building the ${state.mode === "enterprise" ? "campaign brief" : "model reading"}...</h2><p class="muted">The local model is reading the submitted language.</p></div>`;
@@ -3683,7 +3736,9 @@ renderModeChrome();
 els.modeExplorer.addEventListener("click", () => setMode("explorer"));
 els.modeEnterprise.addEventListener("click", () => setMode("enterprise"));
 
-if (["127.0.0.1", "localhost", "::1"].includes(window.location.hostname)) {
+const isLocalRuntime = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+els.body.classList.toggle("is-local-runtime", isLocalRuntime);
+if (isLocalRuntime) {
   els.runtimeLabel.textContent = "Local run:";
 } else {
   els.runtimeLabel.textContent = "Deployment:";
