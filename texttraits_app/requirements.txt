@@ -1,5 +1,8 @@
 flask
+gunicorn
 joblib
 numpy
 pandas
+psycopg[binary]
 scikit-learn
+sentry-sdk[flask]

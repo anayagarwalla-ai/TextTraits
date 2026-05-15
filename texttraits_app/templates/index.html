@@ -27,6 +27,9 @@
         </div>
       </header>
 
+      <section id="account-card" class="account-card" aria-label="Account and sync"></section>
+      <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
       <section id="persona-strip" class="persona-strip" aria-label="Explorer habits">
         <article><strong>Daily check-in</strong><span>Paste one paragraph and get one clear next edit.</span></article>
         <article><strong>Writing journal</strong><span>Save readings and compare how your style changes over time.</span></article>
@@ -56,9 +59,12 @@
     <script>
       window.TEXTTRAITS_CONFIG = {
         devTools: {{ dev_tools_enabled|tojson }},
-        publicModel: {{ public_model_info|tojson }}
+        publicModel: {{ public_model_info|tojson }},
+        app: {{ public_app_info|tojson }}
       };
     </script>
+    <script src="{{ url_for('static', filename='product_config.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='api_client.js') }}" defer></script>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>
 </html>

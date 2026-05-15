@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: texttraits
+    env: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: TEXTTRAITS_ENV
+        value: production
+      - key: ENABLE_DEV_TOOLS
+        value: false
+      - key: TEXTTRAITS_ALLOW_DEMO
+        value: false
+      - key: TEXTTRAITS_SECURE_COOKIES
+        value: true
+      - key: TEXTTRAITS_TRUST_PROXY
+        value: true
+      - key: TEXTTRAITS_LOG_JSON
+        value: true
+      - key: TEXTTRAITS_SECRET_KEY
+        sync: false
+      - key: TEXTTRAITS_PUBLIC_BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: texttraits-postgres
+          property: connectionString
+      - key: TEXTTRAITS_EMAIL_PROVIDER
+        sync: false
+      - key: TEXTTRAITS_FROM_EMAIL
+        sync: false
+      - key: TEXTTRAITS_SMTP_HOST
+        sync: false
+      - key: TEXTTRAITS_SMTP_USERNAME
+        sync: false
+      - key: TEXTTRAITS_SMTP_PASSWORD
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+databases:
+  - name: texttraits-postgres
+    plan: starter
+    databaseName: texttraits
+    user: texttraits
