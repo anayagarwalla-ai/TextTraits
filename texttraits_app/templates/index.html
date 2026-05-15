@@ -63,6 +63,7 @@
         app: {{ public_app_info|tojson }}
       };
     </script>
+    <script src="{{ url_for('static', filename='text_utils.js') }}" defer></script>
     <script src="{{ url_for('static', filename='product_config.js') }}" defer></script>
     <script src="{{ url_for('static', filename='api_client.js') }}" defer></script>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>

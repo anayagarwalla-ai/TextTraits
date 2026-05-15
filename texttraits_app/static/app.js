@@ -1,6 +1,8 @@
 const config = window.TEXTTRAITS_CONFIG || {};
 const apiClient = window.TextTraitsApi;
 const productConfig = window.TextTraitsProduct || {};
+const textUtils = window.TextTraitsUtils || {};
+const {escapeHtml, words, percent, titleCase, localStats, todayKey} = textUtils;
 
 const els = {
   body: document.body,
@@ -129,6 +131,9 @@ const state = {
   tabScroll: {},
   hiddenSensitive: false,
   technicalVisible: false,
+  sampleWorkspaceLoaded: false,
+  accountModalOpen: false,
+  accountError: "",
 };
 
 const STORAGE_KEY = "texttraits.workspace.v2";
@@ -439,49 +444,6 @@ const buyingStages = ["Unaware", "Problem-aware", "Evaluating", "Procurement", "
 const sources = ["Reply", "LinkedIn bio", "Transcript", "Website copy", "Previous email"];
 const regions = ["North America", "EMEA", "APAC", "LATAM", "Global"];
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function words(text) {
-  return text.match(/[A-Za-z0-9']+/g) || [];
-}
-
-function percent(value) {
-  return `${Math.round(Number(value || 0) * 100)}%`;
-}
-
-function titleCase(value) {
-  return String(value || "")
-    .split(/[\s_-]+/)
-    .map((part) => part ? part[0].toUpperCase() + part.slice(1) : "")
-    .join(" ");
-}
-
-function localStats(text) {
-  const wordList = words(text);
-  const punctuation = (text.match(/[^\w\s]/g) || []).length;
-  const characters = text.length;
-  const sentences = text.split(/[.!?]+/).filter((part) => part.trim()).length || 1;
-  const avgSentence = wordList.length ? wordList.length / sentences : 0;
-  return {
-    words: wordList.length,
-    characters,
-    sentences,
-    reading_level: avgSentence < 12 ? "Plain" : avgSentence < 20 ? "Moderate" : "Dense",
-    punctuation_density: characters ? punctuation / characters : 0,
-  };
-}
-
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function dailyPrompt() {
   const start = new Date(new Date().getFullYear(), 0, 0);
   const diff = new Date() - start;
@@ -497,18 +459,40 @@ function dailyPromptSample() {
   return dailyPrompt().sample || dailyPrompt();
 }
 
+function modeFromPath(pathname = window.location.pathname) {
+  const clean = String(pathname || "").replace(/\/+$/, "");
+  if (clean.endsWith("/enterprise")) return "enterprise";
+  if (clean.endsWith("/explorer")) return "explorer";
+  return "";
+}
+
+function productPath(mode) {
+  return mode === "enterprise" ? "/enterprise" : "/explorer";
+}
+
+function updateModeRoute(mode, replace = false) {
+  if (!window.history?.pushState) return;
+  const nextPath = productPath(mode);
+  if (window.location.pathname === nextPath) return;
+  const method = replace ? "replaceState" : "pushState";
+  const query = replace ? window.location.search : "";
+  window.history[method]({mode}, "", `${nextPath}${query}`);
+}
+
 function setMode(mode) {
   state.mode = mode;
   state.latestData = null;
   state.latestText = "";
   state.enterpriseDrafts = [];
   state.campaignSaved = false;
+  state.enterpriseSetupOpen = false;
   state.activeExplorerTab = "style";
   state.activeEnterpriseTab = "dashboard";
   state.activeEnterpriseTool = "batch";
   els.body.dataset.mode = mode;
   els.modeExplorer.setAttribute("aria-pressed", String(mode === "explorer"));
   els.modeEnterprise.setAttribute("aria-pressed", String(mode === "enterprise"));
+  updateModeRoute(mode);
 
   renderModeChrome();
 
@@ -535,56 +519,109 @@ function renderModeChrome() {
 
 function renderAccountCard() {
   if (!els.accountCard) return;
-  if (state.account.authenticated && state.account.user) {
+  const signedIn = state.account.authenticated && state.account.user;
+  const label = signedIn ? (state.account.user.name || "Account") : "Account";
+  const avatar = signedIn
+    ? (state.account.user.name || state.account.user.email || "U").slice(0, 1).toUpperCase()
+    : "TT";
+  const status = signedIn
+    ? `${state.account.workspaceName || "Personal workspace"} / ${state.account.syncStatus || "Synced"}`
+    : "Local workspace";
+  const errorHtml = state.accountError ? `<p class="error-text">${escapeHtml(state.accountError)}</p>` : "";
+
+  if (signedIn) {
     els.accountCard.innerHTML = `
-      <details class="account-menu">
-        <summary><span class="avatar-dot">${escapeHtml((state.account.user.name || state.account.user.email || "U").slice(0, 1).toUpperCase())}</span><span>${escapeHtml(state.account.user.name || "Account")}</span></summary>
-        <div>
-          <span class="label">Cloud sync</span>
-          <strong>${escapeHtml(state.account.workspaceName || "Personal workspace")}</strong>
-          <p>${escapeHtml(state.account.user.email)} / ${escapeHtml(state.account.syncStatus || "Synced")} / ${state.account.user.email_verified ? "Verified" : "Email not verified"}</p>
-        </div>
-        <div class="account-actions">
-          <button class="button-secondary" type="button" data-sync-now>Sync now</button>
-          <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
-          <button class="button-secondary" type="button" data-export-account>Export data</button>
-          <button class="button-secondary" type="button" data-delete-account>Delete account</button>
-          <button class="button-secondary" type="button" data-logout>Sign out</button>
-        </div>
-      </details>
+      <button class="account-trigger" type="button" data-open-account aria-haspopup="dialog" aria-expanded="${String(state.accountModalOpen)}">
+        <span class="avatar-dot">${escapeHtml(avatar)}</span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+      <div class="account-overlay ${state.accountModalOpen ? "is-open" : ""}" ${state.accountModalOpen ? "" : "hidden"} data-account-overlay>
+        <section class="account-sheet" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          <div class="sheet-head">
+            <div>
+              <p class="label">Account</p>
+              <h2 id="account-title">${escapeHtml(label)}</h2>
+              <p class="muted">${escapeHtml(status)} / ${state.account.user.email_verified ? "Email verified" : "Email not verified"}</p>
+            </div>
+            <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
+          </div>
+          ${errorHtml}
+          <div class="account-actions sheet-actions">
+            <button class="button-secondary" type="button" data-sync-now>Sync now</button>
+            <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
+            <button class="button-secondary" type="button" data-export-account>Export data</button>
+            <button class="button-secondary" type="button" data-delete-account>Delete account</button>
+            <button class="button-secondary" type="button" data-logout>Sign out</button>
+          </div>
+        </section>
+      </div>
     `;
   } else {
     const demoButton = config.devTools ? `<button class="button-secondary" type="button" data-demo-account>Use demo sync</button>` : "";
     els.accountCard.innerHTML = `
-      <details class="account-menu">
-        <summary><span class="avatar-dot">TT</span><span>Account</span></summary>
-        <p class="muted tiny-copy">Save history, campaigns, drafts, outcomes, and settings across devices.</p>
-        <div class="auth-grid">
-          <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" placeholder="Your name"></label>
-          <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" placeholder="you@example.com"></label>
-          <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 8 characters"></label>
-          <div class="auth-actions">
-            <button type="button" data-signup>Create account</button>
-            <button class="button-secondary" type="button" data-login>Sign in</button>
-            ${demoButton}
-            <button class="button-secondary" type="button" data-request-reset>Reset password</button>
+      <button class="account-trigger" type="button" data-open-account aria-haspopup="dialog" aria-expanded="${String(state.accountModalOpen)}">
+        <span class="avatar-dot">${escapeHtml(avatar)}</span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+      <div class="account-overlay ${state.accountModalOpen ? "is-open" : ""}" ${state.accountModalOpen ? "" : "hidden"} data-account-overlay>
+        <section class="account-sheet" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          <div class="sheet-head">
+            <div>
+              <p class="label">Account</p>
+              <h2 id="account-title">Save your workspace</h2>
+              <p class="muted">Sync history, campaigns, drafts, outcomes, and settings across devices.</p>
+            </div>
+            <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
           </div>
-        </div>
-      </details>
+          ${errorHtml}
+          <div class="auth-grid">
+            <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" placeholder="Your name"></label>
+            <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" placeholder="you@example.com"></label>
+            <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 8 characters"></label>
+            <div class="auth-actions">
+              <button type="button" data-signup>Create account</button>
+              <button class="button-secondary" type="button" data-login>Sign in</button>
+              ${demoButton}
+              <button class="button-secondary" type="button" data-request-reset>Reset password</button>
+            </div>
+          </div>
+        </section>
+      </div>
     `;
   }
   wireAccountCard();
 }
 
 function wireAccountCard() {
+  els.accountCard?.querySelector("[data-open-account]")?.addEventListener("click", () => {
+    state.accountModalOpen = true;
+    state.accountError = "";
+    renderAccountCard();
+    requestAnimationFrame(() => {
+      els.accountCard.querySelector("#auth-email, [data-sync-now], [data-close-account]")?.focus?.();
+    });
+  });
+  els.accountCard?.querySelector("[data-close-account]")?.addEventListener("click", () => {
+    state.accountModalOpen = false;
+    state.accountError = "";
+    renderAccountCard();
+  });
+  els.accountCard?.querySelector("[data-account-overlay]")?.addEventListener("click", (event) => {
+    if (event.target !== event.currentTarget) return;
+    state.accountModalOpen = false;
+    state.accountError = "";
+    renderAccountCard();
+  });
   els.accountCard?.querySelector("[data-sync-now]")?.addEventListener("click", () => syncWorkspace());
   els.accountCard?.querySelector("[data-open-onboarding]")?.addEventListener("click", () => {
     state.onboarding.complete = false;
+    state.accountModalOpen = false;
     render();
   });
   els.accountCard?.querySelector("[data-logout]")?.addEventListener("click", async () => {
     await apiClient.logout();
     state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+    state.accountModalOpen = false;
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-export-account]")?.addEventListener("click", async (event) => {
@@ -596,6 +633,7 @@ function wireAccountCard() {
     if (!confirm("Delete this TextTraits account and synced workspace data?")) return;
     await apiClient.deleteAccount();
     state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+    state.accountModalOpen = false;
     showToast(event.currentTarget, "Account deleted.");
     render();
   });
@@ -632,6 +670,8 @@ async function authRequest(action) {
     state.account.user = data.user;
     state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
     state.account.syncStatus = "Signed in";
+    state.accountModalOpen = false;
+    state.accountError = "";
     const serverData = data.workspace?.data || {};
     if (Object.keys(serverData).length) applyWorkspacePayload(serverData);
     persistWorkspace();
@@ -640,6 +680,8 @@ async function authRequest(action) {
   } catch (error) {
     els.announcer.textContent = error.message || "Sign-in failed.";
     state.account.syncStatus = error.message || "Sign-in failed";
+    state.accountError = error.message || "Sign-in failed.";
+    state.accountModalOpen = true;
     renderAccountCard();
   }
 }
@@ -818,13 +860,13 @@ function renderEnterpriseInput() {
     </div>
     <div class="meter"><span id="enterprise-meter"></span></div>
 
-    <div class="guide-card primary-context compact-context">
-      <strong>Campaign basics</strong>
+    <details class="advanced-card primary-context compact-context">
+      <summary>Campaign basics</summary>
       <div class="enterprise-field-grid field-grid-spaced compact-enterprise-fields">
         ${field("project", "Campaign name", ctx.project || "Q3 pipeline quality")}
         ${field("offer", "What do you sell?", ctx.offer || "Revenue workflow software")}
       </div>
-    </div>
+    </details>
 
     <details class="advanced-card">
       <summary>Edit setup</summary>
@@ -869,7 +911,7 @@ function renderEnterpriseInput() {
     </details>
 
     <details class="advanced-card quiet-samples">
-      <summary>Sample prospect context</summary>
+      <summary>Load example prospect</summary>
       <p class="muted">Use a reply when you have one; use a bio, transcript, or website copy when you are starting cold.</p>
       ${sampleButtons(enterpriseSamples, "enterprise-text")}
     </details>
@@ -978,16 +1020,21 @@ function renderEnterpriseEmpty() {
       <div class="today-grid quiet-dashboard">
         <article class="strategy-card featured">
           <strong>Start here: create drafts</strong>
-          <p>Paste prospect language in Campaign setup. Once drafts are generated, the form collapses and the review queue becomes the center of the workspace.</p>
+          <p>Paste prospect language in the setup panel. Once drafts are generated, the form collapses and the review queue becomes the center of the workspace.</p>
           <button type="button" data-focus-enterprise-input>Paste prospect context</button>
         </article>
         <article class="strategy-card">
-          <strong>Sample queue</strong>
-          <div class="queue-list">
-            <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
-            <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
-            <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
-          </div>
+          <strong>${state.sampleWorkspaceLoaded ? "Sample workspace" : "Preview workspace"}</strong>
+          ${state.sampleWorkspaceLoaded ? `
+            <div class="queue-list">
+              <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
+              <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
+              <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
+            </div>
+          ` : `
+            <p class="muted">Keep the workspace quiet, or load sample campaigns, replies, and batches when you want to inspect the full workflow.</p>
+            <button class="button-secondary" type="button" data-load-sample-workspace>Load sample workspace</button>
+          `}
         </article>
       </div>
 
@@ -1027,7 +1074,16 @@ function renderEnterpriseEmpty() {
     </div>
   `;
   els.outputPanel.querySelector("[data-focus-enterprise-input]")?.addEventListener("click", () => {
-    document.querySelector("#enterprise-text")?.focus();
+    state.enterpriseSetupOpen = true;
+    render();
+    requestAnimationFrame(() => document.querySelector("#enterprise-text")?.focus());
+  });
+  els.outputPanel.querySelector("[data-load-sample-workspace]")?.addEventListener("click", (event) => {
+    state.sampleWorkspaceLoaded = true;
+    state.lastActionNote = "Sample workspace loaded for preview.";
+    persistWorkspace();
+    showToast(event.currentTarget, "Sample workspace loaded.");
+    renderEnterpriseEmpty();
   });
 }
 
@@ -1544,14 +1600,17 @@ function renderExplorerResult(data) {
         </div>
       </details>
 
-      <nav class="tabs" role="tablist" aria-label="Explorer result sections">
-        ${tabButton("style", "What stands out", state.activeExplorerTab)}
-        ${tabButton("technical", "Technical details", state.activeExplorerTab)}
-      </nav>
+      <details class="secondary-result-details style-details">
+        <summary>See what the app noticed</summary>
+        <nav class="tabs" role="tablist" aria-label="Explorer result sections">
+          ${tabButton("style", "What stands out", state.activeExplorerTab)}
+          ${tabButton("technical", "Technical details", state.activeExplorerTab)}
+        </nav>
 
-      <div id="panel-${state.activeExplorerTab}" class="tab-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeExplorerTab}">
-        ${renderExplorerTab(data)}
-      </div>
+        <div id="panel-${state.activeExplorerTab}" class="tab-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeExplorerTab}">
+          ${renderExplorerTab(data)}
+        </div>
+      </details>
     </div>
   `;
 
@@ -1898,13 +1957,20 @@ function enterpriseAngles(context, profile) {
   ];
 }
 
+function compactPhrase(value, limit = 5) {
+  const clean = String(value || "").replace(/\s+/g, " ").trim();
+  const parts = clean.split(" ").filter(Boolean);
+  return parts.length > limit ? parts.slice(0, limit).join(" ") : clean;
+}
+
 function subjectLines(context) {
+  const pain = compactPhrase(String(context.pain || "").split(" and ")[0], 4);
   return [
-    `Cleaner signal on ${context.pain}`,
-    `Idea for ${context.trigger}`,
+    `Cleaner view of ${pain}`,
+    `Idea for ${compactPhrase(context.trigger, 4)}`,
     `Fewer surprises in forecast reviews`,
     `${context.company} x {{company}}`,
-    `Manager visibility, without more dashboards`,
+    `Less dashboard noise`,
   ];
 }
 
@@ -1921,21 +1987,37 @@ function buildEmailVariant(context, profile, variant) {
   const preferShort = Number(state.feedbackMemory.tooLong || 0) > Number(state.feedbackMemory.better || 0);
   const preferSpecific = Number(state.feedbackMemory.tooVague || 0) > 0;
   const learnedLine = learned.includes("Proof before product")
-    ? `A relevant proof point before product detail: teams respond best when the message stays tied to the business issue.`
-    : `The useful angle is one practical business issue, not a broad product pitch.`;
+    ? `I would lead with one proof point before getting into product detail.`
+    : `I would keep this about one business issue instead of a broad platform pitch.`;
   const tonePrefix = variant === "A"
-    ? `Your note on ${context.pain} caught my attention.`
+    ? `Your note about ${context.pain} stood out.`
     : variant === "B"
-      ? `It sounds like the hard part is not activity volume, but knowing where managers should focus.`
-      : `The theme I noticed is practical: fewer reporting loops, cleaner handoffs, and earlier visibility into risk.`;
+      ? `It sounds like the hard part is not activity volume. It is knowing which accounts need manager attention soonest.`
+      : `The pattern I noticed is practical: fewer reporting loops, cleaner handoffs, and earlier visibility into risk.`;
   const proof = variant === "A" ? context.proof : variant === "B" ? context.caseStudy : context.competitor;
-  const body = `${tonePrefix}
+  const body = variant === "A"
+    ? `${tonePrefix}
 
-For ${context.segment} teams, that usually means helping managers see risk earlier without adding another dashboard or weekly reporting loop.
+If that is the pressure right now, the useful starting point may be a cleaner way to see account movement before it turns into forecast risk.
 
-${context.company} helps teams use ${context.offer} to spot account movement, coach earlier, and keep forecast conversations cleaner. Relevant proof: ${proof}.${preferSpecific ? ` The first specific test would be ${context.trigger} for ${context.icp}.` : ""}
+At ${context.company}, we focus on ${context.offer} for ${context.segment} teams that want earlier manager coaching without adding another reporting ritual. The proof point I would anchor on: ${proof}.${preferSpecific ? ` The first test could be ${context.trigger} for ${context.icp}.` : ""}
 
-${preferShort ? ctaText(context) : `${learnedLine}\n\n${ctaText(context)}`}`;
+${preferShort ? ctaText(context) : `${learnedLine}\n\n${ctaText(context)}`}`
+    : variant === "B"
+      ? `${tonePrefix}
+
+That is usually where teams need something more specific than another dashboard: a short list of accounts worth coaching this week, and the reason each one matters.
+
+The angle I would test is ${context.trigger}, using ${proof} as the proof point.${preferSpecific ? ` I would keep the first conversation focused on ${context.icp}.` : ""}
+
+${ctaText(context)}`
+      : `${tonePrefix}
+
+For an operations-led audience, I would frame this as fewer manual check-ins and cleaner decision points before forecast review.
+
+${context.company} can position ${context.offer} around that operating rhythm, with ${proof} as the concrete reason to take a look.
+
+${ctaText(context)}`;
   return `Subject: ${subjectLines(context)[variant === "A" ? 0 : variant === "B" ? 1 : 2]}
 
 Hi {{first_name}},
@@ -1987,10 +2069,10 @@ function bestDraft() {
 
 function buildSequence(context) {
   return [
-    ["Day 1", "Initial email", `Subject: ${subjectLines(context)[0]}\n\nHi {{first_name}},\n\nYour note on ${context.pain} caught my attention. ${context.company} helps ${context.segment} teams turn that signal into a cleaner weekly rhythm.\n\n${ctaText(context)}`],
-    ["Day 3", "LinkedIn touch", `Saw your point about ${context.pain}. I had a concise idea for making that easier to see before forecast review. Worth sending over?`],
-    ["Day 6", "Proof follow-up", `One proof point that may be relevant: ${context.proof}. The pattern is usually fewer manual reporting loops and earlier manager coaching moments.`],
-    ["Day 10", "Breakup note", `Should I close the loop, or would a two-bullet summary on ${context.trigger} be useful for later?`],
+    ["Day 1", "Initial email", `Subject: ${subjectLines(context)[0]}\n\nHi {{first_name}},\n\nYour note about ${context.pain} stood out. If the goal is earlier visibility without another reporting loop, I had a short idea tied to ${context.trigger}.\n\n${ctaText(context)}`],
+    ["Day 3", "LinkedIn touch", `Saw the same theme around ${compactPhrase(context.pain, 5)}. I can send the two-bullet version if useful.`],
+    ["Day 6", "Proof follow-up", `One proof point that may be relevant: ${context.proof}. The pattern is usually fewer manual check-ins and earlier manager coaching moments.`],
+    ["Day 10", "Breakup note", `Should I close the loop, or would a short summary on ${context.trigger} be useful for later?`],
   ];
 }
 
@@ -2021,48 +2103,43 @@ function renderEnterpriseResult(data) {
 
   els.outputPanel.innerHTML = `
     <div class="result-layout fade-in">
-      <div class="campaign-summary-bar">
-        ${summaryItem("Project", context.project)}
-        ${summaryItem("Queue", `${variants.length} drafts / ${state.inboxThreads.filter((thread) => !thread.handled).length} replies`)}
-        ${summaryItem("Updated", state.lastGeneratedAt || "Just now")}
-      </div>
-
-      <div class="result-header">
-        <div>
+      <div class="enterprise-command-header">
+        <div class="enterprise-command-title">
           <p class="label">Enterprise workspace</p>
           <h2>${state.activeEnterpriseTab === "drafts" ? "Review generated drafts" : escapeHtml(context.project || `${context.role} outreach system`)}</h2>
-          <p class="muted">Drafts are the center. Review, approve, export, then track outcomes.</p>
+          <div class="command-meta">
+            <span>${escapeHtml(context.project)}</span>
+            <span>${variants.length} drafts</span>
+            <span>${state.lastGeneratedAt || "Just now"}</span>
+          </div>
         </div>
-        <div class="header-actions">
+        <div class="command-actions">
           <button class="button-secondary" data-toggle-inputs>${state.enterpriseInputsCollapsed ? "Edit setup" : "Hide setup"}</button>
           <button data-save-campaign>${state.campaignSaved ? "Saved" : "Save campaign"}</button>
+          <details class="action-menu">
+            <summary>More</summary>
+            <div>
+              <button class="button-secondary" data-export-csv>Export CSV</button>
+              <button class="button-secondary" data-copy-all>Copy campaign brief</button>
+              <button class="button-secondary" data-copy-subjects>Copy subject lines</button>
+              <button class="button-secondary" data-regenerate>Regenerate drafts</button>
+              <button class="button-secondary" data-open-crm-setup>CRM setup</button>
+              <button class="button-secondary" data-open-inbox-setup>Email setup</button>
+            </div>
+          </details>
         </div>
-      </div>
-
-      <div class="workspace-toolbar">
-        <details class="action-menu">
-          <summary>Export and setup</summary>
-          <div>
-            <button class="button-secondary" data-export-csv>Export CSV</button>
-            <button class="button-secondary" data-copy-all>Copy campaign brief</button>
-            <button class="button-secondary" data-copy-subjects>Copy subject lines</button>
-            <button class="button-secondary" data-regenerate>Regenerate drafts</button>
-            <button class="button-secondary" data-open-crm-setup>CRM setup</button>
-            <button class="button-secondary" data-open-inbox-setup>Email setup</button>
-          </div>
-        </details>
+        <nav class="tabs workspace-tabs grouped-tabs compact-workspace-nav" role="tablist" aria-label="Enterprise workspace areas">
+          ${tabButton("dashboard", "Dashboard", state.activeEnterpriseTab)}
+          ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
+          ${tabButton("tools", "Batch + replies", state.activeEnterpriseTab)}
+          ${tabButton("analytics", "Analytics", state.activeEnterpriseTab)}
+        </nav>
         <span class="next-action">${escapeHtml(state.lastActionNote || "Next: review generated drafts or import a prospect batch.")}</span>
       </div>
 
       <div class="enterprise-workspace-grid">
         ${projectSidebar(context)}
         <section class="workspace-main">
-          <nav class="tabs workspace-tabs grouped-tabs" role="tablist" aria-label="Enterprise workspace areas">
-            ${tabButton("dashboard", "Dashboard", state.activeEnterpriseTab)}
-            ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
-            ${tabButton("tools", "Batch + replies", state.activeEnterpriseTab)}
-            ${tabButton("analytics", "Analytics", state.activeEnterpriseTab)}
-          </nav>
           <div id="panel-${state.activeEnterpriseTab}" class="tab-panel workspace-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeEnterpriseTab}">${renderEnterpriseTab(data, context, profile, variants, angles, sequence)}</div>
         </section>
       </div>
@@ -2271,6 +2348,7 @@ function renderEnterpriseResult(data) {
   });
   els.outputPanel.querySelector("[data-load-sample-csv]")?.addEventListener("click", () => {
     state.batchInput = sampleCsv;
+    state.sampleWorkspaceLoaded = true;
     state.lastActionNote = "Loaded sample CSV with prospect rows.";
     renderEnterpriseResult(data);
   });
@@ -2375,13 +2453,21 @@ function renderEnterpriseResult(data) {
 
 function projectSidebar(context) {
   const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
-  const rows = [
-    ["Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
-    ["Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
-    ["Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
-    ["Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
-    ["Templates", `Sample: ${outboundTemplates.length} approved`],
-  ];
+  const rows = state.sampleWorkspaceLoaded
+    ? [
+      ["Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
+      ["Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
+      ["Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
+      ["Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
+      ["Templates", `Sample: ${outboundTemplates.length} approved`],
+    ]
+    : [
+      ["Campaigns", "No saved campaigns"],
+      ["Batches", "No imported prospects"],
+      ["Replies", "Connect inbox"],
+      ["Personas", "Create library"],
+      ["Templates", "Add templates"],
+    ];
   return `
     <aside class="project-sidebar" aria-label="Project sidebar">
       <div>
@@ -2458,7 +2544,7 @@ function reviewQueueTable(context, variants) {
 
 function campaignHome(context, angles) {
   const prospects = campaignProspects(context);
-  const campaigns = filteredCampaigns();
+  const campaigns = state.sampleWorkspaceLoaded || state.campaignSaved ? filteredCampaigns() : [];
   const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
   return `
     <div class="campaign-workspace">
@@ -2685,6 +2771,7 @@ function renderToolPanel(context, sequence) {
 
 function batchPanel(context) {
   const errors = state.batchErrors.length ? `<div class="error-list">${state.batchErrors.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
+  const batchValue = state.batchInput || (state.sampleWorkspaceLoaded ? sampleCsv : "");
   return `
     <div class="batch-workspace">
       <article class="strategy-card">
@@ -2696,7 +2783,7 @@ function batchPanel(context) {
         <div class="mapping-grid">
           ${["first_name", "company", "role", "industry", "signal"].map((column) => `<label class="field"><span>${escapeHtml(column)} column</span><input id="map-${column}" value="${escapeHtml(state.batchMapping[column] || column)}"></label>`).join("")}
         </div>
-        <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(state.batchInput || sampleCsv)}</textarea>
+        <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(batchValue)}</textarea>
         ${errors}
         <div class="batch-progress" aria-label="Batch generation progress"><span style="width: ${state.batchProgress}%"></span></div>
         <p class="muted">${state.batchProgress ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns before generating."}</p>
@@ -2854,8 +2941,9 @@ function integrationSetupCards() {
       ${Object.entries(state.crmConnections).map(([name, status]) => `
         <article class="integration-setup-card">
           <div class="card-row"><strong>${escapeHtml(name)}</strong><span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</span></div>
+          <p class="tiny-copy muted">${status === "connected" ? "Connected in this workspace." : "Preview only until real credentials, scopes, and field mapping are configured."}</p>
           <ol>${(steps[name] || ["Create app", "Add credentials", "Map fields"]).map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
-          <button class="button-secondary" type="button" data-crm="${escapeHtml(name)}">${status === "connected" ? "Manage connection" : "View setup"}</button>
+          <button class="button-secondary" type="button" data-crm="${escapeHtml(name)}">${status === "connected" ? "Manage connection" : "View setup requirements"}</button>
         </article>
       `).join("")}
     </div>
@@ -3572,6 +3660,7 @@ function wireInput() {
       state.enterpriseDrafts = [];
       state.campaignSaved = false;
       state.enterpriseInputsCollapsed = false;
+      state.enterpriseSetupOpen = false;
       persistWorkspace();
       render();
     });
@@ -3692,6 +3781,7 @@ async function runAnalysis(text) {
     state.enterpriseContext = enterpriseContext();
     state.enterpriseDrafts = [];
     state.enterpriseInputsCollapsed = true;
+    state.enterpriseSetupOpen = false;
     state.campaignSaved = false;
     state.lastActionNote = "Next: review the recommended draft, then approve or export.";
   } else {
@@ -3740,15 +3830,52 @@ function syncBodyState() {
   els.body.classList.toggle("app-compact", Boolean(state.latestText || state.latestData || state.explorerHistory.length || state.savedCampaigns.length));
   els.body.classList.toggle("explorer-collapsed", state.mode === "explorer" && Boolean(state.latestData));
   els.body.classList.toggle("enterprise-collapsed", state.mode === "enterprise" && Boolean(state.latestData) && state.enterpriseInputsCollapsed);
+  els.body.classList.toggle("enterprise-setup-open", state.mode === "enterprise" && Boolean(state.enterpriseSetupOpen));
 }
 
 loadWorkspace();
+const routedMode = modeFromPath();
+if (routedMode) {
+  if (routedMode !== state.mode) {
+    state.latestData = null;
+    state.latestText = "";
+    state.enterpriseDrafts = [];
+    state.campaignSaved = false;
+    state.enterpriseSetupOpen = false;
+  }
+  state.mode = routedMode;
+} else {
+  updateModeRoute(state.mode, true);
+}
 els.body.dataset.mode = state.mode;
 els.modeExplorer.setAttribute("aria-pressed", String(state.mode === "explorer"));
 els.modeEnterprise.setAttribute("aria-pressed", String(state.mode === "enterprise"));
 renderModeChrome();
 els.modeExplorer.addEventListener("click", () => setMode("explorer"));
 els.modeEnterprise.addEventListener("click", () => setMode("enterprise"));
+window.addEventListener("popstate", () => {
+  const nextMode = modeFromPath() || "explorer";
+  if (nextMode === state.mode) return;
+  state.mode = nextMode;
+  state.latestData = null;
+  state.latestText = "";
+  state.enterpriseDrafts = [];
+  state.enterpriseSetupOpen = false;
+  state.activeExplorerTab = "style";
+  state.activeEnterpriseTab = "dashboard";
+  state.activeEnterpriseTool = "batch";
+  els.body.dataset.mode = state.mode;
+  els.modeExplorer.setAttribute("aria-pressed", String(state.mode === "explorer"));
+  els.modeEnterprise.setAttribute("aria-pressed", String(state.mode === "enterprise"));
+  renderModeChrome();
+  render();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !state.accountModalOpen) return;
+  state.accountModalOpen = false;
+  state.accountError = "";
+  renderAccountCard();
+});
 
 const isLocalRuntime = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
 els.body.classList.toggle("is-local-runtime", isLocalRuntime);

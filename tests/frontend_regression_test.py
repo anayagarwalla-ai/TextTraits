@@ -21,11 +21,16 @@ def assert_true(condition: bool, message: str) -> None:
 def main() -> int:
     client = app_module.app.test_client()
     html = client.get("/").get_data(as_text=True)
+    enterprise_html = client.get("/enterprise").get_data(as_text=True)
+    explorer_html = client.get("/explorer").get_data(as_text=True)
     app_js = client.get("/static/app.js").get_data(as_text=True)
     api_js = client.get("/static/api_client.js").get_data(as_text=True)
     config_js = client.get("/static/product_config.js").get_data(as_text=True)
+    utils_js = client.get("/static/text_utils.js").get_data(as_text=True)
 
     assert_true("workflow" in config_js and "Import" in config_js and "Track" in config_js, "enterprise workflow config missing")
+    assert_true("TextTraitsUtils" in utils_js and "escapeHtml" in utils_js, "text utility module missing")
+    assert_true("TextTraits" in enterprise_html and "TextTraits" in explorer_html, "route-level product pages missing")
     assert_true("resetPassword" in api_js and "verifyEmail" in api_js, "account API helpers missing")
     assert_true("oauth/start" in api_js or "integrationProviders" in api_js, "integration setup helpers missing")
 

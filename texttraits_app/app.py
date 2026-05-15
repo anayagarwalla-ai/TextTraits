@@ -274,6 +274,8 @@ def public_app_info() -> dict:
 
 
 @app.get("/")
+@app.get("/explorer")
+@app.get("/enterprise")
 def index():
     return render_template(
         "index.html",
