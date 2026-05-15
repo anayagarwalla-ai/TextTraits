@@ -1,28 +1,31 @@
-TextTraits Free Deploy Requirements
-===================================
+TextTraits Free Deploy Requirements For The Repository Owner
+============================================================
 
-This is the free-only list of things still needed before deploying TextTraits as a hosted beta.
+This is the free-only checklist for the owner of csboi/TextTraits to deploy TextTraits as a hosted beta. The codex/production-readiness branch already contains the app code, Dockerfile, Procfile, render.yaml, WSGI entrypoint, Postgres support, production preflight checks, and deploy docs.
 
-1. Repository access
-   - Free option: ask the owner of csboi/TextTraits to add your GitHub account as a collaborator.
-   - Free option: ask the owner to merge the codex/production-readiness branch.
-   - Free option: fork the repository to your own GitHub account and deploy from the fork.
+1. Merge or deploy the correct branch
+   - Review the codex/production-readiness branch.
+   - Either merge codex/production-readiness into main or deploy directly from codex/production-readiness.
+   - Do not deploy an older branch unless these production-readiness changes have been merged.
 
-2. Free app hosting
+2. Create a free dynamic web service
    - Use a free web service host such as Render, Railway, Fly.io, or another free Python/Docker host.
-   - The repo already includes Dockerfile, Procfile, render.yaml, and a WSGI entrypoint.
-   - The app should run as a dynamic web service, not a static site.
+   - Select this repository as the source.
+   - Deploy it as a dynamic web service, not a static site.
+   - If the host detects the Dockerfile, use Docker.
+   - If the host asks for a start command, use:
+     gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
 
-3. Free hosted Postgres
+3. Create a free hosted Postgres database
    - Use a free hosted Postgres provider such as Supabase, Neon, or a free Render Postgres instance if available.
    - Copy the Postgres URI connection string.
-   - Set it as DATABASE_URL in the hosting provider.
-   - Use SSL for hosted Postgres. The app supports TEXTTRAITS_DB_SSLMODE=require.
+   - Use the provider's SSL-capable connection string.
+   - Keep the database password private.
 
-4. Production environment variables
+4. Set production environment variables
    Set these in the hosting provider's environment/secret settings:
    - TEXTTRAITS_ENV=production
-   - TEXTTRAITS_SECRET_KEY=<generated secret key>
+   - TEXTTRAITS_SECRET_KEY=<generated high-entropy secret key>
    - TEXTTRAITS_PUBLIC_BASE_URL=<final hosted HTTPS URL>
    - TEXTTRAITS_SECURE_COOKIES=true
    - TEXTTRAITS_TRUST_PROXY=true
@@ -30,8 +33,8 @@ This is the free-only list of things still needed before deploying TextTraits as
    - DATABASE_URL=<hosted Postgres connection string>
    - ENABLE_DEV_TOOLS=false
 
-5. Free transactional email
-   Needed for account verification and password reset.
+5. Add free transactional email
+   Account verification and password reset need real email delivery.
    Free options include Brevo, SendGrid free tier, or SMTP2GO free tier.
    Set:
    - TEXTTRAITS_EMAIL_PROVIDER=smtp
@@ -42,28 +45,29 @@ This is the free-only list of things still needed before deploying TextTraits as
    - TEXTTRAITS_SMTP_PASSWORD=<provider password/API key>
    - TEXTTRAITS_SMTP_TLS=true
 
-6. Free sender/domain verification
-   - Verify the sender email or sender domain inside the free email provider.
-   - This keeps verification and reset emails from being blocked or sent to spam.
-   - A custom domain is optional; provider-verified sender email is enough for beta.
+6. Verify the sender email or sender domain
+   - Complete sender verification inside the free email provider.
+   - This reduces blocked or spammed password reset and verification emails.
+   - A paid custom domain is not required for a beta if the provider supports verified sender email.
 
-7. Free error monitoring
+7. Add free error monitoring
    - Create a free Sentry project.
+   - Copy the Sentry DSN.
    - Set SENTRY_DSN in the hosting provider.
    - This is optional for a private demo, but strongly recommended before a public beta.
 
-8. Public HTTPS URL
+8. Use the host's free HTTPS URL
    - Use the free HTTPS URL from the hosting provider, such as a render.com URL.
    - Set that exact URL as TEXTTRAITS_PUBLIC_BASE_URL.
    - A paid custom domain is not required.
 
-9. Privacy and terms approval
-   - Use the included privacy and terms drafts/checklist as a starting point.
-   - For a free beta, the owner should at least review and approve the wording before launch.
-   - Formal legal review can wait if this is a small private beta, but public launch should get real review.
+9. Review privacy and terms before launch
+   - Review the included privacy and terms routes plus LEGAL_REVIEW.md.
+   - Approve the wording for the actual beta behavior.
+   - Formal legal review can wait for a small private beta, but public launch should get real review.
 
-10. Pre-deploy validation
-   Run these after env vars are configured:
+10. Run pre-deploy validation
+   Run these after environment variables are configured:
    - python3 scripts/preflight.py
    - python3 tests/smoke_test.py
    - python3 tests/browser_smoke_test.py
@@ -73,6 +77,15 @@ This is the free-only list of things still needed before deploying TextTraits as
    - python3 tests/config_regression_test.py
    - python3 tests/frontend_regression_test.py
    - python3 tests/env_storage_regression_test.py
+
+11. Confirm the live health endpoint
+   After deploy, open:
+   - https://<live-app-url>/health
+   Confirm:
+   - ok is true
+   - persistence is postgres
+   - database.ok is true
+   - dev_tools_enabled is false
 
 Can Wait Until After Free Beta
 ==============================
