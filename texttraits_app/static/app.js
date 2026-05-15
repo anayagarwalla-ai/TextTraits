@@ -230,6 +230,8 @@ const consumerPromptLibrary = [
 const explorerFolders = ["Daily", "Work", "School", "Personal", "Drafts"];
 const explorerGoals = ["Make this clearer", "Make this warmer", "Make this shorter", "Sound more confident", "Sound less harsh"];
 const explorerRewriteGoals = productConfig.rewriteGoals || ["Email", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"];
+const primaryRewriteGoals = explorerRewriteGoals.slice(0, 4);
+const secondaryRewriteGoals = explorerRewriteGoals.slice(4);
 
 function loadWorkspace() {
   try {
@@ -516,7 +518,7 @@ function setMode(mode) {
 
 function renderModeChrome() {
   if (state.mode === "enterprise") {
-    els.heroTitle.textContent = state.latestData ? "Enterprise" : "Outreach workspace.";
+    els.heroTitle.textContent = state.latestData ? "Enterprise" : "Outreach workspace";
     els.heroSubtitle.textContent = state.latestData ? "Drafts, queues, replies, and exports." : "Review drafts, reply queues, batches, and exports from one focused workspace.";
     els.modeNote.textContent = "Enterprise keeps integrations visibly disabled until real accounts are connected.";
     els.personaStrip.setAttribute("hidden", "");
@@ -524,7 +526,7 @@ function renderModeChrome() {
     return;
   }
 
-  els.heroTitle.textContent = state.latestData ? "Explorer" : "Write a little clearer every day.";
+  els.heroTitle.textContent = state.latestData ? "Explorer" : "Write a little clearer every day";
   els.heroSubtitle.textContent = state.latestData ? "One paragraph, one plain read, one better draft." : "A simple daily writing coach for turning one paragraph into one useful next edit.";
   els.modeNote.textContent = "Explorer is for personal writing. Enterprise is a separate outreach workspace.";
   els.personaStrip.setAttribute("hidden", "");
@@ -555,7 +557,7 @@ function renderAccountCard() {
     const demoButton = config.devTools ? `<button class="button-secondary" type="button" data-demo-account>Use demo sync</button>` : "";
     els.accountCard.innerHTML = `
       <details class="account-menu">
-        <summary><span class="avatar-dot">?</span><span>Sign in</span></summary>
+        <summary><span class="avatar-dot">TT</span><span>Account</span></summary>
         <p class="muted tiny-copy">Save history, campaigns, drafts, outcomes, and settings across devices.</p>
         <div class="auth-grid">
           <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" placeholder="Your name"></label>
@@ -802,7 +804,7 @@ function renderEnterpriseInput() {
         <h2>Campaign setup</h2>
         <p class="helper">Start with the prospect's words and a plain description of what you sell. Add advanced context only when you need it.</p>
       </div>
-      <span class="preview-badge">Setup required</span>
+      <span class="preview-badge">Draft setup</span>
     </div>
 
     <div class="field">
@@ -903,7 +905,7 @@ function renderExplorerEmpty() {
     <div class="empty-layout fade-in calm-empty">
       <div class="empty-hero coaching-empty">
         <span class="status-pill">Daily coach</span>
-        <h2>Start with one paragraph.</h2>
+        <h2>Start with one paragraph</h2>
         <p class="muted">Explorer will keep the first read simple: how it sounds, what is already working, and one next edit.</p>
       </div>
 
@@ -980,11 +982,11 @@ function renderEnterpriseEmpty() {
           <button type="button" data-focus-enterprise-input>Paste prospect context</button>
         </article>
         <article class="strategy-card">
-          <strong>Queue snapshot</strong>
+          <strong>Sample queue</strong>
           <div class="queue-list">
-            <span>${state.batchRows.length || 12} prospects to draft</span>
-            <span>${state.inboxThreads.filter((thread) => !thread.handled).length || 5} replies to answer</span>
-            <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length || 3} campaigns needing review</span>
+            <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
+            <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
+            <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
           </div>
         </article>
       </div>
@@ -1462,7 +1464,7 @@ function renderExplorerResult(data) {
       <div class="result-header">
         <div>
           <p class="label">Explorer coach</p>
-          <h2>How this comes across.</h2>
+          <h2>How this comes across</h2>
           <p class="muted">${stats.words} words analyzed. Start with the plain read, then choose one small rewrite.</p>
         </div>
         <div class="toolbar">
@@ -1481,7 +1483,7 @@ function renderExplorerResult(data) {
             <span>${stats.words} words / ${escapeHtml(streakCopy())}</span>
           </div>
           <details class="feedback-menu">
-            <summary>Give feedback</summary>
+            <summary>Feedback</summary>
             ${feedbackButtons("Explorer reading")}
           </details>
         </article>
@@ -1495,8 +1497,16 @@ function renderExplorerResult(data) {
             <button class="button-secondary" type="button" data-explorer-rewrite="shorter">Make shorter</button>
           </div>
           <div class="rewrite-goals">
-            ${explorerRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
+            ${primaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
           </div>
+          ${secondaryRewriteGoals.length ? `
+            <details class="more-rewrite-goals">
+              <summary>More goals</summary>
+              <div class="rewrite-goals">
+                ${secondaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
+              </div>
+            </details>
+          ` : ""}
         </article>
         <article class="strategy-card coach-card rewrite-card">
           <span class="label">Try this rewrite</span>
@@ -1505,7 +1515,6 @@ function renderExplorerResult(data) {
           <div class="result-actions">
             <button type="button" data-copy-rewrite>Copy rewrite</button>
             <button class="button-secondary" type="button" data-save-reading>Save reading</button>
-            <button class="button-secondary" data-copy-summary>Copy summary</button>
           </div>
         </article>
       </div>
@@ -1521,6 +1530,7 @@ function renderExplorerResult(data) {
         ${weeklyRecapPanel(profile)}
         ${explorerJournalPanel()}
         <div class="result-actions">
+          <button class="button-secondary" data-copy-summary>Copy summary</button>
           <button class="button-secondary" type="button" data-copy-explorer-report>Copy clean report</button>
         </div>
       </details>
@@ -2031,16 +2041,16 @@ function renderEnterpriseResult(data) {
 
       <div class="workspace-toolbar">
         <details class="action-menu">
-          <summary>Export</summary>
+          <summary>Export and setup</summary>
           <div>
             <button class="button-secondary" data-export-csv>Export CSV</button>
             <button class="button-secondary" data-copy-all>Copy campaign brief</button>
             <button class="button-secondary" data-copy-subjects>Copy subject lines</button>
+            <button class="button-secondary" data-regenerate>Regenerate drafts</button>
             <button class="button-secondary" data-open-crm-setup>CRM setup</button>
             <button class="button-secondary" data-open-inbox-setup>Email setup</button>
           </div>
         </details>
-        <button class="button-secondary" data-regenerate>Regenerate drafts</button>
         <span class="next-action">${escapeHtml(state.lastActionNote || "Next: review generated drafts or import a prospect batch.")}</span>
       </div>
 
@@ -2050,7 +2060,7 @@ function renderEnterpriseResult(data) {
           <nav class="tabs workspace-tabs grouped-tabs" role="tablist" aria-label="Enterprise workspace areas">
             ${tabButton("dashboard", "Dashboard", state.activeEnterpriseTab)}
             ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
-            ${tabButton("tools", "Tools", state.activeEnterpriseTab)}
+            ${tabButton("tools", "Batch + replies", state.activeEnterpriseTab)}
             ${tabButton("analytics", "Analytics", state.activeEnterpriseTab)}
           </nav>
           <div id="panel-${state.activeEnterpriseTab}" class="tab-panel workspace-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeEnterpriseTab}">${renderEnterpriseTab(data, context, profile, variants, angles, sequence)}</div>
@@ -2364,12 +2374,13 @@ function renderEnterpriseResult(data) {
 }
 
 function projectSidebar(context) {
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
   const rows = [
-    ["Campaigns", `${state.savedCampaigns.length} saved`],
-    ["Batches", `${state.batchRows.length || 100} prospects`],
-    ["Replies", `${state.inboxThreads.filter((thread) => !thread.handled).length} open`],
-    ["Personas", `${state.personaLibrary.length} profiles`],
-    ["Templates", `${outboundTemplates.length} approved`],
+    ["Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
+    ["Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
+    ["Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
+    ["Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
+    ["Templates", `Sample: ${outboundTemplates.length} approved`],
   ];
   return `
     <aside class="project-sidebar" aria-label="Project sidebar">
@@ -2561,16 +2572,12 @@ function draftsWorkspace(context, variants) {
             <small>${escapeHtml(item.name)} / ${averageScore(item)} score / ${escapeHtml(item.status || "Draft")}</small>
           </button>
         `).join("")}
-        <div class="prospect-detail-card">
-          <span class="label">Prospect detail</span>
+        <details class="prospect-detail-card">
+          <summary>Prospect detail</summary>
           <strong>${escapeHtml(selectedProspect.first_name)} at ${escapeHtml(selectedProspect.company)}</strong>
           <p>${escapeHtml(selectedProspect.role)} / ${escapeHtml(selectedProspect.signal)}</p>
           <small>Priority high / due today / CRM ${state.crmConnections.HubSpot === "connected" ? "ready" : "setup required"}</small>
-        </div>
-        <div class="send-checklist">
-          <strong>Send-ready checklist</strong>
-          ${["Merge fields valid", "Proof point included", "CTA clear", "Unsubscribe token present"].map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
-        </div>
+        </details>
       </aside>
       <section class="email-editor focused-editor compact-draft-workspace">
         <article class="draft-focus-card">
@@ -2594,6 +2601,10 @@ function draftsWorkspace(context, variants) {
             <button class="button-secondary" type="button" data-approve-draft="${draft.key}">Approve</button>
             <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
             <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
+          </div>
+          <div class="send-checklist editor-checklist">
+            <strong>Send-ready checklist</strong>
+            ${["Merge fields valid", "Proof point included", "CTA clear", "Unsubscribe token present"].map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
           </div>
           <details class="editor-secondary-actions">
             <summary>More status actions</summary>
@@ -3702,7 +3713,10 @@ async function runAnalysis(text) {
     else renderExplorerResult(data);
     trackEvent("analysis_completed", {words: text.trim().split(/\s+/).length});
     els.outputPanel.focus();
-    els.outputPanel.scrollIntoView({block: "start", behavior: "smooth"});
+    requestAnimationFrame(() => {
+      const top = Math.max(0, els.outputPanel.getBoundingClientRect().top + window.scrollY - 12);
+      window.scrollTo({top, behavior: "auto"});
+    });
   } catch (error) {
     els.outputPanel.innerHTML = `<div class="empty-hero"><h2>The reading did not run.</h2><p class="muted">${escapeHtml(error.message)}</p><button class="button-secondary" id="retry-run">Retry</button></div>`;
     document.querySelector("#retry-run").addEventListener("click", () => runAnalysis(text));

@@ -29,9 +29,9 @@ body[data-mode="enterprise"] {
   --line: #dde2ea;
   --panel: rgba(255, 255, 255, 0.95);
   --soft: #f5f6f8;
-  --accent: #111318;
-  --accent-strong: #000000;
-  --accent-soft: #eef1f6;
+  --accent: #5f6f86;
+  --accent-strong: #273244;
+  --accent-soft: #eef2f7;
   --shadow: 0 22px 60px rgba(17, 19, 24, 0.09);
   background: linear-gradient(135deg, #fbfbfd 0%, #f5f6f9 52%, #efeee9 100%);
 }
@@ -260,9 +260,10 @@ body.has-work .topbar {
   display: inline-grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--ink);
-  color: #fff;
-  font-size: 12px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, #f8fafb, #e8eee9);
+  color: var(--ink);
+  font-size: 11px;
   font-weight: 900;
 }
 
@@ -475,8 +476,8 @@ h3 { font-size: 16px; }
 }
 
 .preview-badge {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--muted);
 }
 
 body[data-mode="enterprise"] #generate-enterprise,
@@ -502,6 +503,10 @@ body[data-mode="enterprise"] .workspace-toolbar > button {
   border-color: #d9dee7;
   background: rgba(255, 255, 255, 0.88);
   color: #252b36;
+}
+
+body[data-mode="enterprise"] .label {
+  text-transform: none;
 }
 
 .field-grid,
@@ -718,6 +723,7 @@ body[data-mode="explorer"] .action-row.sticky {
   display: grid;
   align-content: start;
   gap: 14px;
+  scroll-margin-top: 18px;
 }
 
 .empty-layout,
@@ -832,7 +838,7 @@ body[data-mode="enterprise"] .result-header h2 {
 
 .coach-card {
   min-height: 210px;
-  border-color: rgba(216, 226, 220, 0.7);
+  border-color: rgba(216, 226, 220, 0.54);
 }
 
 .coach-card.rewrite-card {
@@ -870,6 +876,17 @@ body[data-mode="enterprise"] .result-header h2 {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-strong);
+}
+
+.more-rewrite-goals {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.more-rewrite-goals summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .feedback-menu {
@@ -1570,7 +1587,7 @@ body[data-mode="enterprise"] .result-header h2 {
 .workspace-toolbar {
   justify-content: flex-start;
   padding: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(221, 226, 234, 0.74);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.62);
 }
@@ -1703,9 +1720,9 @@ body.enterprise-collapsed .project-sidebar {
   display: grid;
   gap: 6px;
   padding: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(221, 226, 234, 0.68);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.48);
 }
 
 .queue-status-row,
@@ -1737,9 +1754,14 @@ body.enterprise-collapsed .project-sidebar {
   display: grid;
   gap: 5px;
   padding: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(221, 226, 234, 0.72);
   border-radius: var(--radius-sm);
   background: #fff;
+}
+
+.prospect-detail-card summary {
+  cursor: pointer;
+  font-weight: 900;
 }
 
 .integration-setup-grid {
@@ -1893,6 +1915,18 @@ body.enterprise-collapsed .project-sidebar {
   gap: 8px;
 }
 
+.editor-checklist strong {
+  flex: 1 0 100%;
+}
+
+body[data-mode="enterprise"] .strategy-card,
+body[data-mode="enterprise"] .guide-card,
+body[data-mode="enterprise"] .metric-card,
+body[data-mode="enterprise"] .advanced-card {
+  border-color: rgba(221, 226, 234, 0.7);
+  box-shadow: none;
+}
+
 .queue-list span,
 .setup-steps span,
 .inbox-queues span,
@@ -2033,7 +2067,7 @@ body.enterprise-collapsed .project-sidebar {
 
 .review-queue button[aria-pressed="true"],
 .tool-switcher button[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: #c8d1dc;
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
@@ -2053,7 +2087,7 @@ body.enterprise-collapsed .project-sidebar {
 
 .focused-editor {
   padding: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(221, 226, 234, 0.72);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.86);
 }
@@ -2694,6 +2728,10 @@ body.is-local-runtime .footer-note {
     min-height: auto;
   }
 
+  body[data-mode="enterprise"]:not(.has-work) .output-panel {
+    order: -1;
+  }
+
   body.has-work .input-panel {
     display: none;
   }
@@ -2776,6 +2814,14 @@ body.is-local-runtime .footer-note {
 
   body.enterprise-collapsed .enterprise-workspace-grid {
     grid-template-columns: 1fr;
+  }
+
+  .drafts-workspace .email-editor {
+    order: -1;
+  }
+
+  .drafts-workspace .review-queue {
+    order: 1;
   }
 
   .campaign-summary-bar {

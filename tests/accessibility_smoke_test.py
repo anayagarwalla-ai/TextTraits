@@ -26,7 +26,7 @@ def main() -> int:
 
     assert_true('aria-live="polite"' in html, "live region missing")
     assert_true('role="tablist"' in js and 'role="tabpanel"' in js, "tab semantics missing")
-    assert_true("focus()" in js and "scrollIntoView" in js, "completion focus/scroll behavior missing")
+    assert_true("focus()" in js and ("scrollIntoView" in js or "scrollTo" in js), "completion focus/scroll behavior missing")
     assert_true("prefers-reduced-motion" in css, "reduced-motion CSS missing")
     assert_true("focus-visible" in css, "visible focus styles missing")
     assert_true("aria-pressed" in js, "pressed states missing for toggle-like buttons")
