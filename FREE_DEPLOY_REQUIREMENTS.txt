@@ -1,0 +1,87 @@
+TextTraits Free Deploy Requirements
+===================================
+
+This is the free-only list of things still needed before deploying TextTraits as a hosted beta.
+
+1. Repository access
+   - Free option: ask the owner of csboi/TextTraits to add your GitHub account as a collaborator.
+   - Free option: ask the owner to merge the codex/production-readiness branch.
+   - Free option: fork the repository to your own GitHub account and deploy from the fork.
+
+2. Free app hosting
+   - Use a free web service host such as Render, Railway, Fly.io, or another free Python/Docker host.
+   - The repo already includes Dockerfile, Procfile, render.yaml, and a WSGI entrypoint.
+   - The app should run as a dynamic web service, not a static site.
+
+3. Free hosted Postgres
+   - Use a free hosted Postgres provider such as Supabase, Neon, or a free Render Postgres instance if available.
+   - Copy the Postgres URI connection string.
+   - Set it as DATABASE_URL in the hosting provider.
+   - Use SSL for hosted Postgres. The app supports TEXTTRAITS_DB_SSLMODE=require.
+
+4. Production environment variables
+   Set these in the hosting provider's environment/secret settings:
+   - TEXTTRAITS_ENV=production
+   - TEXTTRAITS_SECRET_KEY=<generated secret key>
+   - TEXTTRAITS_PUBLIC_BASE_URL=<final hosted HTTPS URL>
+   - TEXTTRAITS_SECURE_COOKIES=true
+   - TEXTTRAITS_TRUST_PROXY=true
+   - TEXTTRAITS_DB_SSLMODE=require
+   - DATABASE_URL=<hosted Postgres connection string>
+   - ENABLE_DEV_TOOLS=false
+
+5. Free transactional email
+   Needed for account verification and password reset.
+   Free options include Brevo, SendGrid free tier, or SMTP2GO free tier.
+   Set:
+   - TEXTTRAITS_EMAIL_PROVIDER=smtp
+   - TEXTTRAITS_FROM_EMAIL=<verified sender email>
+   - TEXTTRAITS_SMTP_HOST=<provider host>
+   - TEXTTRAITS_SMTP_PORT=587
+   - TEXTTRAITS_SMTP_USERNAME=<provider username/API key>
+   - TEXTTRAITS_SMTP_PASSWORD=<provider password/API key>
+   - TEXTTRAITS_SMTP_TLS=true
+
+6. Free sender/domain verification
+   - Verify the sender email or sender domain inside the free email provider.
+   - This keeps verification and reset emails from being blocked or sent to spam.
+   - A custom domain is optional; provider-verified sender email is enough for beta.
+
+7. Free error monitoring
+   - Create a free Sentry project.
+   - Set SENTRY_DSN in the hosting provider.
+   - This is optional for a private demo, but strongly recommended before a public beta.
+
+8. Public HTTPS URL
+   - Use the free HTTPS URL from the hosting provider, such as a render.com URL.
+   - Set that exact URL as TEXTTRAITS_PUBLIC_BASE_URL.
+   - A paid custom domain is not required.
+
+9. Privacy and terms approval
+   - Use the included privacy and terms drafts/checklist as a starting point.
+   - For a free beta, the owner should at least review and approve the wording before launch.
+   - Formal legal review can wait if this is a small private beta, but public launch should get real review.
+
+10. Pre-deploy validation
+   Run these after env vars are configured:
+   - python3 scripts/preflight.py
+   - python3 tests/smoke_test.py
+   - python3 tests/browser_smoke_test.py
+   - python3 tests/accessibility_smoke_test.py
+   - python3 tests/production_smoke_test.py
+   - python3 tests/security_regression_test.py
+   - python3 tests/config_regression_test.py
+   - python3 tests/frontend_regression_test.py
+   - python3 tests/env_storage_regression_test.py
+
+Can Wait Until After Free Beta
+==============================
+
+- Paid custom domain
+- Paid database tier
+- Paid email tier
+- Real HubSpot/Salesforce/Gmail/Outlook OAuth credentials
+- Chrome extension packaging
+- Enterprise SSO
+- Full legal counsel review
+- Advanced backups beyond the free database provider's defaults
