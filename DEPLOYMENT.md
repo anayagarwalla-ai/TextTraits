@@ -9,6 +9,8 @@ Copy `.env.example` into your deployment environment and set:
 - `TEXTTRAITS_SECRET_KEY`: long random secret used for Flask sessions.
 - `TEXTTRAITS_DB_PATH`: durable SQLite path for local development and backup testing.
 - `DATABASE_URL` or `TEXTTRAITS_DATABASE_URL`: hosted Postgres URL for production. The storage layer switches to Postgres automatically when this is set.
+- `TEXTTRAITS_DB_SSLMODE=require`: required for remote production Postgres connections. Localhost Postgres does not force SSL by default.
+- `TEXTTRAITS_DB_CONNECT_TIMEOUT=10`: default connection timeout appended to Postgres URLs.
 - `TEXTTRAITS_PUBLIC_BASE_URL`: public HTTPS origin used in account/reset links.
 - `TEXTTRAITS_EMAIL_PROVIDER`: `smtp`, `sendgrid`, or empty for local dev-only links.
 - `TEXTTRAITS_FROM_EMAIL`: verified sender address for account emails.
@@ -26,6 +28,15 @@ Copy `.env.example` into your deployment environment and set:
 ```bash
 python3 texttraits_app/app.py
 ```
+
+For local Postgres:
+
+```bash
+export DATABASE_URL="postgresql://texttraits:texttraits123@localhost:5432/texttraits"
+PORT=5001 python3 texttraits_app/app.py
+```
+
+You can also create a local `.env` file. The app loads `.env` automatically for local development without overriding real deployment environment variables.
 
 ## Production WSGI
 
@@ -60,7 +71,7 @@ Local development can store signed-in workspace state in SQLite. Production shou
 ## Operational Checks
 
 - `GET /health` verifies model availability, sync mode, and persistence status.
-- `GET /health` also reports email delivery, error-reporting, and configured integration counts.
+- `GET /health` also reports database backend/SSL status, email delivery, error-reporting, and configured integration counts.
 - `texttraits_app/artifacts/app.log` receives rotated server logs in text or JSON format.
 - `audit_events` records login, signup, evaluation, sync, integration, export/delete, and client events.
 - `/api/client-errors` receives client-side error reports.
@@ -109,4 +120,5 @@ python3 tests/accessibility_smoke_test.py
 python3 tests/security_regression_test.py
 python3 tests/config_regression_test.py
 python3 tests/frontend_regression_test.py
+python3 tests/env_storage_regression_test.py
 ```

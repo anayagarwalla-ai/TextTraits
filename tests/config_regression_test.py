@@ -51,6 +51,7 @@ def main() -> int:
             "TEXTTRAITS_SECRET_KEY": "a-realistic-test-secret-with-more-than-enough-entropy",
             "TEXTTRAITS_PUBLIC_BASE_URL": "https://texttraits.example",
             "TEXTTRAITS_DATABASE_URL": "postgresql://texttraits:secret@db.example.com:5432/texttraits",
+            "TEXTTRAITS_DB_SSLMODE": "require",
             "DATABASE_URL": "",
             "TEXTTRAITS_SECURE_COOKIES": "true",
             "TEXTTRAITS_EMAIL_PROVIDER": "smtp",

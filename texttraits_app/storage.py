@@ -7,6 +7,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -27,7 +28,25 @@ def db_path() -> Path:
 
 
 def database_url() -> str:
-    return (os.getenv("TEXTTRAITS_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
+    raw_url = (os.getenv("TEXTTRAITS_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
+    if not raw_url.startswith(("postgres://", "postgresql://")):
+        return raw_url
+    parsed = urlparse(raw_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if "connect_timeout" not in query:
+        query["connect_timeout"] = os.getenv("TEXTTRAITS_DB_CONNECT_TIMEOUT", "10")
+    sslmode = os.getenv("TEXTTRAITS_DB_SSLMODE", "").strip()
+    if sslmode and "sslmode" not in query:
+        query["sslmode"] = sslmode
+    elif should_require_postgres_ssl(parsed.hostname or "") and "sslmode" not in query:
+        query["sslmode"] = "require"
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def should_require_postgres_ssl(hostname: str) -> bool:
+    if os.getenv("TEXTTRAITS_ENV", "").strip().lower() != "production":
+        return False
+    return hostname not in {"localhost", "127.0.0.1", "::1", ""}
 
 
 def uses_postgres() -> bool:
@@ -36,6 +55,14 @@ def uses_postgres() -> bool:
 
 def database_backend() -> str:
     return "postgres" if uses_postgres() else "sqlite"
+
+
+def database_status() -> dict[str, Any]:
+    return {
+        "backend": database_backend(),
+        "ssl_required": bool(uses_postgres() and "sslmode=require" in database_url()),
+        "path": str(db_path()) if not uses_postgres() else "",
+    }
 
 
 def utc_now() -> str:
@@ -53,6 +80,12 @@ def connect():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def check_database() -> dict[str, Any]:
+    with connect() as conn:
+        execute(conn, "SELECT 1").fetchone()
+    return {"ok": True, **database_status()}
 
 
 def sql(statement: str) -> str:

@@ -30,6 +30,7 @@ def main() -> int:
     assert_true(health.status_code == 200, f"health returned {health.status_code}")
     assert_true(health.get_json()["sync"] is True, "sync health flag missing")
     assert_true(health.get_json()["persistence"] in {"sqlite", "postgres"}, "persistence backend missing")
+    assert_true(health.get_json()["database"]["ok"] is True, "database health check missing")
     assert_true("email" in health.get_json(), "email delivery health missing")
     assert_true("error_reporting" in health.get_json(), "error reporting health missing")
 

@@ -8,6 +8,7 @@ from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from flask import Flask, Response, jsonify, redirect, render_template, render_template_string, request, session
 from werkzeug.exceptions import HTTPException
@@ -15,6 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from demo_predictor import DemoPredictor
 from email_delivery import send_account_email, status as email_status
+from env_loader import load_env_file
 from integration_adapters import (
     build_authorization_url,
     configured_count as configured_integration_count,
@@ -30,9 +32,12 @@ from observability import configure_logging, init_error_reporting
 from predictor import DEFAULT_MODEL_PATH, TextTraitsPredictor
 from storage import (
     authenticate_user,
+    check_database,
     create_password_reset,
     create_user,
+    database_status,
     database_backend,
+    database_url,
     delete_user,
     export_user_data,
     get_verification_token,
@@ -47,6 +52,8 @@ from storage import (
     upsert_integration,
     verify_email_token,
 )
+
+load_env_file()
 
 
 class MissingPredictor:
@@ -83,11 +90,38 @@ ALLOW_DEMO_MODE = env_flag("TEXTTRAITS_ALLOW_DEMO", True)
 MAX_TEXT_WORDS = int(os.getenv("TEXTTRAITS_MAX_TEXT_WORDS", "1800"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
 APP_SECRET = os.getenv("TEXTTRAITS_SECRET_KEY", "dev-texttraits-change-me")
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("TEXTTRAITS_DATABASE_URL")
 PUBLIC_BASE_URL = os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", "http://127.0.0.1:5000")
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
+
+
+def validate_runtime_config() -> None:
+    production = os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production"
+    failures: list[str] = []
+    if APP_SECRET.startswith(("dev-", "replace-")):
+        message = "TEXTTRAITS_SECRET_KEY must be a real high-entropy secret."
+        if production:
+            failures.append(message)
+        else:
+            logging.warning(message)
+    if production:
+        public_origin = urlparse(PUBLIC_BASE_URL)
+        if public_origin.scheme != "https":
+            failures.append("TEXTTRAITS_PUBLIC_BASE_URL must use HTTPS in production.")
+        if not env_flag("TEXTTRAITS_SECURE_COOKIES", False):
+            failures.append("TEXTTRAITS_SECURE_COOKIES=true is required in production.")
+        if database_backend() != "postgres":
+            failures.append("Production requires DATABASE_URL or TEXTTRAITS_DATABASE_URL for hosted Postgres.")
+        elif "sslmode=require" not in database_url():
+            failures.append("Production Postgres must use SSL. Set TEXTTRAITS_DB_SSLMODE=require or include sslmode=require.")
+        if not email_status()["configured"]:
+            failures.append("Production requires TEXTTRAITS_EMAIL_PROVIDER with working SMTP or SendGrid settings.")
+    if failures:
+        raise RuntimeError("Invalid TextTraits production configuration: " + " ".join(failures))
+
+
+validate_runtime_config()
 
 AVAILABLE_MODELS = [
     {
@@ -228,6 +262,7 @@ def public_app_info() -> dict:
         "sync": True,
         "auth": True,
         "database": database_backend(),
+        "database_status": database_status(),
         "email_delivery": email_status(),
         "error_reporting": ERROR_REPORTING_STATUS,
         "configured_integrations": configured_integration_count(),
@@ -253,6 +288,7 @@ def index():
 
 @app.get("/health")
 def health():
+    db = check_database()
     return jsonify(
         {
             "ok": not isinstance(predictor, MissingPredictor),
@@ -260,6 +296,7 @@ def health():
             "model": public_model_info(),
             "dev_tools_enabled": ENABLE_DEV_TOOLS,
             "persistence": public_app_info()["database"],
+            "database": db,
             "email": public_app_info()["email_delivery"],
             "error_reporting": public_app_info()["error_reporting"],
             "configured_integrations": public_app_info()["configured_integrations"],
