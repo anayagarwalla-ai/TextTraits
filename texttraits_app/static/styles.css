@@ -287,6 +287,30 @@ body.has-work .topbar {
   justify-content: start;
 }
 
+.account-benefits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.account-benefits article {
+  padding: 11px;
+  border: 1px solid rgba(221, 226, 234, 0.82);
+  border-radius: var(--radius-sm);
+  background: rgba(247, 248, 250, 0.82);
+}
+
+.account-benefits strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.account-benefits span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .error-text {
   margin: 0;
   border: 1px solid var(--warn);
@@ -787,6 +811,34 @@ body[data-mode="explorer"] .action-row.sticky {
 
 .sample-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.starter-sample-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(221, 226, 234, 0.78);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(244, 246, 251, 0.72));
+}
+
+.starter-sample-panel > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.starter-sample-panel span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.starter-sample-panel .sample-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.starter-sample-panel .sample-card {
+  min-height: 58px;
+  background: #fff;
 }
 
 .sample-card {
@@ -1480,6 +1532,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .workspace-tabs button {
   flex: 1 1 92px;
   border-color: transparent;
+  min-height: 36px;
+  padding: 8px 10px;
 }
 
 .workspace-tabs button[aria-selected="true"] {
@@ -2984,11 +3038,13 @@ body.is-local-runtime .footer-note {
     .daily-product-grid,
     .prompt-library,
     .review-table,
+    .account-benefits,
     .auth-grid,
     .admin-grid,
     .profile-grid,
     .coach-flow,
     .weekly-recap-panel,
+    .starter-sample-panel .sample-grid,
     .integration-setup-grid {
     grid-template-columns: 1fr;
   }

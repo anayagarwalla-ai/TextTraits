@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - optional production dependency
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "artifacts" / "texttraits_workspace.sqlite3"
+SCHEMA_VERSION = "2026_05_15_initial_workspace_schema"
 
 
 def db_path() -> Path:
@@ -261,11 +262,42 @@ def init_db() -> None:
             );
             """
             )
+        ensure_schema_version(conn)
         ensure_column(conn, "users", "email_verified_at", "TEXT")
         ensure_column(conn, "users", "verification_token", "TEXT")
         ensure_column(conn, "users", "reset_token", "TEXT")
         ensure_column(conn, "users", "reset_expires_at", "TEXT")
         ensure_column(conn, "users", "session_version", "INTEGER DEFAULT 0")
+
+
+def ensure_schema_version(conn) -> None:
+    conn.execute(
+        sql(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              version TEXT PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            )
+            """
+        )
+    )
+    if uses_postgres():
+        conn.execute(
+            """
+            INSERT INTO schema_migrations (version, applied_at)
+            VALUES (%s, %s)
+            ON CONFLICT (version) DO NOTHING
+            """,
+            (SCHEMA_VERSION, utc_now()),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (?, ?)
+            """,
+            (SCHEMA_VERSION, utc_now()),
+        )
 
 
 def ensure_column(conn, table: str, column: str, column_type: str) -> None:

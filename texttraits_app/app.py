@@ -808,10 +808,11 @@ def privacy():
         <!doctype html><title>TextTraits Privacy</title><link rel="stylesheet" href="/static/styles.css">
         <main class="legal-page">
           <h1>Privacy</h1>
-          <p>TextTraits stores signed-in workspace data so users can return to writing history, campaigns, drafts, outcomes, settings, and integration statuses.</p>
-          <p>Text submitted for analysis is processed by the TextTraits Flask app and saved only when the user saves or syncs a workspace.</p>
-          <p>Signed-in users can export workspace data and delete their account. Production deployments should configure hosted storage, HTTPS, backups, monitoring, and email delivery.</p>
-          <p>Enterprise integrations require separate provider credentials and administrator approval before any CRM or email data is exchanged.</p>
+          <p>TextTraits stores account and workspace data for signed-in users, including saved writing history, campaigns, drafts, outcomes, settings, and integration connection status.</p>
+          <p>Text submitted for analysis is processed by the TextTraits application. Raw pasted text is not included in normal workspace sync unless a user saves a reading, draft, or campaign that contains it.</p>
+          <p>Signed-in users can export their account data and delete their account from the account menu. Deletion removes the synced workspace and integration connection records for that account.</p>
+          <p>Enterprise integrations require administrator setup before any CRM or email data is exchanged. Preview integrations do not connect to third-party systems.</p>
+          <p>Operational logs and error reports are used to keep the service reliable and should avoid storing passwords, reset codes, API keys, and OAuth credentials.</p>
           <p><a href="/">Back to TextTraits</a></p>
         </main>
         """
@@ -826,8 +827,9 @@ def terms():
         <main class="legal-page">
           <h1>Terms</h1>
           <p>TextTraits is a writing coach and outreach workflow tool. Users are responsible for reviewing generated drafts before using them.</p>
-          <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, and external integration credentials.</p>
-          <p>Preview integrations are disabled until real credentials and provider approvals are configured.</p>
+          <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, external integration credentials, and user access.</p>
+          <p>Preview integrations are disabled until real credentials, provider approvals, and field mappings are configured by the workspace owner.</p>
+          <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
           <p><a href="/">Back to TextTraits</a></p>
         </main>
         """

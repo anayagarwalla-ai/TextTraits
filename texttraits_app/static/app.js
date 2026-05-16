@@ -410,7 +410,7 @@ const enterpriseSamples = [
     source: "Email",
     note: "Use when a buyer has explained what would make a meeting worthwhile.",
     text: "The main issue is not activity volume. We need cleaner signal on which accounts are actually moving, where managers should intervene, and how to spot risk before it shows up in the forecast meeting. If your product helps with that without forcing a heavy migration, I am open to seeing a focused walkthrough.",
-    context: {stage: "Evaluating", source: "Previous email", pain: "account movement and forecast risk", trigger: "focused walkthrough request"},
+    context: {stage: "Evaluating", source: "Previous email", pain: "late pipeline risk and manager visibility", trigger: "focused walkthrough request"},
   },
   {
     label: "Website copy",
@@ -568,11 +568,15 @@ function renderAccountCard() {
             <div>
               <p class="label">Account</p>
               <h2 id="account-title">Save your workspace</h2>
-              <p class="muted">Sync history, campaigns, drafts, outcomes, and settings across devices.</p>
+              <p class="muted">Create an account when you want your work to follow you across devices.</p>
             </div>
             <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
           </div>
           ${errorHtml}
+          <div class="account-benefits" aria-label="What account sync saves">
+            <article><strong>Explorer</strong><span>Writing journal, streaks, weekly recap, and saved rewrites.</span></article>
+            <article><strong>Enterprise</strong><span>Campaigns, draft history, review queues, exports, and team settings.</span></article>
+          </div>
           <div class="auth-grid">
             <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" placeholder="Your name"></label>
             <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" placeholder="you@example.com"></label>
@@ -928,7 +932,7 @@ function renderEnterpriseInput() {
       <div class="panel-head compact-head input-mini-head">
         <div>
           <h2>${escapeHtml(ctx.project || "Outbound campaign")}</h2>
-          <p class="helper">${escapeHtml(ctx.role || "VP Revenue")} / ${escapeHtml(ctx.company || "Northstar Analytics")} / ${escapeHtml(ctx.goal || "Book call")}</p>
+          <p class="helper">${escapeHtml(ctx.role || "VP Revenue")} / ${escapeHtml(ctx.company || "TextTraits")} / ${escapeHtml(ctx.goal || "Book call")}</p>
         </div>
         <button id="edit-enterprise-inputs" class="button-secondary" type="button">Edit inputs</button>
       </div>
@@ -943,8 +947,8 @@ function renderEnterpriseInput() {
   els.inputPanel.innerHTML = `
     <div class="panel-head enterprise-setup-head">
       <div>
-        <h2>Campaign setup</h2>
-        <p class="helper">Start with the prospect's words and a plain description of what you sell. Add advanced context only when you need it.</p>
+        <h2>Quick draft setup</h2>
+        <p class="helper">Paste the buyer's own words first. Use the rest only when it helps the draft sound more specific.</p>
       </div>
       <span class="preview-badge">Draft setup</span>
     </div>
@@ -952,6 +956,14 @@ function renderEnterpriseInput() {
     <div class="field">
       <label for="enterprise-text">Prospect context</label>
       <textarea id="enterprise-text" class="enterprise-compact-textarea" placeholder="Paste a reply, LinkedIn bio, transcript, website paragraph, or previous email.">${escapeHtml(state.latestText)}</textarea>
+    </div>
+
+    <div class="starter-sample-panel">
+      <div>
+        <strong>Need a fast demo?</strong>
+        <span>Load one buyer example, then generate drafts.</span>
+      </div>
+      ${sampleButtons(enterpriseSamples.slice(0, 2), "enterprise-text")}
     </div>
 
     <div class="quality-row">
@@ -964,7 +976,7 @@ function renderEnterpriseInput() {
       <summary>Campaign basics</summary>
       <div class="enterprise-field-grid field-grid-spaced compact-enterprise-fields">
         ${field("project", "Campaign name", ctx.project || "Q3 pipeline quality")}
-        ${field("offer", "What do you sell?", ctx.offer || "Revenue workflow software")}
+        ${field("offer", "What do you sell?", ctx.offer || "a review workspace for outbound drafts, replies, and campaign outcomes")}
       </div>
     </details>
 
@@ -974,7 +986,7 @@ function renderEnterpriseInput() {
         ${field("role", "Who are you writing to?", ctx.role || "VP Revenue")}
         ${selectField("goal", "Campaign goal", goals, ctx.goal)}
         ${field("folder", "Folder", ctx.folder || "RevOps")}
-        ${field("company", "Your company", ctx.company || "Northstar Analytics")}
+        ${field("company", "Your company", ctx.company || "TextTraits")}
         ${field("pain", "Pain hypothesis", ctx.pain || "forecast risk and manager visibility")}
         ${field("proof", "Proof point", ctx.proof || "reduced manual reporting by 32%")}
         ${selectField("preset", "Output preset", presets, ctx.preset)}
@@ -1133,7 +1145,7 @@ function renderEnterpriseEmpty() {
             </div>
           ` : `
             <p class="muted">Keep the workspace quiet, or load sample campaigns, replies, and batches when you want to inspect the full workflow.</p>
-            <button class="button-secondary" type="button" data-load-sample-workspace>Load sample workspace</button>
+            <button type="button" data-load-sample-workspace>Load sample workspace</button>
           `}
         </article>
       </div>
@@ -1997,8 +2009,8 @@ function enterpriseContext() {
   return {
     project: get("project") || "Q3 pipeline quality",
     folder: get("folder") || "RevOps",
-    company: get("company") || "Northstar Analytics",
-    offer: get("offer") || "revenue workflow software",
+    company: get("company") || "TextTraits",
+    offer: get("offer") || "a review workspace for outbound drafts, replies, and campaign outcomes",
     role: get("role") || "VP Revenue",
     goal: get("goal") || "Book call",
     preset: get("preset") || "Premium",
@@ -2044,9 +2056,9 @@ function enterpriseProfile(data) {
 
 function enterpriseAngles(context, profile) {
   return [
-    ["Clearer account movement", 94, `Connect ${context.offer} to earlier risk spotting and fewer forecast surprises.`],
-    ["Manager coaching rhythm", 88, `Position the workflow around better intervention moments for frontline managers.`],
-    ["Low-friction implementation", 81, `Emphasize fit with existing systems and fast time to value.`],
+    ["Earlier risk visibility", 94, `Connect ${context.offer} to the buyer's need for earlier, cleaner pipeline warnings.`],
+    ["Manager coaching rhythm", 88, `Position the workflow around the exact moment managers need to intervene.`],
+    ["Low-friction implementation", 81, `Emphasize a focused pilot, not another broad reporting platform.`],
   ];
 }
 
@@ -2059,11 +2071,11 @@ function compactPhrase(value, limit = 5) {
 function subjectLines(context) {
   const pain = compactPhrase(String(context.pain || "").split(" and ")[0], 4);
   return [
-    `Cleaner view of ${pain}`,
+    `Cleaner read on ${pain}`,
     `Idea for ${compactPhrase(context.trigger, 4)}`,
     `Fewer surprises in forecast reviews`,
     `${context.company} x {{company}}`,
-    `Less dashboard noise`,
+    `Less manual follow-up`,
   ];
 }
 
@@ -2083,7 +2095,7 @@ function buildEmailVariant(context, profile, variant) {
     ? `I would lead with one proof point before getting into product detail.`
     : `I would keep this about one business issue instead of a broad platform pitch.`;
   const tonePrefix = variant === "A"
-    ? `Your note about ${context.pain} stood out.`
+    ? `The part that stood out was your focus on ${context.pain}.`
     : variant === "B"
       ? `It sounds like the hard part is not activity volume. It is knowing which accounts need manager attention soonest.`
       : `The pattern I noticed is practical: fewer reporting loops, cleaner handoffs, and earlier visibility into risk.`;
@@ -2091,9 +2103,9 @@ function buildEmailVariant(context, profile, variant) {
   const body = variant === "A"
     ? `${tonePrefix}
 
-If that is the pressure right now, the useful starting point may be a cleaner way to see account movement before it turns into forecast risk.
+If that is the pressure right now, the useful starting point may be a cleaner way to spot risk while managers can still act on it.
 
-At ${context.company}, we focus on ${context.offer} for ${context.segment} teams that want earlier manager coaching without adding another reporting ritual. The proof point I would anchor on: ${proof}.${preferSpecific ? ` The first test could be ${context.trigger} for ${context.icp}.` : ""}
+${context.company} helps ${context.segment} teams use ${context.offer} so the next coaching moment is easier to find, not buried in another report. The proof point I would anchor on: ${proof}.${preferSpecific ? ` The first test could be ${context.trigger} for ${context.icp}.` : ""}
 
 ${preferShort ? ctaText(context) : `${learnedLine}\n\n${ctaText(context)}`}`
     : variant === "B"

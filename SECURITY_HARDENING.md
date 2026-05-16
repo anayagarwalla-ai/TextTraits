@@ -13,6 +13,7 @@ This file is the deploy-time security checklist for the repository owner.
 - Run `python3 -m pip_audit -r requirements.txt`, `python3 -m pip_audit -r texttraits_app/requirements.txt`, and `python3 -m pip_audit -r accessible-text-inference-app/requirements.txt`.
 - Run `python3 scripts/preflight.py` with production environment variables set.
 - Run `python3 scripts/verify_models.py` and confirm the model checksum passes.
+- Confirm the GitHub Actions workflow in `.github/workflows/ci.yml` is green on the deploy branch.
 
 ## Required Production Settings
 

@@ -61,16 +61,20 @@ The repo includes:
 - `Dockerfile` for container deployments.
 - `Procfile` for Heroku-style platforms.
 - `render.yaml` for Render web service + managed Postgres setup.
+- `.github/workflows/ci.yml` for syntax, migration, smoke, accessibility, config, and security regression checks on every branch and pull request.
 
 Before promoting a release, run:
 
 ```bash
+python3 scripts/migrate.py
 TEXTTRAITS_ENV=production python3 scripts/preflight.py
 ```
 
 ## Persistence And Backups
 
 Local development can store signed-in workspace state in SQLite. Production should set `DATABASE_URL` or `TEXTTRAITS_DATABASE_URL` to managed Postgres. Use the database provider’s automated backups and point-in-time recovery. `scripts/backup_sqlite.py` is included only for local/dev SQLite snapshots.
+
+Run `python3 scripts/migrate.py` against staging and production after every deploy. The current schema records applied versions in `schema_migrations` so the deploy owner can verify which schema baseline is active before traffic is sent to the app.
 
 ## Operational Checks
 
@@ -122,6 +126,7 @@ Run:
 ```bash
 python3 -m py_compile texttraits_app/app.py texttraits_app/storage.py
 node --check texttraits_app/static/app.js
+python3 scripts/migrate.py
 python3 tests/smoke_test.py
 python3 tests/browser_smoke_test.py
 python3 tests/production_smoke_test.py
