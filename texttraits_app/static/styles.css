@@ -734,13 +734,29 @@ input[type="range"] {
   background: #e6eee9;
 }
 
-.meter span {
-  display: block;
-  width: 0%;
+.meter progress {
+  width: 100%;
   height: 100%;
-  background: var(--accent);
+  border: 0;
   border-radius: inherit;
-  transition: width 180ms ease;
+  overflow: hidden;
+  background: transparent;
+  appearance: none;
+}
+
+.meter progress::-webkit-progress-bar {
+  border-radius: inherit;
+  background: transparent;
+}
+
+.meter progress::-webkit-progress-value {
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.meter progress::-moz-progress-bar {
+  border-radius: inherit;
+  background: var(--accent);
 }
 
 .action-row.sticky {
@@ -1382,9 +1398,29 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   background: #e6eee9;
 }
 
-.signal-meter span {
-  display: block;
+.signal-meter progress,
+.batch-progress progress {
+  width: 100%;
   height: 100%;
+  border: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  background: transparent;
+  appearance: none;
+}
+
+.signal-meter progress::-webkit-progress-bar,
+.batch-progress progress::-webkit-progress-bar {
+  border-radius: inherit;
+  background: transparent;
+}
+
+.signal-meter progress::-webkit-progress-value {
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.signal-meter progress::-moz-progress-bar {
   border-radius: inherit;
   background: var(--accent);
 }
@@ -2316,12 +2352,14 @@ body[data-mode="enterprise"] .advanced-card {
   background: #e7ebf0;
 }
 
-.batch-progress span {
-  display: block;
-  height: 100%;
+.batch-progress progress::-webkit-progress-value {
   border-radius: inherit;
   background: var(--blue);
-  transition: width 180ms ease;
+}
+
+.batch-progress progress::-moz-progress-bar {
+  border-radius: inherit;
+  background: var(--blue);
 }
 
 .split-actions button[data-generate-batch] {
@@ -2709,6 +2747,15 @@ body[data-mode="enterprise"] .advanced-card {
 
 body.is-local-runtime .footer-note {
   display: block;
+}
+
+.legal-page {
+  max-width: 760px;
+  margin: 40px auto;
+  padding: 0 20px;
+  color: var(--ink);
+  font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
+  line-height: 1.6;
 }
 
 .dev-tools {

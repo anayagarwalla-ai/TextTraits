@@ -4,6 +4,9 @@ import json
 import os
 import sqlite3
 import secrets
+import hashlib
+import hmac
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -57,16 +60,74 @@ def database_backend() -> str:
     return "postgres" if uses_postgres() else "sqlite"
 
 
-def database_status() -> dict[str, Any]:
+def database_status(include_path: bool = False) -> dict[str, Any]:
     return {
         "backend": database_backend(),
         "ssl_required": bool(uses_postgres() and "sslmode=require" in database_url()),
-        "path": str(db_path()) if not uses_postgres() else "",
+        "path": str(db_path()) if include_path and not uses_postgres() else "",
     }
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+SENSITIVE_PAYLOAD_KEYS = ("password", "secret", "token", "api_key", "apikey", "authorization", "credential")
+SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)\b(password|token|secret|api[_-]?key|authorization|credential|reset_token|verify_token|access_token|refresh_token|client_secret)=([^&\s]+)"
+)
+BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+SAFE_EVENT_TYPE_RE = re.compile(r"[^a-zA-Z0-9_.:-]+")
+
+
+def token_digest(token: str) -> str:
+    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def token_matches(stored_value: str | None, token: str) -> bool:
+    if not stored_value or not token:
+        return False
+    return hmac.compare_digest(stored_value, token_digest(token.strip()))
+
+
+def redact_string(value: str) -> str:
+    cleaned = SENSITIVE_VALUE_RE.sub(lambda match: f"{match.group(1)}=[redacted]", value)
+    cleaned = BEARER_TOKEN_RE.sub("Bearer [redacted]", cleaned)
+    return cleaned if len(cleaned) <= 500 else cleaned[:500] + "...[truncated]"
+
+
+def contains_sensitive_key(value: Any, depth: int = 0) -> bool:
+    if depth > 6:
+        return False
+    if isinstance(value, dict):
+        for key, child in value.items():
+            clean_key = str(key).lower()
+            if any(marker in clean_key for marker in SENSITIVE_PAYLOAD_KEYS):
+                return True
+            if contains_sensitive_key(child, depth + 1):
+                return True
+    elif isinstance(value, list):
+        return any(contains_sensitive_key(item, depth + 1) for item in value[:100])
+    return False
+
+
+def scrub_payload(value: Any, depth: int = 0) -> Any:
+    if depth > 4:
+        return "[truncated]"
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, child in value.items():
+            clean_key = str(key)
+            if any(marker in clean_key.lower() for marker in SENSITIVE_PAYLOAD_KEYS):
+                cleaned[clean_key] = "[redacted]"
+            else:
+                cleaned[clean_key] = scrub_payload(child, depth + 1)
+        return cleaned
+    if isinstance(value, list):
+        return [scrub_payload(item, depth + 1) for item in value[:50]]
+    if isinstance(value, str):
+        return redact_string(value)
+    return value
 
 
 def connect():
@@ -110,6 +171,7 @@ def init_db() -> None:
                   verification_token TEXT,
                   reset_token TEXT,
                   reset_expires_at TEXT,
+                  session_version INTEGER NOT NULL DEFAULT 0,
                   created_at TEXT NOT NULL,
                   last_login_at TEXT
                 )
@@ -163,6 +225,7 @@ def init_db() -> None:
               verification_token TEXT,
               reset_token TEXT,
               reset_expires_at TEXT,
+              session_version INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               last_login_at TEXT
             );
@@ -202,6 +265,7 @@ def init_db() -> None:
         ensure_column(conn, "users", "verification_token", "TEXT")
         ensure_column(conn, "users", "reset_token", "TEXT")
         ensure_column(conn, "users", "reset_expires_at", "TEXT")
+        ensure_column(conn, "users", "session_version", "INTEGER DEFAULT 0")
 
 
 def ensure_column(conn, table: str, column: str, column_type: str) -> None:
@@ -255,6 +319,7 @@ def create_user(email: str, password: str, name: str = "") -> dict[str, Any]:
     clean_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
     now = utc_now()
     verification_token = secrets.token_urlsafe(24)
+    verification_digest = token_digest(verification_token)
     with connect() as conn:
         if uses_postgres():
             row = conn.execute(
@@ -263,14 +328,14 @@ def create_user(email: str, password: str, name: str = "") -> dict[str, Any]:
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (clean_email, clean_name, generate_password_hash(password), verification_token, now),
+                (clean_email, clean_name, generate_password_hash(password), verification_digest, now),
             ).fetchone()
             user_id = int(row["id"])
         else:
             cursor = execute(
                 conn,
                 "INSERT INTO users (email, name, password_hash, verification_token, created_at) VALUES (?, ?, ?, ?, ?)",
-                (clean_email, clean_name, generate_password_hash(password), verification_token, now),
+                (clean_email, clean_name, generate_password_hash(password), verification_digest, now),
             )
             user_id = int(cursor.lastrowid)
         execute(
@@ -279,7 +344,9 @@ def create_user(email: str, password: str, name: str = "") -> dict[str, Any]:
             (user_id, f"{clean_name}'s workspace", "{}", now, now),
         )
         row = execute(conn, "SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return public_user(row) or {}
+    user = public_user(row) or {}
+    user["_verification_token"] = verification_token
+    return user
 
 
 def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
@@ -294,9 +361,8 @@ def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
 
 
 def get_verification_token(user_id: int) -> str | None:
-    with connect() as conn:
-        row = execute(conn, "SELECT verification_token FROM users WHERE id = ?", (user_id,)).fetchone()
-    return row["verification_token"] if row else None
+    # Verification tokens are stored hashed and cannot be recovered after issue.
+    return None
 
 
 def verify_email_token(token: str) -> dict[str, Any] | None:
@@ -304,7 +370,11 @@ def verify_email_token(token: str) -> dict[str, Any] | None:
     if not clean:
         return None
     with connect() as conn:
-        row = execute(conn, "SELECT * FROM users WHERE verification_token = ?", (clean,)).fetchone()
+        row = execute(
+            conn,
+            "SELECT * FROM users WHERE verification_token = ?",
+            (token_digest(clean),),
+        ).fetchone()
         if row is None:
             return None
         now = utc_now()
@@ -323,12 +393,13 @@ def create_password_reset(email: str) -> dict[str, Any] | None:
     if row is None:
         return None
     token = secrets.token_urlsafe(24)
+    digest = token_digest(token)
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
     with connect() as conn:
         execute(
             conn,
             "UPDATE users SET reset_token = ?, reset_expires_at = ? WHERE id = ?",
-            (token, expires, row["id"]),
+            (digest, expires, row["id"]),
         )
     log_event(int(row["id"]), "password_reset_requested", {})
     return {"token": token, "expires_at": expires}
@@ -340,7 +411,11 @@ def reset_password(token: str, password: str) -> dict[str, Any] | None:
         return None
     now = datetime.now(timezone.utc)
     with connect() as conn:
-        row = execute(conn, "SELECT * FROM users WHERE reset_token = ?", (clean,)).fetchone()
+        row = execute(
+            conn,
+            "SELECT * FROM users WHERE reset_token = ?",
+            (token_digest(clean),),
+        ).fetchone()
         if row is None:
             return None
         expires = datetime.fromisoformat(row["reset_expires_at"]) if row["reset_expires_at"] else now
@@ -348,7 +423,7 @@ def reset_password(token: str, password: str) -> dict[str, Any] | None:
             return None
         execute(
             conn,
-            "UPDATE users SET password_hash = ?, reset_token = NULL, reset_expires_at = NULL WHERE id = ?",
+            "UPDATE users SET password_hash = ?, reset_token = NULL, reset_expires_at = NULL, session_version = COALESCE(session_version, 0) + 1 WHERE id = ?",
             (generate_password_hash(password), row["id"]),
         )
         updated = execute(conn, "SELECT * FROM users WHERE id = ?", (row["id"],)).fetchone()
@@ -381,6 +456,9 @@ def save_workspace(user_id: int, data: dict[str, Any], name: str | None = None) 
     current = get_workspace(user_id)
     workspace_name = (name or current["name"] or "Personal workspace").strip()
     serialized = json.dumps(data, separators=(",", ":"), sort_keys=True)
+    max_bytes = int(os.getenv("TEXTTRAITS_MAX_WORKSPACE_BYTES", "500000"))
+    if len(serialized.encode("utf-8")) > max_bytes:
+        raise ValueError(f"Workspace data is too large. Keep sync payloads under {max_bytes} bytes.")
     with connect() as conn:
         execute(
             conn,
@@ -391,11 +469,13 @@ def save_workspace(user_id: int, data: dict[str, Any], name: str | None = None) 
 
 
 def log_event(user_id: int | None, event_type: str, payload: dict[str, Any] | None = None) -> None:
+    clean_payload = scrub_payload(payload or {})
+    clean_event_type = SAFE_EVENT_TYPE_RE.sub("_", str(event_type or "client_event")).strip("_")[:80] or "client_event"
     with connect() as conn:
         execute(
             conn,
             "INSERT INTO audit_events (user_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, event_type, json.dumps(payload or {}, separators=(",", ":")), utc_now()),
+            (user_id, clean_event_type, json.dumps(clean_payload, separators=(",", ":"))[:12000], utc_now()),
         )
 
 
@@ -418,6 +498,7 @@ def recent_events(user_id: int, limit: int = 25) -> list[dict[str, Any]]:
 
 def upsert_integration(user_id: int, provider: str, status: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
     now = utc_now()
+    clean_config = scrub_payload(config or {})
     with connect() as conn:
         execute(
             conn,
@@ -427,10 +508,10 @@ def upsert_integration(user_id: int, provider: str, status: str, config: dict[st
             ON CONFLICT(user_id, provider)
             DO UPDATE SET status = excluded.status, config = excluded.config, updated_at = excluded.updated_at
             """,
-            (user_id, provider, status, json.dumps(config or {}, separators=(",", ":")), now),
+            (user_id, provider, status, json.dumps(clean_config, separators=(",", ":")), now),
         )
     log_event(user_id, "integration_updated", {"provider": provider, "status": status})
-    return {"provider": provider, "status": status, "config": config or {}, "updated_at": now}
+    return {"provider": provider, "status": status, "config": clean_config, "updated_at": now}
 
 
 def integrations(user_id: int) -> list[dict[str, Any]]:
@@ -465,3 +546,11 @@ def delete_user(user_id: int) -> None:
     log_event(user_id, "account_deleted", {})
     with connect() as conn:
         execute(conn, "DELETE FROM users WHERE id = ?", (user_id,))
+
+
+def user_session_version(user_id: int) -> int | None:
+    with connect() as conn:
+        row = execute(conn, "SELECT session_version FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row is None:
+        return None
+    return int(row["session_version"] or 0)

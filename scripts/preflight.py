@@ -41,20 +41,43 @@ def main() -> int:
             fail("Production Postgres must require SSL. Set TEXTTRAITS_DB_SSLMODE=require or include sslmode=require in the URL.", failures)
         if os.getenv("TEXTTRAITS_SECURE_COOKIES", "").lower() not in {"1", "true", "yes", "on"}:
             fail("TEXTTRAITS_SECURE_COOKIES=true is required behind HTTPS.", failures)
+        if os.getenv("ENABLE_DEV_TOOLS", "").lower() in {"1", "true", "yes", "on"}:
+            fail("ENABLE_DEV_TOOLS=false is required in production.", failures)
+        if os.getenv("TEXTTRAITS_ALLOW_DEMO", "").lower() in {"1", "true", "yes", "on"}:
+            fail("TEXTTRAITS_ALLOW_DEMO=false is required in production.", failures)
+        if os.getenv("TEXTTRAITS_DEV_ACCOUNT_LINKS", "").lower() in {"1", "true", "yes", "on"}:
+            fail("TEXTTRAITS_DEV_ACCOUNT_LINKS=false is required in production.", failures)
         public_origin = urlparse(os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", ""))
+        public_hostname = (public_origin.hostname or "").lower()
         if public_origin.scheme != "https":
             fail("TEXTTRAITS_PUBLIC_BASE_URL must be an HTTPS URL in production.", failures)
+        if not public_origin.netloc:
+            fail("TEXTTRAITS_PUBLIC_BASE_URL must include a public host.", failures)
+        unspecified_ipv4 = ".".join(("0", "0", "0", "0"))
+        if public_hostname in {"localhost", "127.0.0.1", "::1", unspecified_ipv4}:
+            fail("TEXTTRAITS_PUBLIC_BASE_URL cannot point to localhost in production.", failures)
+        allowed_hosts = {
+            host.strip().lower()
+            for host in os.getenv("TEXTTRAITS_ALLOWED_PUBLIC_HOSTS", "").split(",")
+            if host.strip()
+        }
+        if allowed_hosts and public_hostname not in allowed_hosts:
+            fail("TEXTTRAITS_PUBLIC_BASE_URL host must be listed in TEXTTRAITS_ALLOWED_PUBLIC_HOSTS.", failures)
 
     if email_provider == "smtp":
         for name in ("TEXTTRAITS_FROM_EMAIL", "TEXTTRAITS_SMTP_HOST", "TEXTTRAITS_SMTP_USERNAME", "TEXTTRAITS_SMTP_PASSWORD"):
             if not os.getenv(name):
                 fail(f"SMTP delivery selected but {name} is missing.", failures)
+        if production and os.getenv("TEXTTRAITS_SMTP_TLS", "true").lower() not in {"1", "true", "yes", "on"}:
+            fail("TEXTTRAITS_SMTP_TLS=true is required in production.", failures)
     elif email_provider == "sendgrid":
         for name in ("TEXTTRAITS_FROM_EMAIL", "TEXTTRAITS_SENDGRID_API_KEY"):
             if not os.getenv(name):
                 fail(f"SendGrid delivery selected but {name} is missing.", failures)
     elif production:
         fail("Configure TEXTTRAITS_EMAIL_PROVIDER=smtp or sendgrid for production account emails.", failures)
+    if production and email_provider == "console":
+        fail("TEXTTRAITS_EMAIL_PROVIDER=console is not allowed in production.", failures)
 
     if production and not os.getenv("SENTRY_DSN"):
         warnings.append("SENTRY_DSN is not set; server/client error reporting will be log-only.")

@@ -4,13 +4,14 @@ import logging
 import os
 import secrets
 import time
+from html import escape as html_escape
 from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
-from typing import Callable
-from urllib.parse import urlparse
+from typing import Any, Callable
+from urllib.parse import urlencode, urlparse
 
-from flask import Flask, Response, jsonify, redirect, render_template, render_template_string, request, session
+from flask import Flask, g, jsonify, redirect, render_template, render_template_string, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -35,12 +36,10 @@ from storage import (
     check_database,
     create_password_reset,
     create_user,
-    database_status,
     database_backend,
     database_url,
     delete_user,
     export_user_data,
-    get_verification_token,
     get_user_by_id,
     get_workspace,
     init_db,
@@ -49,7 +48,10 @@ from storage import (
     recent_events,
     reset_password,
     save_workspace,
+    contains_sensitive_key,
+    scrub_payload,
     upsert_integration,
+    user_session_version,
     verify_email_token,
 )
 
@@ -86,29 +88,88 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 ENABLE_DEV_TOOLS = env_flag("ENABLE_DEV_TOOLS", False)
-ALLOW_DEMO_MODE = env_flag("TEXTTRAITS_ALLOW_DEMO", True)
+PRODUCTION = os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production"
+ALLOW_DEMO_MODE = env_flag("TEXTTRAITS_ALLOW_DEMO", False)
 MAX_TEXT_WORDS = int(os.getenv("TEXTTRAITS_MAX_TEXT_WORDS", "1800"))
+MAX_CONTENT_LENGTH = int(os.getenv("TEXTTRAITS_MAX_CONTENT_LENGTH", "1000000"))
+MAX_WORKSPACE_BYTES = int(os.getenv("TEXTTRAITS_MAX_WORKSPACE_BYTES", "500000"))
+MAX_EVENT_BYTES = int(os.getenv("TEXTTRAITS_MAX_EVENT_BYTES", "12000"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
 APP_SECRET = os.getenv("TEXTTRAITS_SECRET_KEY", "dev-texttraits-change-me")
 PUBLIC_BASE_URL = os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", "http://127.0.0.1:5000")
+ALLOW_DEV_ACCOUNT_LINKS = env_flag("TEXTTRAITS_DEV_ACCOUNT_LINKS", False)
+TRUSTED_PUBLIC_HOSTS = {
+    host.strip().lower()
+    for host in os.getenv("TEXTTRAITS_ALLOWED_PUBLIC_HOSTS", "").split(",")
+    if host.strip()
+}
+UNSPECIFIED_IPV4 = ".".join(("0", "0", "0", "0"))
+LOCAL_PUBLIC_HOSTS = {"localhost", "127.0.0.1", "::1", UNSPECIFIED_IPV4}
+ALLOWED_WORKSPACE_KEYS = {
+    "mode",
+    "latestText",
+    "recipient",
+    "enterpriseContext",
+    "savedCampaigns",
+    "batchRows",
+    "batchErrors",
+    "inboxThreads",
+    "winnerSamples",
+    "personaLibrary",
+    "outcomeStats",
+    "crmConnections",
+    "sequenceSettings",
+    "explorerHistory",
+    "explorerFolder",
+    "explorerWritingGoal",
+    "explorerRewriteGoal",
+    "batchMapping",
+    "exportHistory",
+    "reviewQueue",
+    "teamComments",
+    "versionHistory",
+    "feedbackMemory",
+    "onboarding",
+    "adminSettings",
+}
+COMMON_PASSWORDS = {
+    "password",
+    "password123",
+    "texttraits",
+    "texttraits123",
+    "qwerty123",
+    "letmein123",
+}
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
 
 
 def validate_runtime_config() -> None:
-    production = os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production"
     failures: list[str] = []
     if APP_SECRET.startswith(("dev-", "replace-")):
         message = "TEXTTRAITS_SECRET_KEY must be a real high-entropy secret."
-        if production:
+        if PRODUCTION:
             failures.append(message)
         else:
             logging.warning(message)
-    if production:
+    if PRODUCTION:
         public_origin = urlparse(PUBLIC_BASE_URL)
+        public_hostname = (public_origin.hostname or "").lower()
         if public_origin.scheme != "https":
             failures.append("TEXTTRAITS_PUBLIC_BASE_URL must use HTTPS in production.")
+        if not public_origin.netloc:
+            failures.append("TEXTTRAITS_PUBLIC_BASE_URL must include a public host.")
+        if public_hostname in LOCAL_PUBLIC_HOSTS:
+            failures.append("TEXTTRAITS_PUBLIC_BASE_URL cannot point to localhost in production.")
+        if TRUSTED_PUBLIC_HOSTS and public_hostname not in TRUSTED_PUBLIC_HOSTS:
+            failures.append("TEXTTRAITS_PUBLIC_BASE_URL host must be listed in TEXTTRAITS_ALLOWED_PUBLIC_HOSTS.")
+        if ENABLE_DEV_TOOLS:
+            failures.append("ENABLE_DEV_TOOLS must be false in production.")
+        if ALLOW_DEMO_MODE:
+            failures.append("TEXTTRAITS_ALLOW_DEMO must be false in production.")
+        if ALLOW_DEV_ACCOUNT_LINKS:
+            failures.append("TEXTTRAITS_DEV_ACCOUNT_LINKS must be false in production.")
         if not env_flag("TEXTTRAITS_SECURE_COOKIES", False):
             failures.append("TEXTTRAITS_SECURE_COOKIES=true is required in production.")
         if database_backend() != "postgres":
@@ -117,6 +178,10 @@ def validate_runtime_config() -> None:
             failures.append("Production Postgres must use SSL. Set TEXTTRAITS_DB_SSLMODE=require or include sslmode=require.")
         if not email_status()["configured"]:
             failures.append("Production requires TEXTTRAITS_EMAIL_PROVIDER with working SMTP or SendGrid settings.")
+        elif email_status()["provider"] == "console":
+            failures.append("Console email delivery is not allowed in production.")
+        elif email_status()["provider"] == "smtp" and not env_flag("TEXTTRAITS_SMTP_TLS", True):
+            failures.append("SMTP TLS must stay enabled in production.")
     if failures:
         raise RuntimeError("Invalid TextTraits production configuration: " + " ".join(failures))
 
@@ -148,8 +213,9 @@ app = Flask(__name__)
 app.secret_key = APP_SECRET
 if env_flag("TEXTTRAITS_TRUST_PROXY", False):
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
-app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.config["TEMPLATES_AUTO_RELOAD"] = ENABLE_DEV_TOOLS
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = env_flag("TEXTTRAITS_SECURE_COOKIES", False)
@@ -183,7 +249,54 @@ def rate_limited(limit: int | None = None) -> Callable:
 
 def current_user_id() -> int | None:
     value = session.get("user_id")
-    return int(value) if value else None
+    if not value:
+        return None
+    try:
+        user_id = int(value)
+    except (TypeError, ValueError):
+        session.clear()
+        return None
+    expected_version = user_session_version(user_id)
+    if expected_version is None or session.get("session_version") != expected_version:
+        csrf = session.get("csrf_token")
+        session.clear()
+        if csrf:
+            session["csrf_token"] = csrf
+        return None
+    return user_id
+
+
+def csrf_token() -> str:
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+def start_user_session(user: dict) -> None:
+    csrf = csrf_token()
+    session.clear()
+    session["csrf_token"] = csrf
+    session["user_id"] = int(user["id"])
+    session["session_version"] = user_session_version(int(user["id"])) or 0
+
+
+def confirmed_password(user_id: int, password: str) -> bool:
+    user = get_user_by_id(user_id)
+    if not user or not password:
+        return False
+    return bool(authenticate_user(user["email"], password))
+
+
+def password_policy_error(password: str, email: str = "") -> str | None:
+    clean = password.strip()
+    if len(clean) < 12:
+        return "Use at least 12 characters for the password."
+    local_part = email.split("@", 1)[0].lower() if "@" in email else ""
+    if clean.lower() in COMMON_PASSWORDS or (local_part and local_part in clean.lower()):
+        return "Use a less guessable password."
+    return None
 
 
 def require_user() -> tuple[int | None, tuple | None]:
@@ -197,17 +310,18 @@ def public_url(path: str) -> str:
     return f"{PUBLIC_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
 
 
-def send_verification_email(user: dict) -> dict:
-    token = get_verification_token(int(user["id"]))
+def send_verification_email(user: dict, token: str | None) -> dict:
     if not token:
         return {"sent": False, "provider": "already_verified"}
-    url = public_url(f"/api/verify-email?token={token}")
+    url = public_url("/")
+    safe_token = html_escape(token)
+    safe_url = html_escape(url)
     try:
         return send_account_email(
             user["email"],
             "Verify your TextTraits account",
-            f"Verify your TextTraits account by opening this link:\n\n{url}\n\nIf you did not create this account, you can ignore this email.",
-            f"<p>Verify your TextTraits account by opening this link:</p><p><a href=\"{url}\">Verify email</a></p>",
+            f"Open TextTraits and enter this verification code:\n\n{token}\n\nOpen TextTraits here: {url}\n\nIf you did not create this account, you can ignore this email.",
+            f"<p>Open TextTraits and enter this verification code:</p><p><code>{safe_token}</code></p><p><a href=\"{safe_url}\">Open TextTraits</a></p>",
         )
     except Exception as error:
         logging.exception("verification_email_failed")
@@ -215,13 +329,15 @@ def send_verification_email(user: dict) -> dict:
 
 
 def send_password_reset_email(email: str, token: str) -> dict:
-    url = public_url(f"/api/reset-password?token={token}")
+    url = public_url("/")
+    safe_token = html_escape(token)
+    safe_url = html_escape(url)
     try:
         return send_account_email(
             email,
             "Reset your TextTraits password",
-            f"Reset your TextTraits password by opening this link:\n\n{url}\n\nThis link expires in one hour.",
-            f"<p>Reset your TextTraits password by opening this link:</p><p><a href=\"{url}\">Reset password</a></p><p>This link expires in one hour.</p>",
+            f"Open TextTraits and enter this password reset code:\n\n{token}\n\nOpen TextTraits here: {url}\n\nThis code expires in one hour.",
+            f"<p>Open TextTraits and enter this password reset code:</p><p><code>{safe_token}</code></p><p><a href=\"{safe_url}\">Open TextTraits</a></p><p>This code expires in one hour.</p>",
         )
     except Exception as error:
         logging.exception("password_reset_email_failed")
@@ -233,9 +349,52 @@ def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    nonce = getattr(g, "csp_nonce", "")
+    script_src = f"'self' 'nonce-{nonce}'" if nonce else "'self'"
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        f"script-src {script_src}; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'self'",
+    )
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     if app.config["SESSION_COOKIE_SECURE"]:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
+
+
+def request_origin_allowed() -> bool:
+    if not PRODUCTION:
+        return True
+    public_origin = urlparse(PUBLIC_BASE_URL)
+    header = request.headers.get("Origin") or request.headers.get("Referer")
+    if not header:
+        return False
+    supplied = urlparse(header)
+    allowed_netlocs = {public_origin.netloc, request.host}
+    return supplied.scheme == public_origin.scheme and supplied.netloc in allowed_netlocs
+
+
+@app.before_request
+def protect_unsafe_requests():
+    g.csp_nonce = secrets.token_urlsafe(16)
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if not request_origin_allowed():
+        return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
+    expected = session.get("csrf_token")
+    supplied = request.headers.get("X-CSRF-Token") or request.form.get("_csrf_token")
+    if not expected or not supplied or not secrets.compare_digest(str(expected), str(supplied)):
+        return jsonify({"error": "Security token expired. Refresh the page and try again."}), 419
+    return None
 
 
 @app.errorhandler(Exception)
@@ -244,7 +403,7 @@ def handle_exception(error: Exception):
         return jsonify({"error": error.description}), error.code or 500
     logging.exception("Unhandled application error")
     if ENABLE_DEV_TOOLS:
-      raise error
+        raise error
     return jsonify({"error": "Something went wrong. Please retry in a moment."}), 500
 
 
@@ -261,16 +420,18 @@ def public_app_info() -> dict:
     return {
         "sync": True,
         "auth": True,
-        "database": database_backend(),
-        "database_status": database_status(),
-        "email_delivery": email_status(),
-        "error_reporting": ERROR_REPORTING_STATUS,
-        "configured_integrations": configured_integration_count(),
+        "integrations_live": configured_integration_count() > 0,
         "max_text_words": MAX_TEXT_WORDS,
-        "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
         "privacy_url": "/privacy",
         "terms_url": "/terms",
     }
+
+
+def sanitize_workspace_data(data: dict[str, Any]) -> dict[str, Any]:
+    clean = {key: value for key, value in data.items() if key in ALLOWED_WORKSPACE_KEYS}
+    # The frontend intentionally syncs only metadata/history. Keep raw pasted text out of cloud persistence.
+    clean["latestText"] = ""
+    return clean
 
 
 @app.get("/")
@@ -285,26 +446,19 @@ def index():
         available_models=AVAILABLE_MODELS,
         dev_tools_enabled=ENABLE_DEV_TOOLS,
         public_app_info=public_app_info(),
+        csrf_token=csrf_token(),
+        csp_nonce=g.csp_nonce,
     )
 
 
 @app.get("/health")
 def health():
-    db = check_database()
-    return jsonify(
-        {
-            "ok": not isinstance(predictor, MissingPredictor),
-            "demo": bool(getattr(predictor, "is_demo", False)),
-            "model": public_model_info(),
-            "dev_tools_enabled": ENABLE_DEV_TOOLS,
-            "persistence": public_app_info()["database"],
-            "database": db,
-            "email": public_app_info()["email_delivery"],
-            "error_reporting": public_app_info()["error_reporting"],
-            "configured_integrations": public_app_info()["configured_integrations"],
-            "sync": True,
-        }
-    )
+    database_ok = False
+    try:
+        database_ok = bool(check_database().get("ok"))
+    except Exception:
+        logging.exception("health_database_check_failed")
+    return jsonify({"ok": not isinstance(predictor, MissingPredictor) and database_ok})
 
 
 @app.get("/dev/model")
@@ -348,6 +502,7 @@ def api_session():
             "authenticated": bool(user),
             "user": user,
             "app": public_app_info(),
+            "csrf_token": csrf_token(),
         }
     )
 
@@ -361,20 +516,25 @@ def api_signup():
     name = str(payload.get("name", "")).strip()
     if "@" not in email or "." not in email:
         return jsonify({"error": "Enter a valid email address."}), 400
-    if len(password) < 8:
-        return jsonify({"error": "Use at least 8 characters for the password."}), 400
+    password_error = password_policy_error(password, email)
+    if password_error:
+        return jsonify({"error": password_error}), 400
     try:
         user = create_user(email, password, name)
     except Exception:
-        return jsonify({"error": "That email already has an account. Try signing in."}), 409
-    session["user_id"] = user["id"]
-    log_event(user["id"], "signup", {"email": user["email"]})
-    email_result = send_verification_email(user)
-    response = {"authenticated": True, "user": user, "workspace": get_workspace(user["id"]), "email_delivery": email_result}
-    if not email_result.get("sent"):
-        token = get_verification_token(int(user["id"]))
-        if token:
-            response["dev_verify_url"] = public_url(f"/api/verify-email/{token}")
+        return jsonify(
+            {
+                "authenticated": False,
+                "message": "If this email can be used, the next step is ready. Try signing in or resetting your password.",
+            }
+        )
+    verification_token = user.pop("_verification_token", None)
+    start_user_session(user)
+    log_event(user["id"], "signup", {})
+    email_result = send_verification_email(user, verification_token)
+    response = {"authenticated": True, "user": user, "workspace": get_workspace(user["id"]), "email_delivery": {"sent": bool(email_result.get("sent")), "provider": email_result.get("provider")}}
+    if ALLOW_DEV_ACCOUNT_LINKS and not email_result.get("sent") and verification_token:
+        response["dev_verify_url"] = public_url(f"/api/verify-email/{verification_token}")
     return jsonify(response)
 
 
@@ -385,8 +545,8 @@ def api_login():
     user = authenticate_user(str(payload.get("email", "")), str(payload.get("password", "")))
     if not user:
         return jsonify({"error": "Email or password did not match."}), 401
-    session["user_id"] = user["id"]
-    log_event(user["id"], "login", {"email": user["email"]})
+    start_user_session(user)
+    log_event(user["id"], "login", {})
     return jsonify({"authenticated": True, "user": user, "workspace": get_workspace(user["id"])})
 
 
@@ -408,8 +568,9 @@ def api_request_password_reset():
     response = {"ok": True, "message": "If an account exists, reset instructions are ready."}
     if reset:
         delivery = send_password_reset_email(email, reset["token"])
-        response["email_delivery"] = delivery
-    if reset and not email_status()["configured"]:
+        if not PRODUCTION:
+            response["email_delivery"] = {"sent": bool(delivery.get("sent")), "provider": delivery.get("provider")}
+    if ALLOW_DEV_ACCOUNT_LINKS and reset and not email_status()["configured"]:
         response["dev_reset_url"] = public_url(f"/api/reset-password/{reset['token']}")
         response["expires_at"] = reset["expires_at"]
     return jsonify(response)
@@ -421,20 +582,23 @@ def api_reset_password():
     payload = request.get_json(silent=True) or {}
     token = str(payload.get("token", ""))
     password = str(payload.get("password", ""))
-    if len(password) < 8:
-        return jsonify({"error": "Use at least 8 characters for the new password."}), 400
+    password_error = password_policy_error(password)
+    if password_error:
+        return jsonify({"error": password_error}), 400
     user = reset_password(token, password)
     if not user:
         return jsonify({"error": "Reset link is invalid or expired."}), 400
-    session["user_id"] = user["id"]
+    start_user_session(user)
     return jsonify({"authenticated": True, "user": user, "workspace": get_workspace(user["id"])})
 
 
 @app.get("/api/reset-password")
 @app.get("/api/reset-password/<token>")
 def api_reset_password_link(token: str | None = None):
+    if not ALLOW_DEV_ACCOUNT_LINKS:
+        return redirect("/")
     clean = token or request.args.get("token", "")
-    return redirect(f"/?reset_token={clean}")
+    return redirect("/#" + urlencode({"reset_token": clean}))
 
 
 @app.post("/api/verify-email")
@@ -444,26 +608,28 @@ def api_verify_email():
     user = verify_email_token(str(payload.get("token", "")))
     if not user:
         return jsonify({"error": "Verification link is invalid."}), 400
-    session["user_id"] = user["id"]
+    start_user_session(user)
     return jsonify({"authenticated": True, "user": user, "workspace": get_workspace(user["id"])})
 
 
 @app.get("/api/verify-email")
 @app.get("/api/verify-email/<token>")
 def api_verify_email_link(token: str | None = None):
+    if not ALLOW_DEV_ACCOUNT_LINKS:
+        return redirect("/")
     clean = token or request.args.get("token", "")
-    user = verify_email_token(str(clean))
-    if user:
-        session["user_id"] = user["id"]
-        return redirect("/?verified=1")
-    return redirect("/?verified=0")
+    return redirect("/#" + urlencode({"verify_token": clean}))
 
 
-@app.get("/api/account/export")
+@app.post("/api/account/export")
+@rate_limited(12)
 def api_account_export():
     user_id, error = require_user()
     if error:
         return error
+    payload = request.get_json(silent=True) or {}
+    if not confirmed_password(user_id, str(payload.get("password", ""))):
+        return jsonify({"error": "Confirm your password to export account data."}), 403
     data = export_user_data(user_id)
     log_event(user_id, "account_exported", {})
     return jsonify(data)
@@ -475,6 +641,9 @@ def api_account_delete():
     user_id, error = require_user()
     if error:
         return error
+    payload = request.get_json(silent=True) or {}
+    if not confirmed_password(user_id, str(payload.get("password", ""))):
+        return jsonify({"error": "Confirm your password to delete this account."}), 403
     delete_user(user_id)
     session.clear()
     return jsonify({"deleted": True})
@@ -498,8 +667,17 @@ def api_workspace_put():
     data = payload.get("data")
     if not isinstance(data, dict):
         return jsonify({"error": "Workspace data must be an object."}), 400
-    workspace = save_workspace(user_id, data, payload.get("name"))
-    log_event(user_id, "workspace_saved", {"keys": sorted(data.keys())[:20]})
+    if len(str(payload).encode("utf-8")) > MAX_WORKSPACE_BYTES:
+        return jsonify({"error": f"Workspace data is too large. Keep sync payloads under {MAX_WORKSPACE_BYTES} bytes."}), 413
+    unknown_keys = sorted(set(data.keys()) - ALLOWED_WORKSPACE_KEYS)
+    if unknown_keys:
+        return jsonify({"error": "Workspace data contains unsupported fields.", "fields": unknown_keys[:10]}), 400
+    clean_data = sanitize_workspace_data(data)
+    try:
+        workspace = save_workspace(user_id, clean_data, payload.get("name"))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 413
+    log_event(user_id, "workspace_saved", {"keys": sorted(clean_data.keys())[:20]})
     return jsonify({"workspace": workspace})
 
 
@@ -507,7 +685,10 @@ def api_workspace_put():
 @rate_limited(120)
 def api_events():
     payload = request.get_json(silent=True) or {}
-    log_event(current_user_id(), str(payload.get("event_type", "client_event")), payload.get("payload") or {})
+    event_payload = payload.get("payload") or {}
+    if len(str(event_payload).encode("utf-8")) > MAX_EVENT_BYTES:
+        return jsonify({"error": "Event payload is too large."}), 413
+    log_event(current_user_id(), str(payload.get("event_type", "client_event"))[:80], event_payload)
     return jsonify({"ok": True})
 
 
@@ -515,8 +696,9 @@ def api_events():
 @rate_limited(60)
 def api_client_errors():
     payload = request.get_json(silent=True) or {}
-    logging.error("client_error %s", payload)
-    log_event(current_user_id(), "client_error", payload)
+    safe_payload = scrub_payload({key: str(value)[:500] for key, value in payload.items() if key in {"message", "source", "line", "column"}})
+    logging.error("client_error %s", safe_payload)
+    log_event(current_user_id(), "client_error", safe_payload)
     return jsonify({"ok": True})
 
 
@@ -544,10 +726,15 @@ def api_integrations_post():
     status = str(payload.get("status", "needs credentials")).strip()
     if provider not in provider_names():
         return jsonify({"error": "Unsupported integration provider."}), 400
-    return jsonify({"integration": upsert_integration(user_id, provider, status, payload.get("config") or {})})
+    config = payload.get("config") or {}
+    if len(str(config).encode("utf-8")) > MAX_EVENT_BYTES:
+        return jsonify({"error": "Integration config is too large."}), 413
+    if contains_sensitive_key(config):
+        return jsonify({"error": "Do not store raw credentials in integration config."}), 400
+    return jsonify({"integration": upsert_integration(user_id, provider, status, config)})
 
 
-@app.get("/api/integrations/<provider>/oauth/start")
+@app.post("/api/integrations/<provider>/oauth/start")
 @rate_limited(20)
 def api_integration_oauth_start(provider: str):
     user_id, error = require_user()
@@ -600,7 +787,7 @@ def api_integration_oauth_callback(provider: str):
         token_payload = exchange_oauth_code(entry, redirect_uri, code)
     except Exception as oauth_error:
         logging.exception("oauth_exchange_failed")
-        return jsonify({"error": "OAuth exchange failed. Check provider credentials and redirect URL.", "details": str(oauth_error)}), 502
+        return jsonify({"error": "OAuth exchange failed. Check provider credentials and redirect URL."}), 502
 
     config = {
         "connected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -618,8 +805,8 @@ def api_integration_oauth_callback(provider: str):
 def privacy():
     return render_template_string(
         """
-        <!doctype html><title>TextTraits Privacy</title>
-        <main style="max-width:760px;margin:40px auto;font-family:system-ui;line-height:1.6;padding:0 20px">
+        <!doctype html><title>TextTraits Privacy</title><link rel="stylesheet" href="/static/styles.css">
+        <main class="legal-page">
           <h1>Privacy</h1>
           <p>TextTraits stores signed-in workspace data so users can return to writing history, campaigns, drafts, outcomes, settings, and integration statuses.</p>
           <p>Text submitted for analysis is processed by the TextTraits Flask app and saved only when the user saves or syncs a workspace.</p>
@@ -635,8 +822,8 @@ def privacy():
 def terms():
     return render_template_string(
         """
-        <!doctype html><title>TextTraits Terms</title>
-        <main style="max-width:760px;margin:40px auto;font-family:system-ui;line-height:1.6;padding:0 20px">
+        <!doctype html><title>TextTraits Terms</title><link rel="stylesheet" href="/static/styles.css">
+        <main class="legal-page">
           <h1>Terms</h1>
           <p>TextTraits is a writing coach and outreach workflow tool. Users are responsible for reviewing generated drafts before using them.</p>
           <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, and external integration credentials.</p>

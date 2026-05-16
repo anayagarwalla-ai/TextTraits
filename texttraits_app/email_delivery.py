@@ -6,6 +6,7 @@ import os
 import smtplib
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 from typing import Any
@@ -47,7 +48,7 @@ def send_account_email(to_email: str, subject: str, text_body: str, html_body: s
         logging.info("Email delivery skipped; provider is not configured.")
         return {"sent": False, "provider": provider or "not_configured"}
     if provider == "console":
-        logging.info("console_email to=%s subject=%s body=%s", to_email, subject, text_body)
+        logging.info("console_email to=%s subject=%s body_redacted=true", to_email, subject)
         return {"sent": True, "provider": provider}
     if provider == "smtp":
         send_smtp(to_email, subject, text_body, html_body)
@@ -86,6 +87,10 @@ def send_smtp(to_email: str, subject: str, text_body: str, html_body: str | None
 
 def send_sendgrid(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
     api_key = os.getenv("TEXTTRAITS_SENDGRID_API_KEY", "")
+    sendgrid_url = "https://api.sendgrid.com/v3/mail/send"
+    parsed = urllib.parse.urlparse(sendgrid_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise EmailDeliveryError("SendGrid delivery requires an HTTPS API endpoint.")
     payload: dict[str, Any] = {
         "personalizations": [{"to": [{"email": to_email}]}],
         "from": {"email": from_email()},
@@ -95,7 +100,7 @@ def send_sendgrid(to_email: str, subject: str, text_body: str, html_body: str | 
     if html_body:
         payload["content"].append({"type": "text/html", "value": html_body})
     request = urllib.request.Request(
-        "https://api.sendgrid.com/v3/mail/send",
+        sendgrid_url,
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -104,7 +109,7 @@ def send_sendgrid(to_email: str, subject: str, text_body: str, html_body: str | 
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310
             if response.status >= 300:
                 raise EmailDeliveryError(f"SendGrid returned status {response.status}.")
     except urllib.error.HTTPError as error:

@@ -264,7 +264,6 @@ function loadWorkspace() {
     if (typeof saved.explorerWritingGoal === "string") state.explorerWritingGoal = saved.explorerWritingGoal;
     if (typeof saved.explorerRewriteGoal === "string") state.explorerRewriteGoal = saved.explorerRewriteGoal;
     if (saved.enterpriseContext) state.enterpriseContext = saved.enterpriseContext;
-    if (typeof saved.latestText === "string") state.latestText = saved.latestText;
     if (typeof saved.mode === "string") state.mode = saved.mode;
   } catch (error) {
     console.warn("Workspace restore failed", error);
@@ -285,7 +284,7 @@ function persistWorkspace() {
 function workspacePayload() {
   return {
     mode: state.mode,
-    latestText: state.latestText,
+    latestText: "",
     recipient: state.recipient,
     enterpriseContext: state.enterpriseContext,
     savedCampaigns: state.savedCampaigns.slice(0, 12),
@@ -577,13 +576,21 @@ function renderAccountCard() {
           <div class="auth-grid">
             <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" placeholder="Your name"></label>
             <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" placeholder="you@example.com"></label>
-            <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 8 characters"></label>
+            <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 12 characters"></label>
             <div class="auth-actions">
               <button type="button" data-signup>Create account</button>
               <button class="button-secondary" type="button" data-login>Sign in</button>
               ${demoButton}
               <button class="button-secondary" type="button" data-request-reset>Reset password</button>
             </div>
+            <details class="account-code-panel">
+              <summary>Have an email code?</summary>
+              <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" placeholder="Paste verification code"></label>
+              <button class="button-secondary" type="button" data-submit-verification>Verify email</button>
+              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" placeholder="Paste reset code"></label>
+              <label class="field"><span>New password</span><input id="reset-new-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
+              <button class="button-secondary" type="button" data-submit-reset>Update password</button>
+            </details>
           </div>
         </section>
       </div>
@@ -625,13 +632,17 @@ function wireAccountCard() {
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-export-account]")?.addEventListener("click", async (event) => {
-    const data = await apiClient.exportAccount();
+    const password = prompt("Confirm your password to export account data.");
+    if (!password) return;
+    const data = await apiClient.exportAccount(password);
     downloadText("texttraits-account-export.json", JSON.stringify(data, null, 2));
     showToast(event.currentTarget, "Account export downloaded.");
   });
   els.accountCard?.querySelector("[data-delete-account]")?.addEventListener("click", async (event) => {
     if (!confirm("Delete this TextTraits account and synced workspace data?")) return;
-    await apiClient.deleteAccount();
+    const password = prompt("Confirm your password to delete this account.");
+    if (!password) return;
+    await apiClient.deleteAccount(password);
     state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
     state.accountModalOpen = false;
     showToast(event.currentTarget, "Account deleted.");
@@ -643,8 +654,42 @@ function wireAccountCard() {
   els.accountCard?.querySelector("[data-request-reset]")?.addEventListener("click", async (event) => {
     const email = els.accountCard.querySelector("#auth-email")?.value || "";
     const response = await apiClient.requestPasswordReset(email);
-    showToast(event.currentTarget, response.dev_reset_url ? "Reset link created for local development." : response.message);
+    showToast(event.currentTarget, response.dev_reset_url ? "Reset helper created for local development." : "Check your email for a reset code.");
   });
+  els.accountCard?.querySelector("[data-submit-verification]")?.addEventListener("click", async (event) => {
+    const token = els.accountCard.querySelector("#verify-token")?.value || "";
+    try {
+      const data = await apiClient.verifyEmail(token);
+      applyAuthenticatedAccount(data, "Email verified");
+      showToast(event.currentTarget, "Email verified.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Verification code expired.");
+    }
+  });
+  els.accountCard?.querySelector("[data-submit-reset]")?.addEventListener("click", async (event) => {
+    const token = els.accountCard.querySelector("#reset-token")?.value || "";
+    const password = els.accountCard.querySelector("#reset-new-password")?.value || "";
+    try {
+      const data = await apiClient.resetPassword(token, password);
+      applyAuthenticatedAccount(data, "Password reset");
+      showToast(event.currentTarget, "Password updated.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Reset code expired.");
+    }
+  });
+}
+
+function applyAuthenticatedAccount(data, statusText = "Signed in") {
+  state.account.authenticated = true;
+  state.account.user = data.user;
+  state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
+  state.account.syncStatus = statusText;
+  state.accountModalOpen = false;
+  state.accountError = "";
+  if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+  persistWorkspace();
+  renderModeChrome();
+  render();
 }
 
 async function authRequest(action) {
@@ -666,17 +711,19 @@ async function authRequest(action) {
         else throw error;
       }
     }
-    state.account.authenticated = true;
-    state.account.user = data.user;
-    state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
-    state.account.syncStatus = "Signed in";
-    state.accountModalOpen = false;
-    state.accountError = "";
-    const serverData = data.workspace?.data || {};
-    if (Object.keys(serverData).length) applyWorkspacePayload(serverData);
-    persistWorkspace();
-    renderModeChrome();
-    render();
+    if (!data.authenticated || !data.user) {
+      if (action === "demo") {
+        data = await apiClient.login(payload);
+        applyAuthenticatedAccount(data);
+        return;
+      }
+      els.announcer.textContent = data.message || "Check your account details.";
+      state.accountError = data.message || "Check your account details.";
+      state.accountModalOpen = true;
+      renderAccountCard();
+      return;
+    }
+    applyAuthenticatedAccount(data);
   } catch (error) {
     els.announcer.textContent = error.message || "Sign-in failed.";
     state.account.syncStatus = error.message || "Sign-in failed";
@@ -702,6 +749,59 @@ async function initAccount() {
   } catch (error) {
     state.account.syncStatus = "Local only";
     renderAccountCard();
+  }
+}
+
+async function handleAccountLinkTokens() {
+  const params = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#\??/, ""));
+  const verifyToken = params.get("verify_token") || hashParams.get("verify_token");
+  const resetToken = params.get("reset_token") || hashParams.get("reset_token");
+  let changed = false;
+
+  if (verifyToken) {
+    try {
+      const data = await apiClient.verifyEmail(verifyToken);
+      state.account.authenticated = true;
+      state.account.user = data.user;
+      state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
+      state.account.syncStatus = "Email verified";
+      if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+      showToast(els.accountCard, "Email verified.");
+      render();
+    } catch (error) {
+      showToast(els.accountCard, error.message || "Verification link expired.");
+    }
+    params.delete("verify_token");
+    hashParams.delete("verify_token");
+    changed = true;
+  }
+
+  if (resetToken) {
+    const password = prompt("Enter a new TextTraits password.");
+    if (password) {
+      try {
+        const data = await apiClient.resetPassword(resetToken, password);
+        state.account.authenticated = true;
+        state.account.user = data.user;
+        state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
+        state.account.syncStatus = "Password reset";
+        if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+        showToast(els.accountCard, "Password updated.");
+        render();
+      } catch (error) {
+        showToast(els.accountCard, error.message || "Reset link expired.");
+      }
+    }
+    params.delete("reset_token");
+    hashParams.delete("reset_token");
+    changed = true;
+  }
+
+  if (changed && window.history?.replaceState) {
+    const query = params.toString();
+    const hash = hashParams.toString();
+    window.history.replaceState({mode: state.mode}, "", `${window.location.pathname}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`);
   }
 }
 
@@ -768,7 +868,7 @@ function renderExplorerInput() {
       <span id="explorer-count">0 words</span>
       <span id="explorer-quality">Add text to analyze.</span>
     </div>
-    <div class="meter"><span id="explorer-meter"></span></div>
+    <div class="meter"><progress id="explorer-meter" max="100" value="0">0%</progress></div>
 
     <details class="advanced-card">
       <summary>Optional tools</summary>
@@ -858,7 +958,7 @@ function renderEnterpriseInput() {
       <span id="enterprise-count">0 words</span>
       <span id="enterprise-quality">Add prospect language to generate a brief.</span>
     </div>
-    <div class="meter"><span id="enterprise-meter"></span></div>
+    <div class="meter"><progress id="enterprise-meter" max="100" value="0">0%</progress></div>
 
     <details class="advanced-card primary-context compact-context">
       <summary>Campaign basics</summary>
@@ -1122,14 +1222,7 @@ function renderOnboardingCard(mode) {
 }
 
 async function evaluateText(text) {
-  const response = await fetch("/evaluate", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({text, model: "local"}),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "The analysis failed.");
-  return data;
+  return apiClient.evaluate({text, model: "local"});
 }
 
 function score(prediction) {
@@ -1872,7 +1965,7 @@ function signalCard(row) {
         <p>${escapeHtml(dimensionCopy(row.prediction, row.key))}</p>
       </div>
       <div class="signal-meter" aria-label="${escapeHtml(row.title)} clue strength">
-        <span style="width: ${width}%"></span>
+        <progress max="100" value="${width}">${width}%</progress>
       </div>
       <span class="signal-strength">${escapeHtml(signalStrength(row.prediction))} clue</span>
     </article>
@@ -2206,10 +2299,18 @@ function renderEnterpriseResult(data) {
     showToast(event.currentTarget, "Campaign saved to workspace.");
     renderEnterpriseResult(data);
   });
-  els.outputPanel.querySelectorAll("[data-copy-text]").forEach((button) => {
+  els.outputPanel.querySelectorAll("[data-copy-draft]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(button.dataset.copyText || "");
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.copyDraft);
+      await navigator.clipboard.writeText(draft ? draftText(draft) : "");
       showToast(button, "Variant copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-copy-row]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.copyRow));
+      await navigator.clipboard.writeText(row ? `${row.subject}\n${row.signal}` : "");
+      showToast(button, "Brief copied.");
     });
   });
   els.outputPanel.querySelectorAll("[data-transform]").forEach((button) => {
@@ -2683,7 +2784,7 @@ function draftsWorkspace(context, variants) {
             </div>
           </details>
           <div class="result-actions editor-primary-actions">
-            <button type="button" data-copy-text="${escapeHtml(draftText(draft))}">Copy draft</button>
+            <button type="button" data-copy-draft="${escapeHtml(draft.key)}">Copy draft</button>
             <button class="button-secondary" type="button" data-approve-draft="${draft.key}">Approve</button>
             <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
             <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
@@ -2785,7 +2886,7 @@ function batchPanel(context) {
         </div>
         <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(batchValue)}</textarea>
         ${errors}
-        <div class="batch-progress" aria-label="Batch generation progress"><span style="width: ${state.batchProgress}%"></span></div>
+        <div class="batch-progress" aria-label="Batch generation progress"><progress max="100" value="${state.batchProgress}">${state.batchProgress}%</progress></div>
         <p class="muted">${state.batchProgress ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns before generating."}</p>
         <div class="result-actions split-actions">
           <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
@@ -3287,7 +3388,7 @@ function variantRow(draft, best) {
       <p class="muted">${escapeHtml(draft.note)}</p>
       <div class="result-actions">
         <button type="button" data-select-variant="${draft.key}">Open editor</button>
-        <button class="button-secondary" data-copy-text="${escapeHtml(draftText(draft))}">Copy</button>
+        <button class="button-secondary" data-copy-draft="${escapeHtml(draft.key)}">Copy</button>
       </div>
     </article>
   `;
@@ -3384,7 +3485,7 @@ function batchRowsHtml(context) {
       </div>
       <div class="mini-brief">Subject: ${escapeHtml(row.subject)}<br>Angle: ${escapeHtml(context.pain || "pipeline quality")} with ${escapeHtml(context.proof || "proof point")}.</div>
       <div class="result-actions">
-        <button class="button-secondary" type="button" data-copy-text="${escapeHtml(`${row.subject}\n${row.signal}`)}">Copy brief</button>
+        <button class="button-secondary" type="button" data-copy-row="${escapeHtml(row.id)}">Copy brief</button>
         <button class="button-secondary" type="button">Review</button>
         <button class="button-secondary" type="button">Export row</button>
       </div>
@@ -3395,7 +3496,7 @@ function batchRowsHtml(context) {
 function batchCsv() {
   const rows = [["first_name", "company", "role", "industry", "status", "subject", "next_step"]];
   state.batchRows.forEach((row) => rows.push([row.first_name, row.company, row.role, row.industry, row.status, row.subject, row.next]));
-  return rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
 function winnerPatterns() {
@@ -3548,7 +3649,13 @@ function makeCsv(context, variants) {
   variants.forEach((draft) => {
     rows.push([draft.key, draft.name, draft.subject, draft.body, context.role, context.industry, context.goal, averageScore(draft)]);
   });
-  return rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\\n");
+  return rows.map((row) => row.map(csvCell).join(",")).join("\\n");
+}
+
+function csvCell(cell) {
+  let value = String(cell ?? "");
+  if (/^[=+\-@]/.test(value.trim())) value = `'${value}`;
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function downloadCsv(csv) {
@@ -3769,7 +3876,11 @@ function updateInputStats(prefix, text) {
   const action = prefix === "enterprise" ? document.querySelector("#generate-enterprise") : document.querySelector("#analyze-explorer");
   if (count) count.textContent = `${stats.words} ${stats.words === 1 ? "word" : "words"}`;
   if (quality) quality.textContent = stats.words ? (stats.words >= 40 ? "Good first-pass length." : "Short sample. Add more context for stronger output.") : (prefix === "enterprise" ? "Add prospect language to generate a brief." : "Add text to analyze.");
-  if (meter) meter.style.width = `${Math.min((stats.words / 60) * 100, 100)}%`;
+  if (meter) {
+    const value = Math.min((stats.words / 60) * 100, 100);
+    meter.value = value;
+    meter.textContent = `${Math.round(value)}%`;
+  }
   if (action) action.disabled = !text.trim();
 }
 
@@ -3886,4 +3997,4 @@ if (isLocalRuntime) {
 }
 
 render();
-initAccount();
+initAccount().finally(handleAccountLinkTokens);

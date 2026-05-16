@@ -56,11 +56,12 @@
       {% endif %}
     </main>
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
       window.TEXTTRAITS_CONFIG = {
         devTools: {{ dev_tools_enabled|tojson }},
         publicModel: {{ public_model_info|tojson }},
-        app: {{ public_app_info|tojson }}
+        app: {{ public_app_info|tojson }},
+        csrfToken: {{ csrf_token|tojson }}
       };
     </script>
     <script src="{{ url_for('static', filename='text_utils.js') }}" defer></script>

@@ -15,6 +15,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN useradd --create-home --shell /usr/sbin/nologin texttraits \
+    && chown -R texttraits:texttraits /app/texttraits_app/artifacts
+USER texttraits
 
 EXPOSE 8000
 CMD ["gunicorn", "texttraits_app.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "60"]

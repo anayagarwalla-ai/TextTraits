@@ -18,6 +18,11 @@ def assert_true(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def csrf_headers(client) -> dict[str, str]:
+    token = client.get("/api/session").get_json()["csrf_token"]
+    return {"X-CSRF-Token": token}
+
+
 def main() -> int:
     client = app_module.app.test_client()
 
@@ -99,8 +104,8 @@ def main() -> int:
 
     health = client.get("/health")
     assert_true(health.status_code == 200, f"health returned {health.status_code}")
-    assert_true("model" in health.get_json(), "health payload missing model")
-    assert_true(health.get_json()["sync"] is True, "health payload missing sync flag")
+    assert_true(health.get_json()["ok"] is True, "public health should report aggregate readiness")
+    assert_true(set(health.get_json().keys()) == {"ok"}, "public health should not expose deployment internals")
 
     session = client.get("/api/session")
     assert_true(session.status_code == 200, "session endpoint missing")
@@ -114,7 +119,7 @@ def main() -> int:
         ),
         "model": "local",
     }
-    response = client.post("/evaluate", json=payload)
+    response = client.post("/evaluate", json=payload, headers=csrf_headers(client))
     assert_true(response.status_code == 200, f"evaluate returned {response.status_code}: {response.get_data(as_text=True)}")
     data = response.get_json()
     assert_true("predictions" in data, "response missing predictions")

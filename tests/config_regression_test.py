@@ -50,6 +50,7 @@ def main() -> int:
             "TEXTTRAITS_ENV": "production",
             "TEXTTRAITS_SECRET_KEY": "a-realistic-test-secret-with-more-than-enough-entropy",
             "TEXTTRAITS_PUBLIC_BASE_URL": "https://texttraits.example",
+            "TEXTTRAITS_ALLOWED_PUBLIC_HOSTS": "texttraits.example",
             "TEXTTRAITS_DATABASE_URL": "postgresql://texttraits:secret@db.example.com:5432/texttraits",
             "TEXTTRAITS_DB_SSLMODE": "require",
             "DATABASE_URL": "",
@@ -62,6 +63,25 @@ def main() -> int:
         }
     )
     assert_true(good_prod.returncode == 0, good_prod.stderr)
+
+    wrong_host = run_preflight(
+        {
+            "TEXTTRAITS_ENV": "production",
+            "TEXTTRAITS_SECRET_KEY": "a-realistic-test-secret-with-more-than-enough-entropy",
+            "TEXTTRAITS_PUBLIC_BASE_URL": "https://evil.example",
+            "TEXTTRAITS_ALLOWED_PUBLIC_HOSTS": "texttraits.example",
+            "TEXTTRAITS_DATABASE_URL": "postgresql://texttraits:secret@db.example.com:5432/texttraits",
+            "TEXTTRAITS_DB_SSLMODE": "require",
+            "DATABASE_URL": "",
+            "TEXTTRAITS_SECURE_COOKIES": "true",
+            "TEXTTRAITS_EMAIL_PROVIDER": "smtp",
+            "TEXTTRAITS_FROM_EMAIL": "no-reply@texttraits.example",
+            "TEXTTRAITS_SMTP_HOST": "smtp.example.com",
+            "TEXTTRAITS_SMTP_USERNAME": "apikey",
+            "TEXTTRAITS_SMTP_PASSWORD": "secret",
+        }
+    )
+    assert_true(wrong_host.returncode == 1, "production base URL should be checked against allowed hosts")
 
     print("Configuration regression checks passed.")
     return 0

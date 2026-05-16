@@ -12,15 +12,21 @@ services:
         value: false
       - key: TEXTTRAITS_ALLOW_DEMO
         value: false
+      - key: TEXTTRAITS_DEV_ACCOUNT_LINKS
+        value: false
       - key: TEXTTRAITS_SECURE_COOKIES
         value: true
       - key: TEXTTRAITS_TRUST_PROXY
         value: true
+      - key: TEXTTRAITS_DB_SSLMODE
+        value: require
       - key: TEXTTRAITS_LOG_JSON
         value: true
       - key: TEXTTRAITS_SECRET_KEY
         sync: false
       - key: TEXTTRAITS_PUBLIC_BASE_URL
+        sync: false
+      - key: TEXTTRAITS_ALLOWED_PUBLIC_HOSTS
         sync: false
       - key: DATABASE_URL
         fromDatabase:

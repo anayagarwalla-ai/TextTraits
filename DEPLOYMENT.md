@@ -12,6 +12,7 @@ Copy `.env.example` into your deployment environment and set:
 - `TEXTTRAITS_DB_SSLMODE=require`: required for remote production Postgres connections. Localhost Postgres does not force SSL by default.
 - `TEXTTRAITS_DB_CONNECT_TIMEOUT=10`: default connection timeout appended to Postgres URLs.
 - `TEXTTRAITS_PUBLIC_BASE_URL`: public HTTPS origin used in account/reset links.
+- `TEXTTRAITS_ALLOWED_PUBLIC_HOSTS`: optional comma-separated host allowlist; use it in production so a misconfigured base URL fails startup/preflight.
 - `TEXTTRAITS_EMAIL_PROVIDER`: `smtp`, `sendgrid`, or empty for local dev-only links.
 - `TEXTTRAITS_FROM_EMAIL`: verified sender address for account emails.
 - `TEXTTRAITS_SMTP_*` or `TEXTTRAITS_SENDGRID_API_KEY`: transactional email credentials.
@@ -22,6 +23,9 @@ Copy `.env.example` into your deployment environment and set:
 - `TEXTTRAITS_RATE_LIMIT_PER_MINUTE`: default per-endpoint request limit.
 - `TEXTTRAITS_MAX_TEXT_WORDS`: max submitted sample size.
 - `ENABLE_DEV_TOOLS=false`: keep disabled in public deployments.
+- `TEXTTRAITS_ALLOW_DEMO=false`: production must not fall back to mock predictions.
+- `TEXTTRAITS_DEV_ACCOUNT_LINKS=false`: never expose local verification/reset helper links in production responses.
+- `TEXTTRAITS_MAX_CONTENT_LENGTH`, `TEXTTRAITS_MAX_WORKSPACE_BYTES`, and `TEXTTRAITS_MAX_EVENT_BYTES`: request and persistence size guards.
 
 ## Run Locally
 
@@ -70,8 +74,8 @@ Local development can store signed-in workspace state in SQLite. Production shou
 
 ## Operational Checks
 
-- `GET /health` verifies model availability, sync mode, and persistence status.
-- `GET /health` also reports database backend/SSL status, email delivery, error-reporting, and configured integration counts.
+- `GET /health` returns only an overall readiness boolean for public uptime checks.
+- Detailed database, email, and integration readiness should be checked with deploy logs, preflight, and authenticated operational tooling, not public metadata.
 - `texttraits_app/artifacts/app.log` receives rotated server logs in text or JSON format.
 - `audit_events` records login, signup, evaluation, sync, integration, export/delete, and client events.
 - `/api/client-errors` receives client-side error reports.
@@ -96,9 +100,14 @@ Implemented locally:
 - signup/login/logout
 - password reset token flow
 - email verification token endpoint
+- one-time reset and verification codes in account emails, avoiding tokenized email URLs
 - data export
 - account deletion
 - per-account rate limit keys
+- CSRF protection for unsafe API requests
+- hashed reset/verification tokens
+- CSP and core browser security headers
+- runtime model checksum verification
 
 Production still needs domain/HTTPS, provider-approved OAuth apps, and a reviewed transactional email sender domain.
 
