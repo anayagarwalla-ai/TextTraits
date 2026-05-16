@@ -34,6 +34,7 @@ def main() -> int:
     assert_true("static/app.js" in html, "app script missing")
     assert_true("static/api_client.js" in html, "api client script missing")
     assert_true("static/product_config.js" in html, "product config script missing")
+    assert_true("static/ui_helpers.js" in html, "ui helper script missing")
     assert_true("static/styles.css" in html, "stylesheet missing")
     assert_true("Strong confidence" not in html, "truth-confidence wording should not render")
     removed_decision_word = "conse" + "quential"
@@ -78,6 +79,7 @@ def main() -> int:
     assert_true("Make clearer" in js, "Explorer rewrite action missing")
     assert_true("Personal style profile" in js, "Explorer personal profile missing")
     assert_true("Weekly recap" in js, "Explorer weekly recap missing")
+    assert_true("journal-search" in js, "Explorer journal search missing")
     assert_true("Prompt library" in js, "Explorer prompt library missing")
     assert_true("Copy clean report" in js, "Explorer clean report export missing")
     assert_true("Private folder" in js, "Explorer private folders missing")

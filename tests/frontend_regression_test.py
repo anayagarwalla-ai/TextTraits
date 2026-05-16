@@ -27,9 +27,11 @@ def main() -> int:
     api_js = client.get("/static/api_client.js").get_data(as_text=True)
     config_js = client.get("/static/product_config.js").get_data(as_text=True)
     utils_js = client.get("/static/text_utils.js").get_data(as_text=True)
+    ui_js = client.get("/static/ui_helpers.js").get_data(as_text=True)
 
     assert_true("workflow" in config_js and "Import" in config_js and "Track" in config_js, "enterprise workflow config missing")
     assert_true("TextTraitsUtils" in utils_js and "escapeHtml" in utils_js, "text utility module missing")
+    assert_true("TextTraitsUi" in ui_js and "errorCard" in ui_js, "UI helper module missing")
     assert_true("TextTraits" in enterprise_html and "TextTraits" in explorer_html, "route-level product pages missing")
     assert_true("resetPassword" in api_js and "verifyEmail" in api_js, "account API helpers missing")
     assert_true("oauth/start" in api_js or "integrationProviders" in api_js, "integration setup helpers missing")
@@ -51,6 +53,8 @@ def main() -> int:
         "Make clearer",
         "Make warmer",
         "Make shorter",
+        "weekly-recap-page",
+        "journal-search",
     )
     for phrase in explorer_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Explorer coach flow missing {phrase}")
@@ -62,6 +66,7 @@ def main() -> int:
         "CSV",
         "CRM setup",
         "Email setup",
+        "status-token",
     )
     for phrase in enterprise_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")

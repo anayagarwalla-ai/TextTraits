@@ -2,6 +2,7 @@ const config = window.TEXTTRAITS_CONFIG || {};
 const apiClient = window.TextTraitsApi;
 const productConfig = window.TextTraitsProduct || {};
 const textUtils = window.TextTraitsUtils || {};
+const uiHelpers = window.TextTraitsUi || {};
 const {escapeHtml, words, percent, titleCase, localStats, todayKey} = textUtils;
 
 const els = {
@@ -84,6 +85,8 @@ const state = {
     {name: "Reflective analyst", goal: "Preserve nuance while tightening", samples: 5},
   ],
   explorerHistory: [],
+  explorerJournalSearch: "",
+  explorerJournalFolder: "All",
   explorerReadingName: "",
   explorerFolder: "Daily",
   explorerWritingGoal: "Make this clearer",
@@ -263,6 +266,8 @@ function loadWorkspace() {
     if (saved.onboarding) state.onboarding = {...state.onboarding, ...saved.onboarding};
     if (saved.adminSettings) state.adminSettings = {...state.adminSettings, ...saved.adminSettings};
     if (typeof saved.explorerFolder === "string") state.explorerFolder = saved.explorerFolder;
+    if (typeof saved.explorerJournalSearch === "string") state.explorerJournalSearch = saved.explorerJournalSearch;
+    if (typeof saved.explorerJournalFolder === "string") state.explorerJournalFolder = saved.explorerJournalFolder;
     if (typeof saved.explorerWritingGoal === "string") state.explorerWritingGoal = saved.explorerWritingGoal;
     if (typeof saved.explorerRewriteGoal === "string") state.explorerRewriteGoal = saved.explorerRewriteGoal;
     if (saved.enterpriseContext) state.enterpriseContext = saved.enterpriseContext;
@@ -300,6 +305,8 @@ function workspacePayload() {
     sequenceSettings: state.sequenceSettings,
     explorerHistory: state.explorerHistory.slice(0, 20),
     explorerFolder: state.explorerFolder,
+    explorerJournalSearch: state.explorerJournalSearch,
+    explorerJournalFolder: state.explorerJournalFolder,
     explorerWritingGoal: state.explorerWritingGoal,
     explorerRewriteGoal: state.explorerRewriteGoal,
     batchMapping: state.batchMapping,
@@ -499,6 +506,8 @@ function setMode(mode) {
 
   persistWorkspace();
   render();
+  uiHelpers.announce?.(els.announcer, mode === "enterprise" ? "Enterprise workspace opened." : "Explorer writing coach opened.");
+  uiHelpers.focusWithin?.(els.body, mode === "enterprise" ? "#enterprise-text, #output-panel" : "#explorer-text, #output-panel");
 }
 
 function renderModeChrome() {
@@ -1446,10 +1455,59 @@ function todayVsLastWeek() {
   return diff > 0 ? `Your recent writing is ${diff} points easier to follow than the previous set.` : `Your recent writing needs ${Math.abs(diff)} points more cleanup than the previous set.`;
 }
 
-function explorerJournalPanel() {
-  const entries = state.explorerHistory.slice(0, 8);
-  if (!entries.length) return `<p class="muted">No saved readings yet. Save a reading to start your journal.</p>`;
+function filteredExplorerHistory() {
+  const query = state.explorerJournalSearch.trim().toLowerCase();
+  return state.explorerHistory.filter((entry) => {
+    const folder = entry.folder || "Daily";
+    const matchesFolder = state.explorerJournalFolder === "All" || folder === state.explorerJournalFolder;
+    const haystack = `${entry.name || ""} ${folder} ${entry.goal || ""} ${entry.clue || ""} ${entry.summary || ""}`.toLowerCase();
+    return matchesFolder && (!query || haystack.includes(query));
+  });
+}
+
+function weeklyRecapCards(profile) {
+  const entries = state.explorerHistory;
+  const streak = explorerStreak();
+  const avgClarity = entries.length ? Math.round(entries.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / entries.length) : 0;
+  const avgWords = entries.length ? Math.round(entries.reduce((sum, item) => sum + Number(item.words || 0), 0) / entries.length) : 0;
+  const folderSummary = folderCounts().filter(([, count]) => count).map(([folder, count]) => `${folder}: ${count}`).join(" / ") || "No folders yet";
   return `
+    <div class="weekly-recap-page">
+      <article>
+        <span class="label">Streak</span>
+        <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+        <p>${escapeHtml(streakCopy())}</p>
+      </article>
+      <article>
+        <span class="label">Average clarity</span>
+        <strong>${avgClarity ? clarityBand(avgClarity) : "Not enough yet"}</strong>
+        <p>${avgClarity ? `${avgClarity}/100 across ${entries.length} saved readings.` : "Save readings to build a weekly trend."}</p>
+      </article>
+      <article>
+        <span class="label">Usual length</span>
+        <strong>${avgWords ? `${avgWords} words` : "No average yet"}</strong>
+        <p>${escapeHtml(folderSummary)}</p>
+      </article>
+      <article>
+        <span class="label">${escapeHtml(profile.title)}</span>
+        <strong>${escapeHtml(profile.ready ? profile.traits[0] : "Keep saving")}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </article>
+    </div>
+  `;
+}
+
+function explorerJournalPanel() {
+  const entries = filteredExplorerHistory().slice(0, 8);
+  const total = state.explorerHistory.length;
+  if (!total) return `<p class="muted">No saved readings yet. Save a reading to start your journal.</p>`;
+  return `
+    <div class="journal-tools">
+      <label class="field"><span>Search journal</span><input id="journal-search" value="${escapeHtml(state.explorerJournalSearch)}" placeholder="Search saved readings"></label>
+      ${selectField("journalFolder", "Folder", ["All", ...explorerFolders], state.explorerJournalFolder)}
+      <span class="saved-state">${entries.length} of ${total} shown</span>
+    </div>
+    ${entries.length ? "" : `<p class="muted">No readings match this filter.</p>`}
     <div class="journal-list">
       ${entries.map((entry, index) => `
         <article>
@@ -1458,6 +1516,7 @@ function explorerJournalPanel() {
             <span>${escapeHtml(entry.folder || "Daily")} / ${escapeHtml(entry.day || "")} / ${escapeHtml(clarityBand(entry.clarity || 70))}</span>
           </div>
           <p>${escapeHtml(entry.summary || entry.feel || "Saved writing sample")}</p>
+          <small>${escapeHtml(entry.goal || "Make this clearer")} / ${escapeHtml(entry.clue || "Style note")}</small>
         </article>
       `).join("")}
     </div>
@@ -1559,6 +1618,7 @@ function explorerSnapshot(data, text) {
     clarity: clarityScore(stats, strongest),
     primaryClue: dimensionLabel(strongest?.prediction, strongest?.key),
     clue: `${strongest?.title || "Style"}: ${dimensionLabel(strongest?.prediction, strongest?.key)}`,
+    summary: plainStyleSummary(stats, dims, [strongest?.title, strongest?.prediction, strongest?.key]),
   };
 }
 
@@ -1724,6 +1784,10 @@ function renderExplorerResult(data) {
           ${state.explorerSavedMessage ? `<span class="saved-state">${escapeHtml(state.explorerSavedMessage)}</span>` : ""}
         </div>
         ${weeklyRecapPanel(profile)}
+        <details class="weekly-recap-drawer">
+          <summary>Open weekly writing recap</summary>
+          ${weeklyRecapCards(profile)}
+        </details>
         ${explorerJournalPanel()}
         <div class="result-actions">
           <button class="button-secondary" data-copy-summary>Copy summary</button>
@@ -1766,8 +1830,20 @@ function renderExplorerResult(data) {
   bindCopy("[data-copy-rewrite]", rewritePreview, "Rewrite copied.");
   const nameField = els.outputPanel.querySelector("#result-reading-name");
   const folderField = els.outputPanel.querySelector("#field-resultExplorerFolder");
+  const journalSearch = els.outputPanel.querySelector("#journal-search");
+  const journalFolder = els.outputPanel.querySelector("#field-journalFolder");
   nameField?.addEventListener("input", () => {
     state.explorerReadingName = nameField.value;
+  });
+  journalSearch?.addEventListener("change", () => {
+    state.explorerJournalSearch = journalSearch.value;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  journalFolder?.addEventListener("change", () => {
+    state.explorerJournalFolder = journalFolder.value;
+    persistWorkspace();
+    renderExplorerResult(data);
   });
   folderField?.addEventListener("change", () => {
     state.explorerFolder = folderField.value;
@@ -2248,9 +2324,7 @@ function renderEnterpriseResult(data) {
           <p class="label">Enterprise workspace</p>
           <h2>${state.activeEnterpriseTab === "drafts" ? "Review generated drafts" : escapeHtml(context.project || `${context.role} outreach system`)}</h2>
           <div class="command-meta">
-            <span>${escapeHtml(context.project)}</span>
-            <span>${variants.length} drafts</span>
-            <span>${state.lastGeneratedAt || "Just now"}</span>
+            <span>${escapeHtml(context.project)} / ${variants.length} drafts / ${state.lastGeneratedAt || "Just now"}</span>
           </div>
         </div>
         <div class="command-actions">
@@ -2634,9 +2708,10 @@ function projectSidebar(context) {
 }
 
 function workflowPathHtml() {
+  const labels = uiHelpers.workflowLabels?.() || productConfig.workflow || ["Import", "Draft", "Review", "Export", "Track"];
   return `
     <div class="flow-path compact-flow">
-      ${["Import", "Draft", "Review", "Export", "Track"].map((step, index) => `
+      ${labels.map((step, index) => `
         <article class="${index === 2 ? "is-active" : ""}">
           <span>${index + 1}</span>
           <strong>${escapeHtml(step)}</strong>
@@ -2686,10 +2761,10 @@ function reviewQueueTable(context, variants) {
         <div class="table-row review-row">
           <span><strong>${escapeHtml(row.title)}</strong></span>
           <span data-label="Owner">${escapeHtml(row.owner)}</span>
-          <span data-label="Status">${escapeHtml(row.status)}</span>
+          <span data-label="Status"><em class="status-token">${escapeHtml(row.status)}</em></span>
           <span data-label="Due">${escapeHtml(row.due)}</span>
           <span data-label="Score">${escapeHtml(row.score)}</span>
-          <span data-label="Next">${escapeHtml(row.next)}</span>
+          <span data-label="Next"><button class="table-action" type="button" data-tab="drafts">${escapeHtml(row.next)}</button></span>
         </div>
       `).join("")}
     </div>
@@ -3652,6 +3727,14 @@ function saveCurrentCampaign(context) {
     due: "This week",
     prospects: state.batchRows.length || 1,
     exports: state.exportHistory.filter((item) => item.project === context.project).length,
+    drafts: state.enterpriseDrafts.map((draft) => ({
+      key: draft.key,
+      name: draft.name,
+      subject: draft.subject,
+      status: draft.status || "Draft",
+      score: averageScore(draft),
+    })),
+    lastAction: state.lastActionNote || "Ready for review",
   };
   state.savedCampaigns = [campaign, ...state.savedCampaigns.filter((item) => item.name !== campaign.name)].slice(0, 8);
   state.campaignSaved = true;
@@ -3953,7 +4036,8 @@ async function runAnalysis(text) {
     state.activeExplorerTab = "style";
     state.explorerSavedMessage = "";
   }
-  els.outputPanel.innerHTML = `<div class="empty-hero fade-in"><span class="status-pill">Analyzing</span><h2>Building the ${state.mode === "enterprise" ? "campaign brief" : "model reading"}...</h2><p class="muted">The local model is reading the submitted language.</p></div>`;
+  els.outputPanel.innerHTML = uiHelpers.loadingCard?.(state.mode) || `<div class="empty-hero fade-in"><span class="status-pill">Working</span><h2>Reading the submitted text...</h2><p class="muted">Preparing the next view.</p></div>`;
+  uiHelpers.focusWithin?.(els.outputPanel, ".loading-card");
   try {
     const data = await evaluateText(text.trim());
     state.latestData = data;
@@ -3967,14 +4051,17 @@ async function runAnalysis(text) {
     if (state.mode === "enterprise") render();
     else renderExplorerResult(data);
     trackEvent("analysis_completed", {words: text.trim().split(/\s+/).length});
+    uiHelpers.announce?.(els.announcer, state.mode === "enterprise" ? "Enterprise drafts are ready." : "Explorer reading is ready.");
     els.outputPanel.focus();
     requestAnimationFrame(() => {
       const top = Math.max(0, els.outputPanel.getBoundingClientRect().top + window.scrollY - 12);
       window.scrollTo({top, behavior: "auto"});
     });
   } catch (error) {
-    els.outputPanel.innerHTML = `<div class="empty-hero"><h2>The reading did not run.</h2><p class="muted">${escapeHtml(error.message)}</p><button class="button-secondary" id="retry-run">Retry</button></div>`;
+    els.outputPanel.innerHTML = uiHelpers.errorCard?.(escapeHtml(error.message)) || `<div class="empty-hero"><h2>The reading did not run.</h2><p class="muted">${escapeHtml(error.message)}</p><button class="button-secondary" id="retry-run">Retry</button></div>`;
     document.querySelector("#retry-run").addEventListener("click", () => runAnalysis(text));
+    uiHelpers.announce?.(els.announcer, "The reading did not run. Retry is available.");
+    uiHelpers.focusWithin?.(els.outputPanel, "#retry-run");
   }
 }
 

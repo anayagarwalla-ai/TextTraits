@@ -22,6 +22,7 @@ def main() -> int:
     client = app_module.app.test_client()
     html = client.get("/").get_data(as_text=True)
     js = client.get("/static/app.js").get_data(as_text=True)
+    ui_js = client.get("/static/ui_helpers.js").get_data(as_text=True)
     css = client.get("/static/styles.css").get_data(as_text=True)
 
     assert_true('aria-live="polite"' in html, "live region missing")
@@ -33,6 +34,7 @@ def main() -> int:
     assert_true("aria-label" in js or "aria-label" in html, "accessible labels missing")
     assert_true("clientError" in js, "client-side error reporting missing")
     assert_true("toast-stack" in html and "toast-stack" in css, "consistent toast region missing")
+    assert_true("role=\"status\"" in ui_js and "role=\"alert\"" in ui_js, "shared loading/error states need live semantics")
 
     print("Accessibility smoke checks passed.")
     return 0
