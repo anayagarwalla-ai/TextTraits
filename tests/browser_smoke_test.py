@@ -100,6 +100,7 @@ def main() -> int:
     assert_true("review-table" in css, "Review table layout missing")
     assert_true("data-review-draft" in js and "data-review-prospect" in js, "Review queue target actions missing")
     assert_true("Paste CSV rows or load the sample CSV first." in js and "data-generate-batch" in js, "Batch generation needs explicit input gating")
+    assert_true("enterpriseTabNote" in js and "enterpriseToolNote" in js, "Enterprise tabs/tools need contextual action notes")
     assert_true("export-history" in css, "Export history layout missing")
     assert_true("sync-card" in css, "Account sync layout missing")
     assert_true("onboarding-card" in css, "Onboarding layout missing")

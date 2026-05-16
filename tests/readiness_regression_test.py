@@ -26,6 +26,7 @@ def main() -> None:
     assert_true("enterprise-focus-band" in app_js and "secondary-workspace-section" in app_js, "Enterprise dashboard should hide secondary density behind one expandable area")
     assert_true("data-review-draft" in app_js and "data-review-prospect" in app_js, "Enterprise review queue should open the exact draft or prospect")
     assert_true("Paste CSV rows or load the sample CSV first." in app_js, "Batch generation should not silently use sample data")
+    assert_true("enterpriseTabNote" in app_js and "enterpriseToolNote" in app_js, "Enterprise workspace notes should match the current tab/tool")
     assert_true("focus-stats" in css and "secondary-workspace-section" in css, "Enterprise density controls need responsive styling")
     assert_true("TextTraitsUi" in ui_js and "loadingCard" in ui_js and "errorCard" in ui_js, "Shared UI helper module should hold repeated states")
     assert_true((ROOT / "scripts/visual_regression_snapshots.py").exists(), "Local visual snapshot script should exist")

@@ -3337,6 +3337,10 @@ body.is-local-runtime .footer-note {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .habit-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .compact-dashboard-title {
     grid-template-columns: 1fr;
   }

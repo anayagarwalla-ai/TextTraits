@@ -1954,6 +1954,26 @@ function tabButton(tab, label, active) {
   return `<button type="button" role="tab" id="tab-${tab}" data-tab="${tab}" aria-selected="${String(tab === active)}" aria-controls="panel-${tab}">${label}</button>`;
 }
 
+function enterpriseTabNote(tab) {
+  const notes = {
+    dashboard: "Dashboard open. Next: review the queue, then approve or export.",
+    drafts: "Draft editor open. Pick one variant, polish it, then approve.",
+    tools: "Batch and reply tools open. Start with CSV input, sequence timing, or reply triage.",
+    analytics: "Analytics open. Review outcomes, exports, integrations, and coaching signals.",
+  };
+  return notes[tab] || "Workspace ready.";
+}
+
+function enterpriseToolNote(tool) {
+  const notes = {
+    batch: "Batch tool open. Paste CSV rows or load the sample before generating.",
+    sequence: "Sequence builder open. Tune timing, channels, and stop rules.",
+    inbox: "Reply queue open. Load sample replies or connect mail later.",
+    libraries: "Libraries open. Review voice, personas, templates, and approved proof.",
+  };
+  return notes[tool] || "Workspace tool open.";
+}
+
 function renderExplorerTab(data) {
   const p = data.predictions;
   const dims = p.mbti_dimensions || {};
@@ -2401,6 +2421,7 @@ function renderEnterpriseResult(data) {
     button.addEventListener("click", () => {
       state.tabScroll[state.activeEnterpriseTab] = window.scrollY;
       state.activeEnterpriseTab = button.dataset.tab;
+      state.lastActionNote = enterpriseTabNote(state.activeEnterpriseTab);
       renderEnterpriseResult(data);
       els.outputPanel.querySelector(".tab-panel")?.focus?.();
       requestAnimationFrame(() => window.scrollTo(0, state.tabScroll[state.activeEnterpriseTab] || 0));
@@ -2410,12 +2431,14 @@ function renderEnterpriseResult(data) {
     button.addEventListener("click", () => {
       state.activeEnterpriseTool = button.dataset.tool;
       state.activeEnterpriseTab = "tools";
+      state.lastActionNote = enterpriseToolNote(state.activeEnterpriseTool);
       renderEnterpriseResult(data);
       els.outputPanel.querySelector(".workspace-panel")?.focus?.();
     });
   });
   els.outputPanel.querySelector("[data-enterprise-primary-tab]")?.addEventListener("click", (event) => {
     state.activeEnterpriseTab = event.currentTarget.dataset.enterprisePrimaryTab;
+    state.lastActionNote = enterpriseTabNote(state.activeEnterpriseTab);
     renderEnterpriseResult(data);
     els.outputPanel.querySelector(".workspace-panel")?.focus?.();
   });

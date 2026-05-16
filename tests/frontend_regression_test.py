@@ -73,6 +73,8 @@ def main() -> int:
         "data-review-draft",
         "data-review-prospect",
         "Paste CSV rows or load the sample CSV first.",
+        "enterpriseTabNote",
+        "enterpriseToolNote",
     )
     for phrase in enterprise_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")
