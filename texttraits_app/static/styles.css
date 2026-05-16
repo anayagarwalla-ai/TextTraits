@@ -1164,8 +1164,18 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .journal-tools {
-  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.32fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.32fr) auto auto;
   align-items: end;
+}
+
+.journal-filter-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.quiet-button {
+  color: var(--muted);
 }
 
 .journal-list article,
@@ -3335,26 +3345,8 @@ body.is-local-runtime .footer-note {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dashboard-focus-card .compact-flow {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 5px;
-    overflow: visible;
-    padding-bottom: 0;
-  }
-
-  .dashboard-focus-card .compact-flow article {
-    min-width: 0;
-    padding: 7px 5px;
-  }
-
-  .dashboard-focus-card .compact-flow strong {
-    font-size: 12px;
-  }
-
-  .dashboard-focus-card .compact-flow span {
-    width: 22px;
-    height: 22px;
+  body[data-mode="enterprise"] .dashboard-focus-card .compact-flow {
+    display: none;
   }
 
   .grouped-tabs button,
@@ -3418,11 +3410,13 @@ body.is-local-runtime .footer-note {
   }
 
   .table-row {
-    grid-template-columns: 26px 1fr;
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
+  .table-row > span,
   .table-row span:nth-child(n+3) {
-    grid-column: 2;
+    grid-column: 1;
   }
 
   .workspace-toolbar {

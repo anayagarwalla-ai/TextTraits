@@ -55,6 +55,9 @@ def main() -> int:
         "Make shorter",
         "weekly-recap-page",
         "journal-search",
+        "sourceExcerpt",
+        "data-open-journal",
+        "data-apply-journal-filter",
     )
     for phrase in explorer_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Explorer coach flow missing {phrase}")
@@ -67,6 +70,9 @@ def main() -> int:
         "CRM setup",
         "Email setup",
         "status-token",
+        "data-review-draft",
+        "data-review-prospect",
+        "Paste CSV rows or load the sample CSV first.",
     )
     for phrase in enterprise_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")

@@ -87,6 +87,7 @@ const state = {
   explorerHistory: [],
   explorerJournalSearch: "",
   explorerJournalFolder: "All",
+  explorerJournalOpen: false,
   explorerReadingName: "",
   explorerFolder: "Daily",
   explorerWritingGoal: "Make this clearer",
@@ -1460,7 +1461,7 @@ function filteredExplorerHistory() {
   return state.explorerHistory.filter((entry) => {
     const folder = entry.folder || "Daily";
     const matchesFolder = state.explorerJournalFolder === "All" || folder === state.explorerJournalFolder;
-    const haystack = `${entry.name || ""} ${folder} ${entry.goal || ""} ${entry.clue || ""} ${entry.summary || ""}`.toLowerCase();
+    const haystack = `${entry.name || ""} ${folder} ${entry.goal || ""} ${entry.clue || ""} ${entry.summary || ""} ${entry.sourceExcerpt || ""}`.toLowerCase();
     return matchesFolder && (!query || haystack.includes(query));
   });
 }
@@ -1505,6 +1506,10 @@ function explorerJournalPanel() {
     <div class="journal-tools">
       <label class="field"><span>Search journal</span><input id="journal-search" value="${escapeHtml(state.explorerJournalSearch)}" placeholder="Search saved readings"></label>
       ${selectField("journalFolder", "Folder", ["All", ...explorerFolders], state.explorerJournalFolder)}
+      <div class="journal-filter-actions">
+        <button class="button-secondary" type="button" data-apply-journal-filter>Apply</button>
+        <button class="button-secondary quiet-button" type="button" data-clear-journal-filter>Clear</button>
+      </div>
       <span class="saved-state">${entries.length} of ${total} shown</span>
     </div>
     ${entries.length ? "" : `<p class="muted">No readings match this filter.</p>`}
@@ -1515,7 +1520,7 @@ function explorerJournalPanel() {
             <strong>${escapeHtml(entry.name || `Reading ${index + 1}`)}</strong>
             <span>${escapeHtml(entry.folder || "Daily")} / ${escapeHtml(entry.day || "")} / ${escapeHtml(clarityBand(entry.clarity || 70))}</span>
           </div>
-          <p>${escapeHtml(entry.summary || entry.feel || "Saved writing sample")}</p>
+          <p>${escapeHtml(entry.summary || entry.sourceExcerpt || entry.feel || "Saved writing sample")}</p>
           <small>${escapeHtml(entry.goal || "Make this clearer")} / ${escapeHtml(entry.clue || "Style note")}</small>
         </article>
       `).join("")}
@@ -1614,6 +1619,7 @@ function explorerSnapshot(data, text) {
     folder: state.explorerFolder || "Daily",
     goal: state.explorerWritingGoal || "Make this clearer",
     words: localStats(text).words,
+    sourceExcerpt: text.trim().replace(/\s+/g, " ").slice(0, 240),
     feel: readingEffortLabel(stats),
     clarity: clarityScore(stats, strongest),
     primaryClue: dimensionLabel(strongest?.prediction, strongest?.key),
@@ -1707,6 +1713,7 @@ function renderExplorerResult(data) {
         <div class="toolbar">
           <button class="button-secondary" data-edit-explorer-input>Edit input</button>
           <button class="button-secondary" data-new-sample>Analyze another piece</button>
+          <button class="button-secondary" type="button" data-open-journal>Open journal</button>
         </div>
       </div>
 
@@ -1775,7 +1782,7 @@ function renderExplorerResult(data) {
         </article>
       </div>
 
-      <details class="secondary-result-details journal-drawer">
+      <details class="secondary-result-details journal-drawer" ${state.explorerJournalOpen ? "open" : ""}>
         <summary>Writing journal and weekly recap</summary>
         <div class="save-reading-row">
           <label class="field"><span>Name this reading</span><input id="result-reading-name" value="${escapeHtml(state.explorerReadingName || state.explorerHistory[0]?.name || "")}" placeholder="Daily journal, work email, class note"></label>
@@ -1837,11 +1844,27 @@ function renderExplorerResult(data) {
   });
   journalSearch?.addEventListener("change", () => {
     state.explorerJournalSearch = journalSearch.value;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  els.outputPanel.querySelector("[data-apply-journal-filter]")?.addEventListener("click", () => {
+    state.explorerJournalSearch = journalSearch?.value || "";
+    state.explorerJournalFolder = journalFolder?.value || state.explorerJournalFolder;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  els.outputPanel.querySelector("[data-clear-journal-filter]")?.addEventListener("click", () => {
+    state.explorerJournalSearch = "";
+    state.explorerJournalFolder = "All";
+    state.explorerJournalOpen = true;
     persistWorkspace();
     renderExplorerResult(data);
   });
   journalFolder?.addEventListener("change", () => {
     state.explorerJournalFolder = journalFolder.value;
+    state.explorerJournalOpen = true;
     persistWorkspace();
     renderExplorerResult(data);
   });
@@ -1876,6 +1899,19 @@ function renderExplorerResult(data) {
       renderExplorerResult(data);
       showToast(els.outputPanel.querySelector(`[data-explorer-rewrite="${button.dataset.explorerRewrite}"]`) || button, `${button.textContent.trim()} version ready.`);
     });
+  });
+  els.outputPanel.querySelector("[data-open-journal]")?.addEventListener("click", () => {
+    const drawer = els.outputPanel.querySelector(".journal-drawer");
+    if (!drawer) return;
+    state.explorerJournalOpen = true;
+    drawer.open = true;
+    persistWorkspace();
+    drawer.scrollIntoView({behavior: "smooth", block: "start"});
+    drawer.querySelector("summary")?.focus?.();
+  });
+  els.outputPanel.querySelector(".journal-drawer")?.addEventListener("toggle", (event) => {
+    state.explorerJournalOpen = event.currentTarget.open;
+    persistWorkspace();
   });
   els.outputPanel.querySelectorAll("[data-rewrite-goal]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2468,6 +2504,27 @@ function renderEnterpriseResult(data) {
       renderEnterpriseResult(data);
     });
   });
+  els.outputPanel.querySelectorAll("[data-review-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedVariant = button.dataset.reviewDraft;
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = `Opened Variant ${state.selectedVariant} in the draft editor.`;
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".draft-editor")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-prospect]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedProspectId = Number(button.dataset.reviewProspect);
+      state.selectedVariant = bestDraft()?.key || state.selectedVariant;
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = "Opened the prospect detail with the recommended draft.";
+      renderEnterpriseResult(data);
+      const detail = els.outputPanel.querySelector(".prospect-detail-card");
+      if (detail) detail.open = true;
+      detail?.scrollIntoView?.({behavior: "smooth", block: "nearest"});
+    });
+  });
   els.outputPanel.querySelectorAll("[data-approve-draft]").forEach((button) => {
     button.addEventListener("click", () => {
       const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.approveDraft);
@@ -2580,9 +2637,25 @@ function renderEnterpriseResult(data) {
     state.lastActionNote = "Loaded sample CSV with prospect rows.";
     renderEnterpriseResult(data);
   });
+  const batchInput = els.outputPanel.querySelector("#batch-input");
+  batchInput?.addEventListener("input", () => {
+    state.batchInput = batchInput.value;
+    state.batchProgress = 0;
+    state.batchErrors = [];
+    const generateButton = els.outputPanel.querySelector("[data-generate-batch]");
+    if (generateButton) generateButton.disabled = !state.batchInput.trim();
+    persistWorkspace();
+  });
   els.outputPanel.querySelector("[data-generate-batch]")?.addEventListener("click", () => {
-    const input = els.outputPanel.querySelector("#batch-input")?.value || sampleCsv;
+    const input = els.outputPanel.querySelector("#batch-input")?.value || "";
     state.batchInput = input;
+    if (!input.trim()) {
+      state.batchErrors = ["Paste CSV rows or load the sample CSV first."];
+      state.batchProgress = 0;
+      state.lastActionNote = "Batch generation needs CSV input first.";
+      renderEnterpriseResult(data);
+      return;
+    }
     ["first_name", "company", "role", "industry", "signal"].forEach((column) => {
       const field = els.outputPanel.querySelector(`#map-${column}`);
       if (field) state.batchMapping[column] = field.value.trim() || column;
@@ -2733,6 +2806,8 @@ function campaignProspects(context) {
 function reviewQueueItems(context, variants) {
   const variantRows = variants.map((draft, index) => ({
     id: `draft-${draft.key}`,
+    draftKey: draft.key,
+    target: "draft",
     title: `Variant ${draft.key}: ${draft.name}`,
     owner: draft.owner || (index === 0 ? "Maya" : "Unassigned"),
     status: draft.status || (index === 0 ? "Needs review" : "Draft"),
@@ -2742,6 +2817,8 @@ function reviewQueueItems(context, variants) {
   }));
   const prospectRows = campaignProspects(context).slice(0, 3).map((row, index) => ({
     id: `prospect-${row.id || index}`,
+    prospectId: row.id || index,
+    target: "prospect",
     title: `${row.first_name} at ${row.company}`,
     owner: index === 0 ? "Revenue lead" : "SDR team",
     status: row.status || "Queued",
@@ -2764,7 +2841,14 @@ function reviewQueueTable(context, variants) {
           <span data-label="Status"><em class="status-token">${escapeHtml(row.status)}</em></span>
           <span data-label="Due">${escapeHtml(row.due)}</span>
           <span data-label="Score">${escapeHtml(row.score)}</span>
-          <span data-label="Next"><button class="table-action" type="button" data-tab="drafts">${escapeHtml(row.next)}</button></span>
+          <span data-label="Next">
+            <button
+              class="table-action"
+              type="button"
+              ${row.target === "draft" ? `data-review-draft="${escapeHtml(row.draftKey)}"` : `data-review-prospect="${escapeHtml(row.prospectId)}"`}
+              aria-label="${escapeHtml(`${row.next} ${row.title}`)}"
+            >${escapeHtml(row.next)}</button>
+          </span>
         </div>
       `).join("")}
     </div>
@@ -2999,7 +3083,9 @@ function renderToolPanel(context, sequence) {
 
 function batchPanel(context) {
   const errors = state.batchErrors.length ? `<div class="error-list">${state.batchErrors.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
-  const batchValue = state.batchInput || (state.sampleWorkspaceLoaded ? sampleCsv : "");
+  const batchValue = state.batchInput || "";
+  const canGenerate = Boolean(batchValue.trim());
+  const canExport = state.batchRows.length > 0;
   return `
     <div class="batch-workspace">
       <article class="strategy-card">
@@ -3017,8 +3103,8 @@ function batchPanel(context) {
         <p class="muted">${state.batchProgress ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns before generating."}</p>
         <div class="result-actions split-actions">
           <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
-          <button type="button" data-generate-batch>Generate batch briefs</button>
-          <button class="button-secondary" type="button" data-export-batch>Download export CSV</button>
+          <button type="button" data-generate-batch ${canGenerate ? "" : "disabled"}>Generate batch briefs</button>
+          <button class="button-secondary" type="button" data-export-batch ${canExport ? "" : "disabled"}>Download export CSV</button>
         </div>
       </article>
       <div class="batch-table">
