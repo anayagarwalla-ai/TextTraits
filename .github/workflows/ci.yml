@@ -44,4 +44,5 @@ jobs:
           python tests/config_regression_test.py
           python tests/frontend_regression_test.py
           python tests/env_storage_regression_test.py
+          python tests/readiness_regression_test.py
           python scripts/security_audit.py

@@ -505,6 +505,18 @@ body[data-mode="enterprise"] .workspace {
   }
 }
 
+body[data-mode="enterprise"]:not(.has-work):not(.enterprise-setup-open) .workspace {
+  grid-template-columns: 1fr;
+}
+
+body[data-mode="enterprise"]:not(.has-work):not(.enterprise-setup-open) .output-panel {
+  order: 0;
+}
+
+body[data-mode="enterprise"]:not(.has-work):not(.enterprise-setup-open) .input-panel {
+  display: none;
+}
+
 body.enterprise-collapsed .workspace {
   grid-template-columns: 1fr;
 }

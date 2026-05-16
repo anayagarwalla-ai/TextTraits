@@ -120,6 +120,7 @@ const state = {
     syncStatus: "Local only",
     lastSyncedAt: "",
   },
+  accountResetToken: "",
   adminSettings: {
     workspaceName: "TextTraits Team",
     seats: 3,
@@ -545,6 +546,7 @@ function renderAccountCard() {
             <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
           </div>
           ${errorHtml}
+          <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
           <div class="account-actions sheet-actions">
             <button class="button-secondary" type="button" data-sync-now>Sync now</button>
             <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
@@ -587,11 +589,11 @@ function renderAccountCard() {
               ${demoButton}
               <button class="button-secondary" type="button" data-request-reset>Reset password</button>
             </div>
-            <details class="account-code-panel">
+            <details class="account-code-panel" ${state.accountResetToken ? "open" : ""}>
               <summary>Have an email code?</summary>
               <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" placeholder="Paste verification code"></label>
               <button class="button-secondary" type="button" data-submit-verification>Verify email</button>
-              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" placeholder="Paste reset code"></label>
+              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" value="${escapeHtml(state.accountResetToken)}" placeholder="Paste reset code"></label>
               <label class="field"><span>New password</span><input id="reset-new-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
               <button class="button-secondary" type="button" data-submit-reset>Update password</button>
             </details>
@@ -636,16 +638,22 @@ function wireAccountCard() {
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-export-account]")?.addEventListener("click", async (event) => {
-    const password = prompt("Confirm your password to export account data.");
-    if (!password) return;
+    const password = els.accountCard.querySelector("#account-password")?.value || "";
+    if (!password) {
+      showToast(event.currentTarget, "Enter your password before exporting account data.");
+      return;
+    }
     const data = await apiClient.exportAccount(password);
     downloadText("texttraits-account-export.json", JSON.stringify(data, null, 2));
     showToast(event.currentTarget, "Account export downloaded.");
   });
   els.accountCard?.querySelector("[data-delete-account]")?.addEventListener("click", async (event) => {
     if (!confirm("Delete this TextTraits account and synced workspace data?")) return;
-    const password = prompt("Confirm your password to delete this account.");
-    if (!password) return;
+    const password = els.accountCard.querySelector("#account-password")?.value || "";
+    if (!password) {
+      showToast(event.currentTarget, "Enter your password before deleting the account.");
+      return;
+    }
     await apiClient.deleteAccount(password);
     state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
     state.accountModalOpen = false;
@@ -675,6 +683,7 @@ function wireAccountCard() {
     const password = els.accountCard.querySelector("#reset-new-password")?.value || "";
     try {
       const data = await apiClient.resetPassword(token, password);
+      state.accountResetToken = "";
       applyAuthenticatedAccount(data, "Password reset");
       showToast(event.currentTarget, "Password updated.");
     } catch (error) {
@@ -782,21 +791,11 @@ async function handleAccountLinkTokens() {
   }
 
   if (resetToken) {
-    const password = prompt("Enter a new TextTraits password.");
-    if (password) {
-      try {
-        const data = await apiClient.resetPassword(resetToken, password);
-        state.account.authenticated = true;
-        state.account.user = data.user;
-        state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
-        state.account.syncStatus = "Password reset";
-        if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
-        showToast(els.accountCard, "Password updated.");
-        render();
-      } catch (error) {
-        showToast(els.accountCard, error.message || "Reset link expired.");
-      }
-    }
+    state.accountResetToken = resetToken;
+    state.accountModalOpen = true;
+    state.accountError = "Enter a new password to finish resetting your account.";
+    renderAccountCard();
+    requestAnimationFrame(() => els.accountCard.querySelector("#reset-new-password")?.focus?.());
     params.delete("reset_token");
     hashParams.delete("reset_token");
     changed = true;
@@ -1133,7 +1132,10 @@ function renderEnterpriseEmpty() {
         <article class="strategy-card featured">
           <strong>Start here: create drafts</strong>
           <p>Paste prospect language in the setup panel. Once drafts are generated, the form collapses and the review queue becomes the center of the workspace.</p>
-          <button type="button" data-focus-enterprise-input>Paste prospect context</button>
+          <div class="result-actions">
+            <button type="button" data-focus-enterprise-input>Paste prospect context</button>
+            <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
+          </div>
         </article>
         <article class="strategy-card">
           <strong>${state.sampleWorkspaceLoaded ? "Sample workspace" : "Preview workspace"}</strong>
@@ -1196,6 +1198,16 @@ function renderEnterpriseEmpty() {
     persistWorkspace();
     showToast(event.currentTarget, "Sample workspace loaded.");
     renderEnterpriseEmpty();
+  });
+  els.outputPanel.querySelector("[data-generate-sample-drafts]")?.addEventListener("click", () => {
+    const sample = enterpriseSamples[0];
+    state.latestText = sample.text;
+    state.latestData = null;
+    state.enterpriseDrafts = [];
+    state.enterpriseContext = {...(state.enterpriseContext || {}), ...(sample.context || {})};
+    state.enterpriseSetupOpen = false;
+    persistWorkspace();
+    runAnalysis(sample.text);
   });
 }
 

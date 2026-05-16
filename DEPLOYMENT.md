@@ -135,4 +135,5 @@ python3 tests/security_regression_test.py
 python3 tests/config_regression_test.py
 python3 tests/frontend_regression_test.py
 python3 tests/env_storage_regression_test.py
+python3 tests/readiness_regression_test.py
 ```
