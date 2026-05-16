@@ -17,7 +17,12 @@ def main() -> None:
     tracked_clutter = {"Testpush.txt", "made_by_codex.txt", "my_code.txt", "local_website_todo.txt"}
 
     assert_true("data-generate-sample-drafts" in app_js, "Enterprise empty state needs a one-click sample draft path")
+    assert_true("enterpriseLandingTab" in app_js, "Sample Enterprise generation should be able to land on the dashboard")
+    assert_true("data-enterprise-primary-tab" in app_js, "Enterprise header needs a contextual dashboard/review queue action")
     assert_true("starter-sample-panel" in app_js and "starter-sample-panel" in css, "Enterprise setup needs visible starter samples")
+    assert_true("habit-strip" in app_js and "habit-strip" in css, "Explorer result should expose calm journal progress")
+    assert_true("enterprise-focus-band" in app_js and "secondary-workspace-section" in app_js, "Enterprise dashboard should hide secondary density behind one expandable area")
+    assert_true("focus-stats" in css and "secondary-workspace-section" in css, "Enterprise density controls need responsive styling")
     assert_true("enterprise-setup-open" in css, "Enterprise setup should stay progressively disclosed")
     assert_true("accountResetToken" in app_js and "prompt(" not in app_js, "Account reset/export/delete should not use native prompt dialogs")
     assert_true("Password for export/delete" in app_js, "Sensitive account actions need an in-sheet password field")

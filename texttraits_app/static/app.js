@@ -33,6 +33,7 @@ const state = {
   enterpriseContext: null,
   enterpriseDrafts: [],
   selectedVariant: "A",
+  enterpriseLandingTab: "",
   enterpriseInputsCollapsed: false,
   enterpriseSetupOpen: false,
   campaignSaved: false,
@@ -1206,6 +1207,7 @@ function renderEnterpriseEmpty() {
     state.enterpriseDrafts = [];
     state.enterpriseContext = {...(state.enterpriseContext || {}), ...(sample.context || {})};
     state.enterpriseSetupOpen = false;
+    state.enterpriseLandingTab = "dashboard";
     persistWorkspace();
     runAnalysis(sample.text);
   });
@@ -1625,6 +1627,8 @@ function renderExplorerResult(data) {
   const profile = explorerProfileSummary();
   const currentClarity = clarityScore(stats, strongestRow);
   const rewritePreview = makeExplorerRewrite(state.latestText, state.explorerRewriteMode);
+  const latestEntry = state.explorerHistory[0];
+  const streak = explorerStreak();
   if (!["overview", "style", "rewrite", "technical"].includes(state.activeExplorerTab)) {
     state.activeExplorerTab = "style";
   }
@@ -1644,6 +1648,25 @@ function renderExplorerResult(data) {
           <button class="button-secondary" data-edit-explorer-input>Edit input</button>
           <button class="button-secondary" data-new-sample>Analyze another piece</button>
         </div>
+      </div>
+
+      <div class="habit-strip" aria-label="Writing journal status">
+        <article>
+          <span>Journal</span>
+          <strong>${latestEntry ? "Saved locally" : "Ready to save"}</strong>
+        </article>
+        <article>
+          <span>Streak</span>
+          <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+        </article>
+        <article>
+          <span>Folder</span>
+          <strong>${escapeHtml(latestEntry?.folder || state.explorerFolder || "Daily")}</strong>
+        </article>
+        <article>
+          <span>Next</span>
+          <strong>${state.explorerHistory.length >= 3 ? "Weekly recap" : "Save 3 readings"}</strong>
+        </article>
       </div>
 
       <div class="coach-flow">
@@ -1687,7 +1710,7 @@ function renderExplorerResult(data) {
           <p>${escapeHtml(rewritePreview)}</p>
           <div class="result-actions">
             <button type="button" data-copy-rewrite>Copy rewrite</button>
-            <button class="button-secondary" type="button" data-save-reading>Save reading</button>
+            <button class="button-secondary" type="button" data-save-reading>Update journal</button>
           </div>
         </article>
       </div>
@@ -1697,7 +1720,7 @@ function renderExplorerResult(data) {
         <div class="save-reading-row">
           <label class="field"><span>Name this reading</span><input id="result-reading-name" value="${escapeHtml(state.explorerReadingName || state.explorerHistory[0]?.name || "")}" placeholder="Daily journal, work email, class note"></label>
           ${selectField("resultExplorerFolder", "Folder", explorerFolders, state.explorerFolder)}
-          <button class="button-secondary" type="button" data-save-reading>Save this reading</button>
+          <button class="button-secondary" type="button" data-save-reading>Update this reading</button>
           ${state.explorerSavedMessage ? `<span class="saved-state">${escapeHtml(state.explorerSavedMessage)}</span>` : ""}
         </div>
         ${weeklyRecapPanel(profile)}
@@ -2231,6 +2254,7 @@ function renderEnterpriseResult(data) {
           </div>
         </div>
         <div class="command-actions">
+          ${state.activeEnterpriseTab !== "dashboard" ? `<button class="button-secondary" data-enterprise-primary-tab="dashboard">Dashboard</button>` : ""}
           <button class="button-secondary" data-toggle-inputs>${state.enterpriseInputsCollapsed ? "Edit setup" : "Hide setup"}</button>
           <button data-save-campaign>${state.campaignSaved ? "Saved" : "Save campaign"}</button>
           <details class="action-menu">
@@ -2279,6 +2303,11 @@ function renderEnterpriseResult(data) {
       renderEnterpriseResult(data);
       els.outputPanel.querySelector(".workspace-panel")?.focus?.();
     });
+  });
+  els.outputPanel.querySelector("[data-enterprise-primary-tab]")?.addEventListener("click", (event) => {
+    state.activeEnterpriseTab = event.currentTarget.dataset.enterprisePrimaryTab;
+    renderEnterpriseResult(data);
+    els.outputPanel.querySelector(".workspace-panel")?.focus?.();
   });
 
   const allText = enterpriseBriefText(context, variants, angles, sequence);
@@ -2607,7 +2636,7 @@ function projectSidebar(context) {
 function workflowPathHtml() {
   return `
     <div class="flow-path compact-flow">
-      ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+      ${["Import", "Draft", "Review", "Export", "Track"].map((step, index) => `
         <article class="${index === 2 ? "is-active" : ""}">
           <span>${index + 1}</span>
           <strong>${escapeHtml(step)}</strong>
@@ -2673,29 +2702,23 @@ function campaignHome(context, angles) {
   const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
   return `
     <div class="campaign-workspace">
-      <article class="next-step-card">
-        <div>
-          <span class="label">Next best action</span>
-          <strong>Review ${escapeHtml(prospects[0]?.first_name || "the first prospect")}'s draft</strong>
-        </div>
-        <button type="button" data-tab="drafts">Open review queue</button>
-      </article>
-
-      <section class="today-grid">
-        <article class="strategy-card featured">
-          <span class="label">Today's work</span>
-          <h3>${prospects.length} prospects ready for review</h3>
-          <p>Primary path: import prospects, generate drafts, review the queue, export/send, then track outcomes.</p>
-          ${workflowPathHtml()}
-        </article>
-        <article class="strategy-card">
-          <strong>Campaign home</strong>
-          <div class="mini-facts">
-            ${summaryItem("Status", state.campaignSaved ? "Saved workspace" : "Drafts ready")}
+      <section class="enterprise-focus-band">
+        <article class="strategy-card featured dashboard-focus-card">
+          <div class="section-title compact-dashboard-title">
+            <div>
+              <span class="label">Today's work</span>
+              <h3>${prospects.length} prospects ready for review</h3>
+            </div>
+            <button type="button" data-tab="drafts">Open review queue</button>
+          </div>
+          <p>One clean path: Import prospects, generate drafts, review the queue, export or send, then track outcomes.</p>
+          <div class="focus-stats">
+            ${summaryItem("Status", state.campaignSaved ? "Saved" : "Drafts ready")}
             ${summaryItem("Owner", "Revenue team")}
             ${summaryItem("Due", "This week")}
-            ${summaryItem("Next step", "Review queue")}
+            ${summaryItem("Next", "Review queue")}
           </div>
+          ${workflowPathHtml()}
         </article>
       </section>
 
@@ -2710,58 +2733,63 @@ function campaignHome(context, angles) {
         ${reviewQueueTable(context, variants)}
       </article>
 
-      <article class="strategy-card">
-        <div class="section-title">
-          <div>
-            <strong>Prospect list</strong>
-            <p>Rows show draft status, reply status, and CRM readiness.</p>
-          </div>
-          <button class="button-secondary" type="button" data-tool="batch">Open batch tools</button>
-        </div>
-        <div class="prospect-table">
-          <div class="table-head"><span><input type="checkbox" aria-label="Select all prospects"></span><span>Prospect</span><span>Score</span><span>Draft</span><span>CRM</span><span>Next</span></div>
-          ${prospects.map((row, index) => `
-            <div class="table-row">
-              <span><input type="checkbox" aria-label="Select ${escapeHtml(row.first_name)}"></span>
-              <span><strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong><small>${escapeHtml(row.role)} / ${escapeHtml(row.signal)}</small></span>
-              <span data-label="Score">${92 - index * 4}</span>
-              <span data-label="Draft">${escapeHtml(row.status || "Generated")}</span>
-              <span data-label="CRM">${index === 0 ? "Connected" : "Preview only"}</span>
-              <span data-label="Next">${escapeHtml(row.next || "Review")}</span>
-            </div>
-          `).join("")}
-        </div>
-      </article>
-
-      <article class="strategy-card saved-workspaces-card">
-        <div class="section-title">
-          <div>
-            <strong>Saved workspaces</strong>
-            <p>${campaigns.length} results match your filters.</p>
-          </div>
-          <div class="workspace-controls compact-controls">
-            <label class="field"><span>Search</span><input id="workspace-search" value="${escapeHtml(state.workspaceSearch)}" placeholder="Search"></label>
-            ${selectField("workspaceStatus", "Status", ["All", ...uniqueValues(state.savedCampaigns, "status")], state.workspaceStatus)}
-          </div>
-        </div>
-        <div class="campaign-table dense-table">
-          ${campaigns.slice(0, 4).map((campaign) => `
-            <article>
-              <strong>${escapeHtml(campaign.name)}</strong>
-              <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.status)} / ${escapeHtml(campaign.prospects || 1)} prospects</span>
-              <div class="result-actions">
-                <button class="button-secondary" data-load-campaign="${escapeHtml(campaign.name)}">Load</button>
-                <button class="button-secondary" data-status-campaign="${escapeHtml(campaign.name)}">Mark reviewed</button>
+      <details class="secondary-workspace-section">
+        <summary>Prospects, saved workspaces, and campaign detail</summary>
+        <div class="secondary-workspace-content">
+          <article class="strategy-card">
+            <div class="section-title">
+              <div>
+                <strong>Prospect list</strong>
+                <p>Rows show draft status, reply status, and CRM readiness.</p>
               </div>
-            </article>
-          `).join("")}
-        </div>
-      </article>
+              <button class="button-secondary" type="button" data-tool="batch">Open batch tools</button>
+            </div>
+            <div class="prospect-table">
+              <div class="table-head"><span><input type="checkbox" aria-label="Select all prospects"></span><span>Prospect</span><span>Score</span><span>Draft</span><span>CRM</span><span>Next</span></div>
+              ${prospects.map((row, index) => `
+                <div class="table-row">
+                  <span><input type="checkbox" aria-label="Select ${escapeHtml(row.first_name)}"></span>
+                  <span><strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong><small>${escapeHtml(row.role)} / ${escapeHtml(row.signal)}</small></span>
+                  <span data-label="Score">${92 - index * 4}</span>
+                  <span data-label="Draft">${escapeHtml(row.status || "Generated")}</span>
+                  <span data-label="CRM">${index === 0 ? "Connected" : "Preview only"}</span>
+                  <span data-label="Next">${escapeHtml(row.next || "Review")}</span>
+                </div>
+              `).join("")}
+            </div>
+          </article>
 
-      <div class="detail-grid">
-        <article class="strategy-card"><strong>Executive summary</strong><p>Lead with ${escapeHtml(angles[0][0].toLowerCase())} for ${escapeHtml(context.role)}. Anchor the message in ${escapeHtml(context.pain)} and support it with ${escapeHtml(context.proof)}.</p></article>
-        <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Likely objection</strong><p>"We already have dashboards." Answer with implementation clarity and fewer reporting loops.</p></article>
-      </div>
+          <article class="strategy-card saved-workspaces-card">
+            <div class="section-title">
+              <div>
+                <strong>Saved workspaces</strong>
+                <p>${campaigns.length} results match your filters.</p>
+              </div>
+              <div class="workspace-controls compact-controls">
+                <label class="field"><span>Search</span><input id="workspace-search" value="${escapeHtml(state.workspaceSearch)}" placeholder="Search"></label>
+                ${selectField("workspaceStatus", "Status", ["All", ...uniqueValues(state.savedCampaigns, "status")], state.workspaceStatus)}
+              </div>
+            </div>
+            <div class="campaign-table dense-table">
+              ${campaigns.slice(0, 4).map((campaign) => `
+                <article>
+                  <strong>${escapeHtml(campaign.name)}</strong>
+                  <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.status)} / ${escapeHtml(campaign.prospects || 1)} prospects</span>
+                  <div class="result-actions">
+                    <button class="button-secondary" data-load-campaign="${escapeHtml(campaign.name)}">Load</button>
+                    <button class="button-secondary" data-status-campaign="${escapeHtml(campaign.name)}">Mark reviewed</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          </article>
+
+          <div class="detail-grid">
+            <article class="strategy-card"><strong>Executive summary</strong><p>Lead with ${escapeHtml(angles[0][0].toLowerCase())} for ${escapeHtml(context.role)}. Anchor the message in ${escapeHtml(context.pain)} and support it with ${escapeHtml(context.proof)}.</p></article>
+            <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Likely objection</strong><p>"We already have dashboards." Answer with implementation clarity and fewer reporting loops.</p></article>
+          </div>
+        </div>
+      </details>
     </div>
   `;
 }
@@ -3911,14 +3939,16 @@ function updateInputStats(prefix, text) {
 async function runAnalysis(text) {
   if (!text.trim()) return;
   if (state.mode === "enterprise") {
-    state.activeEnterpriseTab = "drafts";
+    const landingTab = state.enterpriseLandingTab || "drafts";
+    state.activeEnterpriseTab = landingTab;
+    state.enterpriseLandingTab = "";
     state.activeEnterpriseTool = "batch";
     state.enterpriseContext = enterpriseContext();
     state.enterpriseDrafts = [];
     state.enterpriseInputsCollapsed = true;
     state.enterpriseSetupOpen = false;
     state.campaignSaved = false;
-    state.lastActionNote = "Next: review the recommended draft, then approve or export.";
+    state.lastActionNote = landingTab === "dashboard" ? "Sample workspace ready. Next: open the review queue." : "Next: review the recommended draft, then approve or export.";
   } else {
     state.activeExplorerTab = "style";
     state.explorerSavedMessage = "";
