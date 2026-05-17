@@ -626,6 +626,18 @@ body[data-mode="enterprise"] .workspace-toolbar > button {
   color: #252b36;
 }
 
+body[data-mode="enterprise"] .save-campaign-button {
+  border-color: #d9dee7;
+  background: rgba(255, 255, 255, 0.88);
+  color: #252b36;
+}
+
+body[data-mode="enterprise"] .save-campaign-button:hover:not(:disabled) {
+  border-color: #bfc8d6;
+  background: #f7f8fa;
+  color: #111827;
+}
+
 body[data-mode="enterprise"] .label {
   text-transform: none;
 }
@@ -3303,9 +3315,11 @@ body.is-local-runtime .footer-note {
   .enterprise-command-header {
     gap: 8px;
     padding: 8px;
+    border-radius: 14px;
   }
 
   .command-meta {
+    display: none;
     gap: 4px;
   }
 
@@ -3323,6 +3337,7 @@ body.is-local-runtime .footer-note {
   .command-actions button,
   .command-actions summary {
     padding-inline: 7px;
+    min-height: 36px;
   }
 
   .workspace-tabs {
@@ -3352,14 +3367,24 @@ body.is-local-runtime .footer-note {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  body[data-mode="enterprise"] .focus-stats article:nth-child(2),
+  body[data-mode="enterprise"] .focus-stats article:nth-child(3) {
+    display: none;
+  }
+
   body[data-mode="enterprise"] .dashboard-focus-card .compact-flow {
     display: none;
+  }
+
+  body[data-mode="enterprise"] .dashboard-focus-card {
+    gap: 7px;
   }
 
   .grouped-tabs button,
   .tool-switcher button {
     padding: 6px;
     font-size: 11px;
+    min-height: 32px;
   }
 
   .project-sidebar,
@@ -3418,7 +3443,8 @@ body.is-local-runtime .footer-note {
 
   .table-row {
     grid-template-columns: 1fr;
-    gap: 6px;
+    gap: 4px;
+    padding: 8px;
   }
 
   .table-row > span,
@@ -3460,6 +3486,12 @@ body.is-local-runtime .footer-note {
     text-transform: uppercase;
   }
 
+  body[data-mode="enterprise"] .review-table .table-row span[data-label="Owner"],
+  body[data-mode="enterprise"] .review-table .table-row span[data-label="Due"],
+  body[data-mode="enterprise"] .review-table .table-row span[data-label="Score"] {
+    display: none;
+  }
+
   .compact-flow article {
     min-height: 74px;
   }
@@ -3499,7 +3531,7 @@ body.is-local-runtime .footer-note {
   body[data-mode="enterprise"] .guide-card,
   body[data-mode="enterprise"] .advanced-card,
   body[data-mode="enterprise"] .metric-card {
-    padding: 10px;
+    padding: 9px;
   }
 
   body[data-mode="enterprise"] .primary-context {

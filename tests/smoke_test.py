@@ -53,7 +53,7 @@ def main() -> int:
     assert_true("{{first_name}}" in js, "merge field placeholder missing")
     assert_true("Copy subject lines" in js, "subject copy action missing")
     assert_true("Export CSV" in js, "CSV export action missing")
-    assert_true("Save campaign" in js, "saved campaign action missing")
+    assert_true("data-save-campaign" in js and "Save campaign" in js, "saved campaign action missing")
     assert_true("Resolved preview" in js, "resolved preview missing")
     assert_true("Brand voice" in js, "brand voice profiles missing")
     assert_true("Generate next variant" in js, "feedback variant action missing")

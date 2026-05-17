@@ -29,11 +29,13 @@ def main() -> int:
     utils_js = client.get("/static/text_utils.js").get_data(as_text=True)
     ui_js = client.get("/static/ui_helpers.js").get_data(as_text=True)
     csv_js = client.get("/static/csv_utils.js").get_data(as_text=True)
+    enterprise_copy_js = client.get("/static/enterprise_copy.js").get_data(as_text=True)
 
     assert_true("workflow" in config_js and "Import" in config_js and "Track" in config_js, "enterprise workflow config missing")
     assert_true("TextTraitsUtils" in utils_js and "escapeHtml" in utils_js, "text utility module missing")
     assert_true("TextTraitsUi" in ui_js and "errorCard" in ui_js, "UI helper module missing")
     assert_true("TextTraitsCsv" in csv_js and "csvCell" in csv_js, "CSV helper module missing")
+    assert_true("TextTraitsEnterpriseCopy" in enterprise_copy_js and "inboxReply" in enterprise_copy_js, "Enterprise copy helper module missing")
     assert_true("TextTraits" in enterprise_html and "TextTraits" in explorer_html, "route-level product pages missing")
     assert_true("resetPassword" in api_js and "verifyEmail" in api_js, "account API helpers missing")
     assert_true("oauth/start" in api_js or "integrationProviders" in api_js, "integration setup helpers missing")
@@ -76,6 +78,7 @@ def main() -> int:
         "data-review-prospect",
         "Operations",
         "\"insights\", \"Insights\"",
+        "data-enterprise-primary-tab=\"drafts\"",
         "Paste CSV rows or load the sample CSV first.",
         "enterpriseTabNote",
         "enterpriseToolNote",
