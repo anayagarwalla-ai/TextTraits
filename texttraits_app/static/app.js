@@ -42,6 +42,7 @@ const state = {
   enterpriseInputsCollapsed: false,
   enterpriseSetupOpen: false,
   enterpriseFocusMode: false,
+  enterpriseDraftPreviewMode: false,
   integrationSetupOpen: false,
   campaignSaved: false,
   lastGeneratedAt: "",
@@ -100,7 +101,7 @@ const state = {
   explorerReadingName: "",
   explorerFolder: "Daily",
   explorerWritingGoal: "Make this clearer",
-  explorerRewriteGoal: "Email",
+  explorerRewriteGoal: "Send as email",
   explorerRewriteMode: "clearer",
   explorerSavedMessage: "",
   explorerPromptTitle: "",
@@ -260,7 +261,7 @@ const consumerPromptLibrary = [
 
 const explorerFolders = ["Daily", "Work", "School", "Personal", "Drafts"];
 const explorerGoals = ["Make this clearer", "Make this warmer", "Make this shorter", "Sound more confident", "Sound less harsh"];
-const explorerRewriteGoals = productConfig.rewriteGoals || ["Email", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"];
+const explorerRewriteGoals = productConfig.rewriteGoals || ["Send as email", "Make it kinder", "Sound confident", "School-ready", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"];
 const primaryRewriteGoals = explorerRewriteGoals.slice(0, 4);
 const secondaryRewriteGoals = explorerRewriteGoals.slice(4);
 
@@ -327,6 +328,7 @@ function workspacePayload() {
     outcomeStats: state.outcomeStats,
     crmConnections: state.crmConnections,
     sequenceSettings: state.sequenceSettings,
+    enterpriseDraftPreviewMode: state.enterpriseDraftPreviewMode,
     explorerHistory: state.explorerHistory.slice(0, 20),
     explorerFolder: state.explorerFolder,
     explorerJournalSearch: state.explorerJournalSearch,
@@ -582,16 +584,16 @@ function setMode(mode) {
 
 function renderModeChrome() {
   if (state.mode === "enterprise") {
-    els.heroTitle.textContent = state.latestData ? "Enterprise" : "Today’s outreach work";
-    els.heroSubtitle.textContent = state.latestData ? "Review queue, focused editor, exports, and outcomes." : "One quiet workspace for importing prospects, reviewing drafts, and tracking what happened.";
+    els.heroTitle.textContent = state.latestData ? "Enterprise review room" : productConfig.products?.enterprise?.headline || "Today’s outreach work, in order.";
+    els.heroSubtitle.textContent = state.latestData ? "Drafts, approvals, exports, and outcomes stay in one line of sight." : productConfig.products?.enterprise?.promise || "Import, draft, review, export, and track from one focused workspace.";
     els.modeNote.textContent = "Enterprise keeps integrations visibly disabled until real accounts are connected.";
     els.personaStrip.setAttribute("hidden", "");
     els.personaStrip.innerHTML = "";
     return;
   }
 
-  els.heroTitle.textContent = state.latestData ? "Explorer" : "Write one better paragraph today";
-  els.heroSubtitle.textContent = state.latestData ? "One paragraph, one plain read, one better draft." : "A calm daily coach for noticing how your words land and making one useful edit.";
+  els.heroTitle.textContent = state.latestData ? "Explorer writing coach" : productConfig.products?.explorer?.headline || "One paragraph. One clearer version.";
+  els.heroSubtitle.textContent = state.latestData ? "Read it once, improve it once, save it if it helped." : productConfig.products?.explorer?.promise || "A daily writing coach for ordinary notes, emails, and hard messages.";
   els.modeNote.textContent = "Explorer is for personal writing. Enterprise is a separate outreach workspace.";
   els.personaStrip.setAttribute("hidden", "");
   els.personaStrip.innerHTML = "";
@@ -631,6 +633,7 @@ function renderAccountCard() {
           ${errorHtml}
           ${deleteWarning}
           <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
+          ${privacyCenterCard()}
           <div class="account-actions sheet-actions">
             <button class="button-secondary" type="button" data-sync-now>Sync now</button>
             <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
@@ -663,6 +666,7 @@ function renderAccountCard() {
             <article><strong>Explorer</strong><span>Writing journal, streaks, weekly recap, and saved rewrites.</span></article>
             <article><strong>Enterprise</strong><span>Campaigns, draft history, review queues, exports, and team settings.</span></article>
           </div>
+          ${privacyCenterCard()}
           <div class="auth-grid">
             <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" value="${escapeHtml(state.accountDraft.name)}" placeholder="Your name"></label>
             <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" value="${escapeHtml(state.accountDraft.email)}" placeholder="you@example.com"></label>
@@ -687,6 +691,21 @@ function renderAccountCard() {
     `;
   }
   wireAccountCard();
+}
+
+function privacyCenterCard() {
+  const signedIn = state.account.authenticated && state.account.user;
+  return `
+    <details class="privacy-center-card">
+      <summary><span><strong>Privacy Center</strong><small>${signedIn ? "Cloud sync can be exported or deleted." : "Local browser storage until you sign in."}</small></span></summary>
+      <div class="privacy-center-grid">
+        <article><strong>Storage</strong><p>${signedIn ? "Workspace data syncs to your TextTraits account when available." : "This demo stores saved work in this browser only."}</p></article>
+        <article><strong>Control</strong><p>Use account export/delete for synced data. Clear browser storage to remove local demo data.</p></article>
+        <article><strong>Integrations</strong><p>CRM, email, and sidebar tools stay preview-only until credentials are connected.</p></article>
+        <article><strong>Production note</strong><p>Before a public launch, connect hosted auth, email delivery, monitoring, and a reviewed privacy policy.</p></article>
+      </div>
+    </details>
+  `;
 }
 
 function isValidEmail(value) {
@@ -1081,7 +1100,7 @@ function renderExplorerInput() {
 
     <details class="advanced-card quiet-more-drawer">
       <summary>More</summary>
-      <p class="muted">Optional extras live here so the main path stays simple: write, read, rewrite, save.</p>
+      <p class="muted">Only use these when you want to save, name, or try an example. The main path is still write, analyze, rewrite.</p>
       <div class="field">
         <label for="reading-name">Name this sample</label>
         <input id="reading-name" value="${escapeHtml(state.explorerReadingName)}" placeholder="Daily journal, project email, class note">
@@ -1090,36 +1109,43 @@ function renderExplorerInput() {
         ${selectField("explorerFolder", "Private folder", explorerFolders, state.explorerFolder)}
         ${selectField("explorerWritingGoal", "Writing goal", explorerGoals, state.explorerWritingGoal)}
       </div>
-      <div class="field">
-        <label for="compare-text">Compare two samples</label>
-        <textarea id="compare-text" class="compact-textarea" placeholder="Optional: paste a second sample for a before/after or comparison view.">${escapeHtml(state.compareText)}</textarea>
-      </div>
 
-      <div class="field-grid">
-        <label class="field"><span>Writing style only</span><select id="style-only"><option>No</option><option>Yes</option></select></label>
-        <label class="field"><span>Technical details</span><select id="technical-visible"><option value="hide">Hide</option><option value="show">Show</option></select></label>
-        <label class="field"><span>Sensitive labels</span><select id="sensitive-hidden"><option value="show">Show expanded section</option><option value="hide">Hide permanently</option></select></label>
-        <label class="field"><span>Output focus</span><select id="explorer-focus"><option>Simple summary</option><option>What stands out</option><option>Rewrite guidance</option></select></label>
-      </div>
-      <details class="history-card">
-        <summary>Writing log</summary>
-        ${explorerHistoryList()}
-      </details>
-      <details class="history-card">
-        <summary>Prompt library</summary>
-        <div class="prompt-library">
-          ${consumerPromptLibrary.map((item, index) => `
-            <button class="prompt-card" type="button" data-prompt-index="${index}">
-              <strong>${escapeHtml(item.name)}</strong>
-              <span>${escapeHtml(item.goal)}</span>
-              <small>${escapeHtml(item.prompt)}</small>
-            </button>
-          `).join("")}
-        </div>
-      </details>
       <details class="history-card sample-drawer">
         <summary>Try an example</summary>
         ${sampleButtons(explorerSamples, "explorer-text")}
+      </details>
+      <details class="history-card explorer-settings-drawer">
+        <summary>Journal, prompts, and advanced settings</summary>
+        <div class="field">
+          <label for="compare-text">Compare two samples</label>
+          <textarea id="compare-text" class="compact-textarea" placeholder="Optional: paste a second sample for a before/after or comparison view.">${escapeHtml(state.compareText)}</textarea>
+        </div>
+
+        <details class="history-card">
+          <summary>Writing log</summary>
+          ${explorerHistoryList()}
+        </details>
+        <details class="history-card">
+          <summary>Prompt library</summary>
+          <div class="prompt-library">
+            ${consumerPromptLibrary.map((item, index) => `
+              <button class="prompt-card" type="button" data-prompt-index="${index}">
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.goal)}</span>
+                <small>${escapeHtml(item.prompt)}</small>
+              </button>
+            `).join("")}
+          </div>
+        </details>
+        <details class="history-card">
+          <summary>Technical preferences</summary>
+          <div class="field-grid">
+            <label class="field"><span>Writing style only</span><select id="style-only"><option>No</option><option>Yes</option></select></label>
+            <label class="field"><span>Technical details</span><select id="technical-visible"><option value="hide">Hide</option><option value="show">Show</option></select></label>
+            <label class="field"><span>Sensitive labels</span><select id="sensitive-hidden"><option value="show">Show expanded section</option><option value="hide">Hide permanently</option></select></label>
+            <label class="field"><span>Output focus</span><select id="explorer-focus"><option>Simple summary</option><option>What stands out</option><option>Rewrite guidance</option></select></label>
+          </div>
+        </details>
       </details>
     </details>
 
@@ -1295,6 +1321,11 @@ function renderExplorerEmpty() {
           <strong>${escapeHtml(state.explorerHistory.length >= 3 ? weeklyRecap() : "Build your recap")}</strong>
           <p>${escapeHtml(state.explorerHistory.length >= 3 ? "Your weekly recap updates as you save readings." : "Save three readings to unlock trends.")}</p>
         </article>
+        <article>
+          <span>Tomorrow</span>
+          <strong>One tiny goal</strong>
+          <p>${escapeHtml(tomorrowTinyGoal())}</p>
+        </article>
       </div>
 
       ${hasJournal ? `
@@ -1317,18 +1348,6 @@ function renderExplorerEmpty() {
         <p>After the first read, Explorer shows how it comes across, one practical edit, and a rewrite you can use.</p>
       </article>
       `}
-
-      ${renderOnboardingCard("explorer")}
-
-      <details class="advanced-card">
-        <summary>Privacy controls</summary>
-        <p class="muted">Unsigned work stays in this browser. Signed-in work syncs to your TextTraits workspace so you can recover history, drafts, and reports on another device.</p>
-        <div class="chip-list">
-          <span class="chip">Account sync optional</span>
-          <span class="chip">Workspace export ready</span>
-          <span class="chip">Privacy and terms routes included</span>
-        </div>
-      </details>
     </div>
   `;
 }
@@ -1336,49 +1355,66 @@ function renderExplorerEmpty() {
 function renderEnterpriseEmpty() {
   els.outputPanel.innerHTML = `
     <div class="empty-layout fade-in enterprise-empty calm-enterprise-home">
-      <div class="empty-hero enterprise-home-hero">
-        <span class="preview-badge">Workspace</span>
-        <h2>Today’s work</h2>
-        <p class="muted">One operating loop: import prospects, generate drafts, review the queue, export, then track outcomes.</p>
+      <section class="enterprise-today-hero">
+        <div>
+          <span class="preview-badge">Workspace</span>
+          <h2>Today's work</h2>
+          <p>Review one buyer signal, approve the best draft, and export only when the setup is connected.</p>
+        </div>
+        <button type="button" data-focus-enterprise-input>Create campaign</button>
+      </section>
+
+      <div class="today-grid quiet-dashboard enterprise-start-grid single-start">
+        <article class="strategy-card featured start-card">
+          <span class="label">Start here</span>
+          <strong>Paste a prospect signal.</strong>
+          <p>Generate the first drafts, then move directly into the review queue. Campaign setup stays hidden until you need it.</p>
+          <button class="button-secondary" type="button" data-focus-enterprise-input>Open draft setup</button>
+        </article>
       </div>
 
-      <div class="flow-path">
-        ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+      <details class="advanced-card enterprise-sample-drawer">
+        <summary>Load sample workspace</summary>
+        <div class="sample-preview-grid">
           <article>
-            <span>${index + 1}</span>
-            <strong>${escapeHtml(step)}</strong>
+            <strong>${state.sampleWorkspaceLoaded ? "Sample workspace loaded" : "Sample workspace"}</strong>
+            ${state.sampleWorkspaceLoaded ? `
+              <div class="queue-list">
+                <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
+                <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
+                <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
+              </div>
+            ` : `
+              <p class="muted">Use this only when you want a populated demo. It is separate from the main campaign path.</p>
+              <div class="result-actions">
+                <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
+                <button class="button-secondary" type="button" data-load-sample-workspace>Load full sample data</button>
+              </div>
+            `}
           </article>
-        `).join("")}
-      </div>
+          <article>
+            <strong>Preview-only setup</strong>
+            <p class="muted">CRM, inbox, Chrome sidebar, and admin tools stay marked as setup required until credentials are connected.</p>
+          </article>
+        </div>
+      </details>
 
-      <div class="today-grid quiet-dashboard">
-        <article class="strategy-card featured">
-          <strong>Start here: create campaign</strong>
-          <p>Paste one buyer signal, generate the first drafts, then review from the queue. Everything else can wait.</p>
-          <div class="result-actions">
-            <button type="button" data-focus-enterprise-input>Create campaign</button>
-            <details class="inline-sample-menu">
-              <summary>Load sample workspace</summary>
-              <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
-            </details>
-          </div>
-        </article>
-        <article class="strategy-card">
-          <strong>${state.sampleWorkspaceLoaded ? "Sample workspace" : "Preview workspace"}</strong>
-          ${state.sampleWorkspaceLoaded ? `
-            <div class="queue-list">
-              <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
-              <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
-              <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
-            </div>
-          ` : `
-            <p class="muted">Preview-only tools stay clearly marked until real credentials and accounts are connected.</p>
-            <button class="button-secondary" type="button" data-load-sample-workspace>Load full sample data</button>
-          `}
-        </article>
-      </div>
+      <details class="advanced-card enterprise-flow-drawer">
+        <summary>How the Enterprise workflow runs</summary>
+        <div class="flow-path">
+          ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+            <article class="${index === 0 ? "is-active" : ""}">
+              <span>${index + 1}</span>
+              <strong>${escapeHtml(step)}</strong>
+            </article>
+          `).join("")}
+        </div>
+      </details>
 
-      ${renderOnboardingCard("enterprise")}
+      <details class="advanced-card">
+        <summary>Workspace preferences</summary>
+        ${renderOnboardingCard("enterprise")}
+      </details>
 
       <details class="advanced-card preview-note">
         <summary>Integration setup and admin</summary>
@@ -1413,11 +1449,11 @@ function renderEnterpriseEmpty() {
       </details>
     </div>
   `;
-  els.outputPanel.querySelector("[data-focus-enterprise-input]")?.addEventListener("click", () => {
+  els.outputPanel.querySelectorAll("[data-focus-enterprise-input]").forEach((button) => button.addEventListener("click", () => {
     state.enterpriseSetupOpen = true;
     render();
     requestAnimationFrame(() => document.querySelector("#enterprise-text")?.focus());
-  });
+  }));
   els.outputPanel.querySelector("[data-load-sample-workspace]")?.addEventListener("click", (event) => {
     state.sampleWorkspaceLoaded = true;
     state.lastActionNote = "Sample workspace loaded for preview.";
@@ -1588,6 +1624,58 @@ function plainStyleSummary(stats, dims, strongest) {
   return `${readingEffortCopy(stats)} The clearest thing about it: ${styleSentence(strongestLabel)} Keep that strength, then make the main point easy to spot.`;
 }
 
+function humanFirstRead(stats, strongest, source = "note") {
+  const noun = source === "text message" ? "message" : source === "email" ? "email" : source === "essay" ? "paragraph" : "note";
+  const key = strongest?.[2] || "";
+  const label = dimensionLabel(strongest?.[1], key);
+  if (key === "energy" && label === "Sounds calm") {
+    return {
+      title: `This ${noun} sounds calm and careful`,
+      copy: "It gives the reader a steady feeling. Add the next step a little earlier so they know what to do with it.",
+    };
+  }
+  if (key === "energy" && label === "Sounds energetic") {
+    return {
+      title: `This ${noun} sounds lively and ready to move`,
+      copy: "The energy helps the message feel active. Cutting one extra phrase will make the point land faster.",
+    };
+  }
+  if (key === "information" && label === "You explain with examples") {
+    return {
+      title: "You make it easier to picture",
+      copy: `This ${noun} uses real details instead of staying vague. Add one sentence that says why those details matter.`,
+    };
+  }
+  if (key === "information" && label === "You lead with the big idea") {
+    return {
+      title: "You start with the big idea",
+      copy: "The direction is easy to understand. One everyday example would make it feel more concrete.",
+    };
+  }
+  if (key === "decisions" && label === "You consider how it lands") {
+    return {
+      title: `This ${noun} sounds thoughtful`,
+      copy: "It pays attention to how the reader may feel. Make the ask or takeaway a little more direct.",
+    };
+  }
+  if (key === "decisions") {
+    return {
+      title: "This gets to the point",
+      copy: "The reason behind the message is visible. Add one warmer phrase if the reader may need reassurance.",
+    };
+  }
+  if (key === "structure" && label === "It feels organized") {
+    return {
+      title: `This ${noun} feels organized`,
+      copy: "The order helps the reader follow you. The next improvement is making the main sentence stand out.",
+    };
+  }
+  return {
+    title: `This ${noun} has a steady shape`,
+    copy: `${readingEffortCopy(stats)} Pick one sentence to make simpler and the whole piece will feel easier to read.`,
+  };
+}
+
 function styleSentence(label) {
   const clean = String(label || "Mixed").toLowerCase();
   if (clean.startsWith("you ")) return `${clean}.`;
@@ -1661,6 +1749,32 @@ function streakCopy() {
   return `${streak} days in a row. Come back tomorrow for the next small improvement.`;
 }
 
+function tomorrowTinyGoal() {
+  const history = state.explorerHistory;
+  if (!history.length) return "Write one honest paragraph and make one sentence easier to read.";
+  const last = history[0];
+  const clue = String(last.primaryClue || last.clue || "").toLowerCase();
+  if (clue.includes("organized")) return "Keep the structure, then make the first sentence warmer.";
+  if (clue.includes("examples") || clue.includes("detail")) return "Keep one concrete example and cut one extra setup line.";
+  if (clue.includes("calm")) return "Keep the calm tone and add the next step earlier.";
+  if (clue.includes("direct")) return "Keep the direct point and soften one phrase for the reader.";
+  return "Write a shorter version of one message you already need to send.";
+}
+
+function dailyCompletionMessage() {
+  const savedToday = state.explorerHistory.some((item) => item.day === todayKey());
+  if (savedToday) return "Today is logged. Come back tomorrow for one small writing rep, not a big assignment.";
+  return "You have a useful read for today. Save it when you want this to count toward your streak.";
+}
+
+function milestoneCardText() {
+  const count = state.explorerHistory.length;
+  if (count >= 10) return "10 saved readings: your profile is starting to show real patterns.";
+  if (count >= 5) return "5 saved readings: your personal writing profile is unlocked.";
+  if (count >= 3) return "3 saved readings: weekly recap is ready.";
+  return `${Math.max(1, 3 - count)} more saved reading${3 - count === 1 ? "" : "s"} unlocks a weekly recap.`;
+}
+
 function streakMilestone() {
   const streak = explorerStreak();
   if (!streak) return "Today can be day one.";
@@ -1721,10 +1835,44 @@ function weeklyRecapCards(profile) {
   `;
 }
 
+function journalMonthLabel(entry) {
+  const date = new Date(entry.timestamp || entry.day || Date.now());
+  if (Number.isNaN(date.getTime())) return "Saved readings";
+  return date.toLocaleDateString([], {month: "long", year: "numeric"});
+}
+
+function explorerJournalEntryHtml(entry, index) {
+  return `
+    <article class="journal-entry">
+      <time>${escapeHtml(entry.date || entry.day || "Saved reading")}</time>
+      <div class="journal-entry-card">
+        <div class="section-title">
+          <div>
+            <strong>${escapeHtml(entry.name || `Reading ${index + 1}`)}</strong>
+            <span>${escapeHtml(entry.folder || "Daily")} / ${escapeHtml(entry.goal || "Make this clearer")}</span>
+          </div>
+          <em>${escapeHtml(clarityBand(entry.clarity || 70))}</em>
+        </div>
+        <p>${escapeHtml(entry.summary || entry.sourceExcerpt || entry.feel || "Saved writing sample")}</p>
+        <div class="journal-before-after">
+          <span><strong>Before</strong>${escapeHtml(entry.sourceExcerpt || "Original text saved in this browser.")}</span>
+          <span><strong>Trend</strong>${escapeHtml(index === 0 ? (todayVsLastWeek() || "Newest saved reading.") : entry.clue || "Style note")}</span>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
 function explorerJournalPanel() {
   const entries = filteredExplorerHistory().slice(0, 8);
   const total = state.explorerHistory.length;
   if (!total) return `<p class="muted">No saved readings yet. Save a reading to start your journal.</p>`;
+  const grouped = entries.reduce((acc, entry, index) => {
+    const label = journalMonthLabel(entry);
+    if (!acc[label]) acc[label] = [];
+    acc[label].push([entry, index]);
+    return acc;
+  }, {});
   return `
     <div class="journal-tools">
       <label class="field"><span>Search journal</span><input id="journal-search" value="${escapeHtml(state.explorerJournalSearch)}" placeholder="Search saved readings"></label>
@@ -1736,16 +1884,12 @@ function explorerJournalPanel() {
       <span class="saved-state">${entries.length} of ${total} shown</span>
     </div>
     ${entries.length ? "" : `<p class="muted">No readings match this filter.</p>`}
-    <div class="journal-list">
-      ${entries.map((entry, index) => `
-        <article>
-          <div>
-            <strong>${escapeHtml(entry.name || `Reading ${index + 1}`)}</strong>
-            <span>${escapeHtml(entry.folder || "Daily")} / ${escapeHtml(entry.day || "")} / ${escapeHtml(clarityBand(entry.clarity || 70))}</span>
-          </div>
-          <p>${escapeHtml(entry.summary || entry.sourceExcerpt || entry.feel || "Saved writing sample")}</p>
-          <small>${escapeHtml(entry.goal || "Make this clearer")} / ${escapeHtml(entry.clue || "Style note")}</small>
-        </article>
+    <div class="journal-timeline" aria-label="Saved writing timeline">
+      ${Object.entries(grouped).map(([month, monthEntries]) => `
+        <section class="journal-month-group" aria-label="${escapeHtml(month)}">
+          <h3>${escapeHtml(month)}</h3>
+          ${monthEntries.map(([entry, index]) => explorerJournalEntryHtml(entry, index)).join("")}
+        </section>
       `).join("")}
     </div>
   `;
@@ -1912,6 +2056,8 @@ function renderExplorerResult(data) {
   const strongest = [strongestRow?.title, strongestRow?.prediction, strongestRow?.key];
   const strongestLabel = dimensionLabel(strongest?.[1], strongest?.[2]);
   const summary = plainStyleSummary(stats, dims, strongest);
+  const sourceType = inferExplorerSource(state.latestText, state.explorerRewriteGoal);
+  const firstRead = humanFirstRead(stats, strongest, sourceType);
   const nextAction = nextWritingAction(stats, strongest);
   const profile = explorerProfileSummary();
   const currentClarity = clarityScore(stats, strongestRow);
@@ -1962,8 +2108,8 @@ function renderExplorerResult(data) {
       <div class="coach-flow">
         <article class="strategy-card coach-card primary-read">
           <span class="label">How does this come across?</span>
-          <strong>${escapeHtml(strongestLabel)}</strong>
-          <p>${escapeHtml(summary)}</p>
+          <strong>${escapeHtml(firstRead.title)}</strong>
+          <p>${escapeHtml(firstRead.copy)}</p>
           <div class="friendly-score">
             <strong>${escapeHtml(clarityBand(currentClarity))}</strong>
             <span>${stats.words} words / ${escapeHtml(streakCopy())}</span>
@@ -2004,6 +2150,15 @@ function renderExplorerResult(data) {
           </div>
         </article>
       </div>
+
+      <article class="daily-completion-card" role="status">
+        <div>
+          <span class="label">Today’s habit</span>
+          <strong>${escapeHtml(dailyCompletionMessage())}</strong>
+          <p>${escapeHtml(milestoneCardText())} Tomorrow: ${escapeHtml(tomorrowTinyGoal())}</p>
+        </div>
+        <button class="button-secondary" type="button" data-save-reading>Save today</button>
+      </article>
 
       <div class="mobile-result-actions" aria-label="Explorer quick actions">
         <button type="button" data-copy-rewrite>Copy rewrite</button>
@@ -2413,7 +2568,8 @@ function makeExplorerRewrite(text, mode = "clearer") {
   const goal = state.explorerRewriteGoal || "Email";
   const source = inferExplorerSource(clean, goal);
   const goalNoun = `${/^[aeiou]/i.test(source) ? "an" : "a"} ${source.toLowerCase()}`;
-  const mainPoint = sentences.slice(0, 2).join(" ").replace(/\s+/g, " ").trim() || first;
+  const sourceLead = sourceRewriteLead(source, clean);
+  const mainPoint = sourceLead || sentences.slice(0, 2).join(" ").replace(/\s+/g, " ").trim() || first;
   const warmerClose = "I want this to be easy to respond to, so the next step is clear.";
   const clearerClose = "The main point is simple: name what changed, why it matters, and what should happen next.";
   const shorterClose = "The shorter version keeps the point and trims the setup.";
@@ -2431,13 +2587,26 @@ function makeExplorerRewrite(text, mode = "clearer") {
 function inferExplorerSource(text, goal) {
   const clean = `${goal} ${text}`.toLowerCase();
   if (clean.includes("apolog") || clean.includes("sorry")) return "apology";
-  if (clean.includes("essay") || clean.includes("paragraph") || clean.includes("thesis")) return "essay";
-  if (clean.includes("feedback") || clean.includes("what worked")) return "feedback note";
+  if (clean.includes("essay") || clean.includes("paragraph") || clean.includes("thesis") || clean.includes("evidence")) return "essay";
+  if (clean.includes("feedback") || clean.includes("what worked") || clean.includes("next attempt")) return "feedback";
   if (clean.includes("cover letter") || clean.includes("application")) return "cover letter";
-  if (clean.includes("text message") || clean.includes("texting")) return "text message";
-  if (clean.includes("email") || clean.includes("thanks") || clean.includes("proposal")) return "email";
-  if (clean.includes("conflict") || clean.includes("hard conversation") || clean.includes("frustrat")) return "hard message";
+  if (clean.includes("text message") || clean.includes("texting") || clean.includes("mom") || clean.includes("friend")) return "text message";
+  if (clean.includes("email") || clean.includes("thanks") || clean.includes("proposal") || clean.includes("meeting")) return "email";
+  if (clean.includes("conflict") || clean.includes("hard conversation") || clean.includes("frustrat") || clean.includes("boundary")) return "conflict";
   return goal || "writing sample";
+}
+
+function sourceRewriteLead(source, text) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const first = clean.split(/(?<=[.!?])\s+/).filter(Boolean)[0] || clean;
+  if (source === "email") return `Thanks for the context. ${first}`;
+  if (source === "text message") return `${first} I wanted to say it clearly without making it bigger than it needs to be.`;
+  if (source === "apology") return `${first} I understand why that mattered, and I want to be clearer about what I will do differently.`;
+  if (source === "feedback") return `${first} The useful next step is to separate what worked from what should change next.`;
+  if (source === "essay") return `${first} The main idea is strongest when the example appears right after the claim.`;
+  if (source === "conflict") return `${first} I want to keep this direct without raising the temperature.`;
+  if (source === "cover letter") return `${first} The strongest fit point should connect directly to the role.`;
+  return "";
 }
 
 function goalRewriteClose(goal, mode) {
@@ -2447,6 +2616,21 @@ function goalRewriteClose(goal, mode) {
       clearer: "I would put the ask in the first or last sentence so the reader knows what to do.",
       warmer: "I would add one line of context or appreciation before the ask so it feels easier to answer.",
       shorter: "I would keep the decision, the reason, and the ask; everything else can be optional.",
+    },
+    kinder: {
+      clearer: "I would keep the boundary, add one sentence of care, and make the next step simple.",
+      warmer: "I would lead with what you understand, then make the ask without blame.",
+      shorter: "I would keep the kindest sentence and the clearest next step.",
+    },
+    confident: {
+      clearer: "I would state the point earlier and remove any phrase that sounds like you are apologizing for having an opinion.",
+      warmer: "I would keep the confidence while adding one respectful line for the reader.",
+      shorter: "I would make one direct sentence do the work.",
+    },
+    school: {
+      clearer: "I would name the main idea, give one example, and explain why that example matters.",
+      warmer: "I would keep the idea clear and make the transition easier to follow.",
+      shorter: "I would keep the claim and strongest evidence, then cut repeated setup.",
     },
     apology: {
       clearer: "I would say what happened, what I understand now, and what I will do differently.",
@@ -2703,6 +2887,15 @@ function renderEnterpriseResult(data) {
       els.outputPanel.querySelector(".workspace-panel")?.focus?.();
     });
   });
+  els.outputPanel.querySelectorAll("[data-tool-shortcut]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeEnterpriseTool = button.dataset.toolShortcut;
+      state.activeEnterpriseTab = "tools";
+      state.lastActionNote = enterpriseToolNote(state.activeEnterpriseTool);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
   els.outputPanel.querySelectorAll("[data-tree-shortcut]").forEach((button) => {
     button.addEventListener("click", () => {
       const shortcut = button.dataset.treeShortcut;
@@ -2773,6 +2966,12 @@ function renderEnterpriseResult(data) {
   els.outputPanel.querySelector("[data-toggle-editor-focus]")?.addEventListener("click", () => {
     state.enterpriseFocusMode = !state.enterpriseFocusMode;
     state.lastActionNote = state.enterpriseFocusMode ? "Focused editor mode on." : "Review queue visible.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-toggle-draft-preview]")?.addEventListener("click", () => {
+    state.enterpriseDraftPreviewMode = !state.enterpriseDraftPreviewMode;
+    state.lastActionNote = state.enterpriseDraftPreviewMode ? "Resolved merge-field preview on." : "Draft editing mode on.";
     persistWorkspace();
     renderEnterpriseResult(data);
   });
@@ -2992,7 +3191,12 @@ function renderEnterpriseResult(data) {
     state.batchInput = batchInput.value;
     state.batchProgress = 0;
     state.batchErrors = [];
+    state.batchRows = [];
     persistWorkspace();
+  });
+  batchInput?.addEventListener("change", () => {
+    state.batchInput = batchInput.value;
+    renderEnterpriseResult(data);
   });
   els.outputPanel.querySelector("[data-generate-batch]")?.addEventListener("click", () => {
     const input = els.outputPanel.querySelector("#batch-input")?.value || "";
@@ -3217,22 +3421,55 @@ function reviewQueueTable(context, variants) {
   `;
 }
 
+function enterpriseTodaySummary(context, variants) {
+  const rows = reviewQueueItems(context, variants);
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  const exportsWaiting = variants.filter((draft) => !/exported|sent|replied|booked/i.test(draft.status || "")).length;
+  return `
+    <section class="enterprise-today-summary" aria-label="Today summary">
+      <article><span>Drafts due</span><strong>${rows.length}</strong><small>Review queue first</small></article>
+      <article><span>Replies open</span><strong>${openReplies || "0"}</strong><small>${openReplies ? "Triage in Operations" : "No open sample replies"}</small></article>
+      <article><span>Exports waiting</span><strong>${exportsWaiting}</strong><small>Setup required before CRM</small></article>
+      <article><span>Current step</span><strong>Review</strong><small>Import → Draft → Review → Export → Track</small></article>
+    </section>
+  `;
+}
+
 function campaignHome(context, angles) {
   const prospects = campaignProspects(context);
   const campaigns = state.sampleWorkspaceLoaded || state.campaignSaved ? filteredCampaigns() : [];
   const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
   return `
     <div class="campaign-workspace">
+      ${enterpriseTodaySummary(context, variants)}
+      <section class="mobile-enterprise-path" aria-label="Mobile Enterprise path">
+        <article><span>Today</span><strong>${reviewQueueItems(context, variants).length} items</strong></article>
+        <article><span>Now</span><strong>Review one draft</strong></article>
+        <article><span>Next</span><strong>Approve or export</strong></article>
+      </section>
+
+      <article class="strategy-card review-hero-card">
+        <div class="section-title">
+          <div>
+            <span class="label">Step 3 of 5</span>
+            <strong>Review queue</strong>
+            <p>Approve drafts, assign owners, track due dates, and keep export work visible.</p>
+          </div>
+          <button type="button" data-enterprise-primary-tab="drafts">Open review queue</button>
+        </div>
+        ${reviewQueueTable(context, variants)}
+      </article>
+
       <section class="enterprise-focus-band">
         <article class="strategy-card featured dashboard-focus-card">
           <div class="section-title compact-dashboard-title">
             <div>
-              <span class="label">Today's work</span>
-              <h3>${prospects.length} prospects ready for review</h3>
+              <span class="label">Next required action</span>
+              <h3>${prospects.length} prospects ready</h3>
             </div>
-          <button type="button" data-enterprise-primary-tab="drafts">Open review queue</button>
+          <button class="button-secondary" type="button" data-tool="batch">Import prospects</button>
           </div>
-          <p>One clean path: Import prospects, generate drafts, review the queue, export or send, then track outcomes.</p>
+          <p>Every Enterprise surface maps back to one path: Import, Draft, Review, Export, Track.</p>
           <div class="focus-stats">
             ${summaryItem("Status", state.campaignSaved ? "Saved" : "Drafts ready")}
             ${summaryItem("Owner", "Revenue team")}
@@ -3242,17 +3479,6 @@ function campaignHome(context, angles) {
           ${workflowPathHtml()}
         </article>
       </section>
-
-      <article class="strategy-card">
-        <div class="section-title">
-          <div>
-            <strong>Review queue</strong>
-            <p>Approve drafts, assign owners, track due dates, and keep export work visible.</p>
-          </div>
-          <button class="button-secondary" type="button" data-enterprise-primary-tab="drafts">Open draft editor</button>
-        </div>
-        ${reviewQueueTable(context, variants)}
-      </article>
 
       <details class="secondary-workspace-section">
         <summary>Prospects, saved workspaces, and campaign detail</summary>
@@ -3320,7 +3546,13 @@ function draftsWorkspace(context, variants) {
   const draft = selectedDraft();
   const prospects = campaignProspects(context);
   const selectedProspect = prospects.find((item) => item.id === state.selectedProspectId) || prospects[0];
-  const previewLines = resolveMergeFields(draftText(draft)).split("\n").filter(Boolean).slice(0, 8).join("\n\n");
+  const previewLines = resolveMergeFields(draftText(draft))
+    .split("\n")
+    .filter(Boolean)
+    .filter((line, index) => index !== 0 || !line.toLowerCase().startsWith("subject:"))
+    .slice(0, 8)
+    .join("\n\n");
+  const previewMode = Boolean(state.enterpriseDraftPreviewMode);
   return `
     <div class="drafts-workspace ${state.enterpriseFocusMode ? "is-focus-mode" : ""}">
       <aside class="review-queue">
@@ -3349,11 +3581,21 @@ function draftsWorkspace(context, variants) {
             </div>
             <div class="editor-mode-actions">
               <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
+              <button class="button-secondary" type="button" data-toggle-draft-preview>${previewMode ? "Edit draft" : "Preview email"}</button>
               <button class="button-secondary" type="button" data-toggle-editor-focus>${state.enterpriseFocusMode ? "Show queue" : "Focus editor"}</button>
             </div>
           </div>
-          <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
-          <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
+          ${previewMode ? `
+            <article class="resolved-card editor-preview-card">
+              <span class="label">Resolved email preview</span>
+              <strong>${escapeHtml(resolveMergeFields(draft.subject))}</strong>
+              <pre data-resolved-preview>${escapeHtml(previewLines)}</pre>
+              <small>Preview uses ${escapeHtml(state.recipient.firstName)}, ${escapeHtml(state.recipient.company)}, and ${escapeHtml(state.recipient.role)} so merge fields do not look broken before export.</small>
+            </article>
+          ` : `
+            <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
+            <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
+          `}
           ${state.lastDraftChange ? `<div class="editor-change-note" role="status"><strong>What changed</strong><span>${escapeHtml(state.lastDraftChange)}</span></div>` : ""}
           <details class="quality-summary">
             <summary>Quality check: ${averageScore(draft)} overall</summary>
@@ -3384,20 +3626,36 @@ function draftsWorkspace(context, variants) {
             <summary>Draft feedback</summary>
             ${feedbackButtons("Enterprise draft")}
           </details>
-          <details class="team-comments">
-            <summary>Team comments</summary>
+        </article>
+
+        <aside class="draft-side-panel">
+          <article class="approval-rail" aria-label="Approve and export rail">
+            <span class="label">Approve / export</span>
+            <strong>${escapeHtml(draft.status || "Draft")}</strong>
+            <p>Finish the selected draft, then choose the next status. CRM export stays setup required until connected.</p>
+            <div class="approval-actions">
+              <button type="button" data-approve-draft="${draft.key}">Approve</button>
+              <button class="button-secondary" type="button" data-export-draft="${draft.key}">Mark exported</button>
+            </div>
+            <details>
+              <summary>Version compare</summary>
+              ${versionHistoryHtml("Enterprise draft")}
+            </details>
+          </article>
+          <article class="team-comments">
+            <strong>Team comments</strong>
             <div class="comment-list">
               ${(state.teamComments.length ? state.teamComments : [{author: "Manager", text: "Check the proof point before export."}]).map((comment) => `<span><strong>${escapeHtml(comment.author || "Team")}</strong>${escapeHtml(comment.text || comment)}</span>`).join("")}
             </div>
-          </details>
-        </article>
+          </article>
+          <article class="resolved-card compact-recipient-preview">
+            <strong>Recipient preview</strong>
+            <p>${escapeHtml(state.recipient.firstName)} at ${escapeHtml(state.recipient.company)} / ${escapeHtml(state.recipient.role)}</p>
+          </article>
+        </aside>
 
         <details class="history-panel editor-collapse">
-          <summary>Preview, merge fields, and history</summary>
-          <article class="resolved-card">
-            <strong>Resolved preview</strong>
-            <pre data-resolved-preview>${escapeHtml(previewLines)}</pre>
-          </article>
+          <summary>Merge fields, rewrite tools, and history</summary>
           <div class="editor-header">
             <label class="field"><span>Variant name</span><input data-draft-field="name" data-variant="${draft.key}" value="${escapeHtml(draft.name)}"></label>
             <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
@@ -3431,6 +3689,7 @@ function draftsWorkspace(context, variants) {
 }
 
 function toolsWorkspace(context, sequence, angles) {
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
   const tools = [
     ["batch", "Batch"],
     ["sequence", "Sequence"],
@@ -3440,6 +3699,12 @@ function toolsWorkspace(context, sequence, angles) {
   ];
   return `
     <div class="tools-workspace">
+      <section class="tools-command-center" aria-label="Enterprise operations command center">
+        <article><span>Import queue</span><strong>${state.batchRows.length || "No"} prospects</strong><button class="table-action" type="button" data-tool-shortcut="batch">Open</button></article>
+        <article><span>Reply queue</span><strong>${openReplies || "No"} open replies</strong><button class="table-action" type="button" data-tool-shortcut="inbox">Open</button></article>
+        <article><span>Team assets</span><strong>${brandVoiceProfiles.length} voice profiles</strong><button class="table-action" type="button" data-tool-shortcut="libraries">Open</button></article>
+        <article><span>Setup</span><strong>Preview integrations</strong><button class="table-action" type="button" data-tool-shortcut="insights">Open</button></article>
+      </section>
       <nav class="tool-switcher" aria-label="Enterprise tools">
         ${tools.map(([key, label]) => `<button type="button" data-tool="${key}" aria-pressed="${String(state.activeEnterpriseTool === key)}">${escapeHtml(label)}</button>`).join("")}
       </nav>
@@ -3460,28 +3725,42 @@ function batchPanel(context) {
   const errors = state.batchErrors.length ? `<div class="error-list">${state.batchErrors.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
   const batchValue = state.batchInput || "";
   const canExport = state.batchRows.length > 0;
+  const hasCsv = Boolean(batchValue.trim());
+  const activeStep = state.batchRows.length ? 4 : state.batchProgress ? 3 : hasCsv ? 1 : 0;
+  const stepNames = ["Paste", "Map", "Validate", "Generate", "Review"];
   return `
     <div class="batch-workspace">
       <article class="strategy-card">
-        <strong>Batch CSV upload</strong>
-        <p>Paste up to 100 prospects. Required columns: first_name, company, role, industry, signal.</p>
-        <div class="batch-stepper">
-          ${["Paste CSV", "Map columns", "Validate", "Generate", "Review"].map((step, index) => `<span class="${state.batchProgress && index < 5 ? "is-complete" : index === 0 ? "is-active" : ""}">${index + 1}. ${escapeHtml(step)}</span>`).join("")}
+        <div class="section-title">
+          <div>
+            <span class="label">Batch step ${activeStep + 1} of 5</span>
+            <strong>Batch CSV upload</strong>
+            <p><b>${escapeHtml(stepNames[activeStep])} prospect CSV.</b> Paste up to 100 prospects. Mapping appears only after CSV exists, so the workflow stays focused.</p>
+          </div>
+          <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
         </div>
-        <div class="mapping-grid">
-          ${["first_name", "company", "role", "industry", "signal"].map((column) => `<label class="field"><span>${escapeHtml(column)} column</span><input id="map-${column}" value="${escapeHtml(state.batchMapping[column] || column)}"></label>`).join("")}
+        <div class="batch-stepper">
+          ${["Paste CSV", "Map columns", "Validate rows", "Generate briefs", "Review/export"].map((step, index) => `<span class="${index < activeStep ? "is-complete" : index === activeStep ? "is-active" : ""}">${index + 1}. ${escapeHtml(step)}</span>`).join("")}
         </div>
         <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(batchValue)}</textarea>
+        ${hasCsv ? `
+          <div class="mapping-grid batch-step-panel">
+            ${["first_name", "company", "role", "industry", "signal"].map((column) => `<label class="field"><span>${escapeHtml(column)} column</span><input id="map-${column}" value="${escapeHtml(state.batchMapping[column] || column)}"></label>`).join("")}
+          </div>
+        ` : `
+          <article class="empty-mini batch-empty-step"><strong>Paste first, then map.</strong><p>Required columns: first_name, company, role, industry, signal.</p></article>
+        `}
         ${errors}
-        <div class="batch-progress" aria-label="Batch generation progress"><progress max="100" value="${state.batchProgress}">${state.batchProgress}%</progress></div>
-        <p class="muted">${state.batchProgress ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns before generating."}</p>
+        ${hasCsv || state.batchRows.length ? `
+          <div class="batch-progress" aria-label="Batch generation progress"><progress max="100" value="${state.batchProgress}">${state.batchProgress}%</progress></div>
+          <p class="muted">${state.batchRows.length ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns, then generate briefs."}</p>
+        ` : ""}
         <div class="result-actions split-actions">
-          <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
           <button type="button" data-generate-batch>Generate batch briefs</button>
           <button class="button-secondary" type="button" data-export-batch ${canExport ? "" : "disabled"}>Download export CSV</button>
         </div>
       </article>
-      <div class="batch-table">
+      <div class="batch-table ${state.batchRows.length ? "has-rows" : ""}">
         ${batchRowsHtml(context)}
       </div>
     </div>
@@ -3625,7 +3904,7 @@ function integrationSetupCards() {
           <div class="card-row"><strong>${escapeHtml(name)}</strong><span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</span></div>
           <p class="tiny-copy muted">${status === "connected" ? "Connected in this workspace." : "Preview only until real credentials, scopes, and field mapping are configured."}</p>
           <ol>${(steps[name] || ["Create app", "Add credentials", "Map fields"]).map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
-          <button class="button-secondary" type="button" data-crm="${escapeHtml(name)}">${status === "connected" ? "Manage connection" : "View setup requirements"}</button>
+          <button class="button-secondary preview-disabled-action" type="button" data-crm="${escapeHtml(name)}">${status === "connected" ? "Manage connection" : "Setup required"}</button>
         </article>
       `).join("")}
     </div>
@@ -4325,12 +4604,12 @@ function wireInput() {
     const input = document.querySelector("#explorer-text");
     const compare = document.querySelector("#compare-text");
     const readingName = document.querySelector("#reading-name");
-    input.addEventListener("input", () => {
+    input?.addEventListener("input", () => {
       state.latestText = input.value;
       updateInputStats("explorer", input.value);
       persistWorkspace();
     });
-    compare.addEventListener("input", () => {
+    compare?.addEventListener("input", () => {
       state.compareText = compare.value;
     });
     readingName?.addEventListener("input", () => {
@@ -4364,15 +4643,15 @@ function wireInput() {
       render();
       requestAnimationFrame(() => document.querySelector("#explorer-text")?.focus());
     });
-    document.querySelector("#technical-visible").addEventListener("change", (event) => {
+    document.querySelector("#technical-visible")?.addEventListener("change", (event) => {
       state.technicalVisible = event.target.value === "show";
       if (state.technicalVisible) state.activeExplorerTab = "technical";
     });
-    document.querySelector("#sensitive-hidden").addEventListener("change", (event) => {
+    document.querySelector("#sensitive-hidden")?.addEventListener("change", (event) => {
       state.hiddenSensitive = event.target.value === "hide";
     });
-    document.querySelector("#analyze-explorer").addEventListener("click", () => runAnalysis(input.value));
-    document.querySelector("#clear-explorer").addEventListener("click", () => {
+    document.querySelector("#analyze-explorer")?.addEventListener("click", () => runAnalysis(input?.value || ""));
+    document.querySelector("#clear-explorer")?.addEventListener("click", () => {
       state.latestText = "";
       state.compareText = "";
       state.explorerReadingName = "";
@@ -4384,10 +4663,10 @@ function wireInput() {
       persistWorkspace();
       render();
     });
-    document.querySelector("#copy-explorer-input").addEventListener("click", async () => {
-      await copyTextFromButton(document.querySelector("#copy-explorer-input"), input.value, "Input copied.");
+    document.querySelector("#copy-explorer-input")?.addEventListener("click", async () => {
+      await copyTextFromButton(document.querySelector("#copy-explorer-input"), input?.value || "", "Input copied.");
     });
-    updateInputStats("explorer", input.value);
+    updateInputStats("explorer", input?.value || "");
   } else {
     if (state.latestData && state.enterpriseInputsCollapsed) {
       document.querySelector("#edit-enterprise-inputs")?.addEventListener("click", () => {
@@ -4442,6 +4721,7 @@ function wireInput() {
       const samples = state.mode === "enterprise" ? enterpriseSamples : explorerSamples;
       const sample = samples[Number(button.dataset.sampleIndex)];
       const target = document.querySelector(`#${button.dataset.sampleTarget}`);
+      if (!target || !sample) return;
       target.value = sample.text;
       state.latestText = sample.text;
       state.latestData = null;

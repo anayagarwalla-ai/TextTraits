@@ -3,18 +3,18 @@
     products: {
       explorer: {
         name: "Explorer",
-        headline: "Write a little clearer every day",
+        headline: "One paragraph. One clearer version.",
         compactHeadline: "Explorer",
-        promise: "One paragraph, one plain read, one better draft.",
+        promise: "A daily writing coach for ordinary notes, emails, and hard messages.",
       },
       enterprise: {
         name: "Enterprise",
-        headline: "Outreach workspace",
+        headline: "Today’s outreach work, in order.",
         compactHeadline: "Enterprise",
-        promise: "Review queues, drafts, batches, replies, and exports.",
+        promise: "Import, draft, review, export, and track from one focused workspace.",
       },
     },
-    rewriteGoals: ["Email", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"],
+    rewriteGoals: ["Send as email", "Make it kinder", "Sound confident", "School-ready", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"],
     workflow: ["Import", "Draft", "Review", "Export", "Track"],
     integrationProviders: ["HubSpot", "Salesforce", "Gmail", "Outlook", "Outreach", "Salesloft"],
   };

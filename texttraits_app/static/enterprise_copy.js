@@ -8,11 +8,11 @@
   function subjectLines(context) {
     const pain = compactPhrase(String(context.pain || "").split(" and ")[0], 4);
     return [
-      `Cleaner read on ${pain}`,
-      `Idea for ${compactPhrase(context.trigger, 4)}`,
-      "Fewer surprises in forecast reviews",
+      `Two accounts worth coaching this week`,
+      `Before ${compactPhrase(context.trigger, 4)} gets noisy`,
+      `A cleaner manager handoff`,
       `${context.company} x {{company}}`,
-      "Less manual follow-up",
+      `Quick read on ${pain}`,
     ];
   }
 
@@ -31,32 +31,32 @@
     const preferSpecific = Number(feedback.tooVague || 0) > 0;
     const learnedLine = learned.includes("Proof before product")
       ? "I would lead with one proof point before getting into product detail."
-      : "I would keep this about one buyer problem, not a broad platform pitch.";
+      : "I would keep this about the manager's next review, not a broad platform pitch.";
     const tonePrefix = variant === "A"
-      ? `I noticed the buyer keeps coming back to ${context.pain}.`
+      ? `The buyer's language points to one practical problem: ${context.pain}.`
       : variant === "B"
-        ? "This reads less like an activity-volume problem and more like a prioritization problem."
-        : "For an operations audience, the strongest hook is fewer status checks and cleaner weekly decisions.";
+        ? `This does not sound like they need more dashboards. It sounds like ${compactPhrase(context.trigger, 5)} is making the next coaching move harder to choose.`
+        : `For ${context.role}, the useful hook is a calmer handoff before the next account review.`;
     const proof = variant === "A" ? context.proof : variant === "B" ? context.caseStudy : context.competitor;
     const body = variant === "A"
       ? `${tonePrefix}
 
-If that is the pressure right now, I would keep the email anchored to one job: help managers see risk early enough to coach it.
+If that is the pressure right now, I would keep the email anchored to one job: help managers see which two accounts deserve coaching before the next review.
 
-${context.company} helps ${context.segment} teams turn ${context.trigger} into a short list of accounts that need attention. The proof point to anchor on is ${proof}.${preferSpecific ? ` The first test could focus on ${context.icp}.` : ""}
+${context.company} helps ${context.segment} teams turn ${context.trigger} into a short list of named accounts, the reason each one matters, and the exact rep note a manager should review. The proof point to anchor on is ${proof}.${preferSpecific ? ` The first test could focus on ${context.icp}.` : ""}
 
 ${preferShort ? ctaText(context) : `${learnedLine}\n\n${ctaText(context)}`}`
       : variant === "B"
         ? `${tonePrefix}
 
-The useful angle is simple: give managers a short list of accounts worth coaching this week, plus the reason each one matters.
+The useful angle is simple: one list managers can trust before the team meeting, with the account, the coaching reason, and the next rep note in the same place.
 
 I would test the ${context.trigger} angle and use ${proof} as the proof point.${preferSpecific ? ` Keep the first conversation focused on ${context.icp}.` : ""}
 
 ${ctaText(context)}`
         : `${tonePrefix}
 
-I would frame this as a calmer way to prepare for forecast review: fewer manual check-ins, clearer coaching moments, and less guesswork.
+I would frame this as a calmer way to prepare for review: fewer manual check-ins, cleaner account notes, and less guessing about where managers should spend time this week.
 
 ${context.company} can position ${context.offer} around that weekly rhythm, with ${proof} as the concrete reason to take a look.
 
