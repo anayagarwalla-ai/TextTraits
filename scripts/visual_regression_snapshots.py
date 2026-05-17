@@ -95,7 +95,7 @@ def main() -> int:
             page.locator('button[data-tool="inbox"]').click()
             expect(page.get_by_text("Gmail / Outlook reply queue", exact=True)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "enterprise-inbox.png"), full_page=False)
-            page.locator('button[data-tab="analytics"]').click()
+            page.locator('button[data-tool="insights"]').click()
             expect(page.get_by_text("Reply outcome tracking", exact=True)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "enterprise-analytics.png"), full_page=False)
             page.locator('button[data-tab="drafts"]').click()

@@ -3,7 +3,9 @@ const apiClient = window.TextTraitsApi;
 const productConfig = window.TextTraitsProduct || {};
 const textUtils = window.TextTraitsUtils || {};
 const uiHelpers = window.TextTraitsUi || {};
+const csvUtils = window.TextTraitsCsv || {};
 const {escapeHtml, words, percent, titleCase, localStats, todayKey} = textUtils;
+const {parseCsvLine, csvCell} = csvUtils;
 
 const els = {
   body: document.body,
@@ -19,6 +21,7 @@ const els = {
   accountCard: document.querySelector("#account-card"),
   toastStack: document.querySelector("#toast-stack"),
   runtimeLabel: document.querySelector("#runtime-label"),
+  runtimeCopy: document.querySelector("#runtime-copy"),
 };
 
 const state = {
@@ -1441,9 +1444,9 @@ function clarityBand(scoreValue) {
 
 function streakCopy() {
   const streak = explorerStreak();
-  if (!streak) return "Save today’s reading to begin a streak.";
-  if (streak === 1) return "You wrote today.";
-  return `${streak} days in a row. Nice steady rhythm.`;
+  if (!streak) return "Save today’s reading, then come back tomorrow for the next prompt.";
+  if (streak === 1) return "You wrote today. Come back tomorrow to keep the rhythm.";
+  return `${streak} days in a row. Come back tomorrow for the next small improvement.`;
 }
 
 function todayVsLastWeek() {
@@ -1713,7 +1716,7 @@ function renderExplorerResult(data) {
         <div class="toolbar">
           <button class="button-secondary" data-edit-explorer-input>Edit input</button>
           <button class="button-secondary" data-new-sample>Analyze another piece</button>
-          <button class="button-secondary" type="button" data-open-journal>Open journal</button>
+          <button class="button-secondary" type="button" data-open-journal aria-controls="explorer-journal" aria-expanded="${String(state.explorerJournalOpen)}">Open journal</button>
         </div>
       </div>
 
@@ -1732,7 +1735,7 @@ function renderExplorerResult(data) {
         </article>
         <article>
           <span>Next</span>
-          <strong>${state.explorerHistory.length >= 3 ? "Weekly recap" : "Save 3 readings"}</strong>
+          <strong>${state.explorerHistory.length >= 3 ? "Weekly recap" : "Come back tomorrow"}</strong>
         </article>
       </div>
 
@@ -1782,7 +1785,7 @@ function renderExplorerResult(data) {
         </article>
       </div>
 
-      <details class="secondary-result-details journal-drawer" ${state.explorerJournalOpen ? "open" : ""}>
+      <details id="explorer-journal" class="secondary-result-details journal-drawer" ${state.explorerJournalOpen ? "open" : ""}>
         <summary>Writing journal and weekly recap</summary>
         <div class="save-reading-row">
           <label class="field"><span>Name this reading</span><input id="result-reading-name" value="${escapeHtml(state.explorerReadingName || state.explorerHistory[0]?.name || "")}" placeholder="Daily journal, work email, class note"></label>
@@ -1958,8 +1961,8 @@ function enterpriseTabNote(tab) {
   const notes = {
     dashboard: "Dashboard open. Next: review the queue, then approve or export.",
     drafts: "Draft editor open. Pick one variant, polish it, then approve.",
-    tools: "Batch and reply tools open. Start with CSV input, sequence timing, or reply triage.",
-    analytics: "Analytics open. Review outcomes, exports, integrations, and coaching signals.",
+    tools: "Operations open. Work through batch, sequence, replies, libraries, or insights from one place.",
+    analytics: "Insights open. Review outcomes, exports, integrations, and coaching notes.",
   };
   return notes[tab] || "Workspace ready.";
 }
@@ -1970,6 +1973,7 @@ function enterpriseToolNote(tool) {
     sequence: "Sequence builder open. Tune timing, channels, and stop rules.",
     inbox: "Reply queue open. Load sample replies or connect mail later.",
     libraries: "Libraries open. Review voice, personas, templates, and approved proof.",
+    insights: "Insights open. Review outcomes, export history, integrations, and coaching notes.",
   };
   return notes[tool] || "Workspace tool open.";
 }
@@ -2260,34 +2264,34 @@ function buildEmailVariant(context, profile, variant) {
   const preferSpecific = Number(state.feedbackMemory.tooVague || 0) > 0;
   const learnedLine = learned.includes("Proof before product")
     ? `I would lead with one proof point before getting into product detail.`
-    : `I would keep this about one business issue instead of a broad platform pitch.`;
+    : `I would keep this about one buyer problem, not a broad platform pitch.`;
   const tonePrefix = variant === "A"
-    ? `The part that stood out was your focus on ${context.pain}.`
+    ? `I noticed the buyer keeps coming back to ${context.pain}.`
     : variant === "B"
-      ? `It sounds like the hard part is not activity volume. It is knowing which accounts need manager attention soonest.`
-      : `The pattern I noticed is practical: fewer reporting loops, cleaner handoffs, and earlier visibility into risk.`;
+      ? `This reads less like an activity-volume problem and more like a prioritization problem.`
+      : `For an operations audience, the strongest hook is fewer status checks and cleaner weekly decisions.`;
   const proof = variant === "A" ? context.proof : variant === "B" ? context.caseStudy : context.competitor;
   const body = variant === "A"
     ? `${tonePrefix}
 
-If that is the pressure right now, the useful starting point may be a cleaner way to spot risk while managers can still act on it.
+If that is the pressure right now, I would keep the email anchored to one job: help managers see risk early enough to coach it.
 
-${context.company} helps ${context.segment} teams use ${context.offer} so the next coaching moment is easier to find, not buried in another report. The proof point I would anchor on: ${proof}.${preferSpecific ? ` The first test could be ${context.trigger} for ${context.icp}.` : ""}
+${context.company} helps ${context.segment} teams turn ${context.trigger} into a short list of accounts that need attention. The proof point to anchor on is ${proof}.${preferSpecific ? ` The first test could focus on ${context.icp}.` : ""}
 
 ${preferShort ? ctaText(context) : `${learnedLine}\n\n${ctaText(context)}`}`
     : variant === "B"
       ? `${tonePrefix}
 
-That is usually where teams need something more specific than another dashboard: a short list of accounts worth coaching this week, and the reason each one matters.
+The useful angle is simple: give managers a short list of accounts worth coaching this week, plus the reason each one matters.
 
-The angle I would test is ${context.trigger}, using ${proof} as the proof point.${preferSpecific ? ` I would keep the first conversation focused on ${context.icp}.` : ""}
+I would test the ${context.trigger} angle and use ${proof} as the proof point.${preferSpecific ? ` Keep the first conversation focused on ${context.icp}.` : ""}
 
 ${ctaText(context)}`
       : `${tonePrefix}
 
-For an operations-led audience, I would frame this as fewer manual check-ins and cleaner decision points before forecast review.
+I would frame this as a calmer way to prepare for forecast review: fewer manual check-ins, clearer coaching moments, and less guesswork.
 
-${context.company} can position ${context.offer} around that operating rhythm, with ${proof} as the concrete reason to take a look.
+${context.company} can position ${context.offer} around that weekly rhythm, with ${proof} as the concrete reason to take a look.
 
 ${ctaText(context)}`;
   return `Subject: ${subjectLines(context)[variant === "A" ? 0 : variant === "B" ? 1 : 2]}
@@ -2341,10 +2345,10 @@ function bestDraft() {
 
 function buildSequence(context) {
   return [
-    ["Day 1", "Initial email", `Subject: ${subjectLines(context)[0]}\n\nHi {{first_name}},\n\nYour note about ${context.pain} stood out. If the goal is earlier visibility without another reporting loop, I had a short idea tied to ${context.trigger}.\n\n${ctaText(context)}`],
-    ["Day 3", "LinkedIn touch", `Saw the same theme around ${compactPhrase(context.pain, 5)}. I can send the two-bullet version if useful.`],
-    ["Day 6", "Proof follow-up", `One proof point that may be relevant: ${context.proof}. The pattern is usually fewer manual check-ins and earlier manager coaching moments.`],
-    ["Day 10", "Breakup note", `Should I close the loop, or would a short summary on ${context.trigger} be useful for later?`],
+    ["Day 1", "Initial email", `Subject: ${subjectLines(context)[0]}\n\nHi {{first_name}},\n\nI noticed the team is focused on ${context.pain}. If the goal is earlier visibility without another reporting loop, I had a short idea tied to ${context.trigger}.\n\n${ctaText(context)}`],
+    ["Day 3", "LinkedIn touch", `Saw the same theme around ${compactPhrase(context.pain, 5)}. Happy to send the two-bullet version if useful.`],
+    ["Day 6", "Proof follow-up", `One proof point that may be relevant: ${context.proof}. The useful shift is usually fewer manual check-ins and earlier coaching moments.`],
+    ["Day 10", "Breakup note", `Should I close the loop, or would a short summary on ${context.trigger} be useful later?`],
   ];
 }
 
@@ -2367,10 +2371,17 @@ function renderEnterpriseResult(data) {
   const csv = makeCsv(context, variants);
   const best = bestDraft();
   const active = selectedDraft();
-  const validTabs = ["dashboard", "drafts", "tools", "analytics"];
+  if (state.activeEnterpriseTab === "analytics") {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "insights";
+  }
+  const validTabs = ["dashboard", "drafts", "tools"];
   if (!validTabs.includes(state.activeEnterpriseTab)) {
-    state.activeEnterpriseTool = ["batch", "sequence", "inbox", "libraries"].includes(state.activeEnterpriseTab) ? state.activeEnterpriseTab : state.activeEnterpriseTool;
+    state.activeEnterpriseTool = ["batch", "sequence", "inbox", "libraries", "insights"].includes(state.activeEnterpriseTab) ? state.activeEnterpriseTab : state.activeEnterpriseTool;
     state.activeEnterpriseTab = state.activeEnterpriseTab === "signals" || state.activeEnterpriseTab === "workspace" || state.activeEnterpriseTab === "brief" || state.activeEnterpriseTab === "campaign" ? "dashboard" : "tools";
+  }
+  if (!["batch", "sequence", "inbox", "libraries", "insights"].includes(state.activeEnterpriseTool)) {
+    state.activeEnterpriseTool = "batch";
   }
 
   els.outputPanel.innerHTML = `
@@ -2402,8 +2413,7 @@ function renderEnterpriseResult(data) {
         <nav class="tabs workspace-tabs grouped-tabs compact-workspace-nav" role="tablist" aria-label="Enterprise workspace areas">
           ${tabButton("dashboard", "Dashboard", state.activeEnterpriseTab)}
           ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
-          ${tabButton("tools", "Batch + replies", state.activeEnterpriseTab)}
-          ${tabButton("analytics", "Analytics", state.activeEnterpriseTab)}
+          ${tabButton("tools", "Operations", state.activeEnterpriseTab)}
         </nav>
         <span class="next-action">${escapeHtml(state.lastActionNote || "Next: review generated drafts or import a prospect batch.")}</span>
       </div>
@@ -2466,8 +2476,9 @@ function renderEnterpriseResult(data) {
     renderEnterpriseResult(data);
   });
   els.outputPanel.querySelector("[data-open-crm-setup]")?.addEventListener("click", () => {
-    state.activeEnterpriseTab = "analytics";
-    state.lastActionNote = "Open a provider setup card before CRM export.";
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "insights";
+    state.lastActionNote = enterpriseToolNote("insights");
     renderEnterpriseResult(data);
   });
   els.outputPanel.querySelector("[data-open-inbox-setup]")?.addEventListener("click", () => {
@@ -3080,27 +3091,29 @@ function draftsWorkspace(context, variants) {
   `;
 }
 
-function toolsWorkspace(context, sequence) {
+function toolsWorkspace(context, sequence, angles) {
   const tools = [
     ["batch", "Batch"],
     ["sequence", "Sequence"],
     ["inbox", "Inbox"],
     ["libraries", "Libraries"],
+    ["insights", "Insights"],
   ];
   return `
     <div class="tools-workspace">
       <nav class="tool-switcher" aria-label="Enterprise tools">
         ${tools.map(([key, label]) => `<button type="button" data-tool="${key}" aria-pressed="${String(state.activeEnterpriseTool === key)}">${escapeHtml(label)}</button>`).join("")}
       </nav>
-      ${renderToolPanel(context, sequence)}
+      ${renderToolPanel(context, sequence, angles)}
     </div>
   `;
 }
 
-function renderToolPanel(context, sequence) {
+function renderToolPanel(context, sequence, angles) {
   if (state.activeEnterpriseTool === "sequence") return sequencePanel(context, sequence);
   if (state.activeEnterpriseTool === "inbox") return inboxPanel(context);
   if (state.activeEnterpriseTool === "libraries") return librariesPanel();
+  if (state.activeEnterpriseTool === "insights") return analyticsWorkspace(context, angles);
   return batchPanel(context);
 }
 
@@ -3214,10 +3227,10 @@ function inboxPanel(context) {
 
 function inboxReply(thread, context) {
   const firstName = context.firstName || "{{first_name}}";
-  if (thread.type === "interested") return `Hi ${firstName}, glad the migration point is the key question. The short version: this can be evaluated without a heavy migration. Worth a focused 15-minute fit call next week?`;
-  if (thread.type === "objection") return `Hi ${firstName}, that makes sense. I am not suggesting another dashboard; the useful angle is manager visibility and cleaner handoffs before forecast review. Would a two-bullet example be useful?`;
-  if (thread.type === "referral") return `Hi ${firstName}, thanks for pointing me in the right direction. Would you be comfortable introducing me to the RevOps lead with a short note, or should I send you two bullets to forward?`;
-  if (thread.type === "not-now") return `Hi ${firstName}, understood. I will circle back after planning wraps. If helpful, I can send a short summary now so it is easy to revisit later.`;
+  if (thread.type === "interested") return `Hi ${firstName}, glad that is the key question. The short version: you can evaluate this without a heavy migration. Worth a focused 15-minute fit call next week?`;
+  if (thread.type === "objection") return `Hi ${firstName}, that makes sense. I would not pitch this as another dashboard. The useful angle is cleaner manager visibility before forecast review. Want me to send a two-bullet example?`;
+  if (thread.type === "referral") return `Hi ${firstName}, thanks for pointing me in the right direction. Would it be easier if I sent two bullets you can forward to the RevOps lead?`;
+  if (thread.type === "not-now") return `Hi ${firstName}, understood. I can step back until planning wraps. If helpful, I can send a short summary now so it is easy to revisit later.`;
   if (thread.type === "unsubscribe") return `Hi ${firstName}, understood. I will remove you from this sequence.`;
   return `Hi ${firstName}, thanks for the context. ${thread.next}`;
 }
@@ -3345,7 +3358,7 @@ function analyticsWorkspace(context, angles) {
 function renderEnterpriseTab(data, context, profile, variants, angles, sequence) {
   if (state.activeEnterpriseTab === "dashboard") return campaignHome(context, angles);
   if (state.activeEnterpriseTab === "drafts") return draftsWorkspace(context, variants);
-  if (state.activeEnterpriseTab === "tools") return toolsWorkspace(context, sequence);
+  if (state.activeEnterpriseTab === "tools") return toolsWorkspace(context, sequence, angles);
   if (state.activeEnterpriseTab === "analytics") return analyticsWorkspace(context, angles);
   if (state.activeEnterpriseTab === "workspace") {
     const campaigns = filteredCampaigns();
@@ -3673,13 +3686,18 @@ function parseCsv(text, mapping = state.batchMapping) {
     state.batchErrors = ["Add a header row and at least one prospect row."];
     return [];
   }
-  const headers = lines[0].split(",").map((header) => header.trim().replaceAll('"', ""));
+  const parsedHeader = parseCsvLine(lines[0]);
+  const headers = parsedHeader.cells.map((header) => header.trim().replaceAll('"', ""));
+  if (parsedHeader.malformed) state.batchErrors.push("Header row has an unclosed quote.");
   const required = ["first_name", "company", "role", "industry", "signal"];
   const missing = required.filter((fieldName) => !headers.includes(mapping[fieldName] || fieldName));
   if (missing.length) state.batchErrors.push(`Missing mapped columns: ${missing.map((fieldName) => `${fieldName} -> ${mapping[fieldName] || fieldName}`).join(", ")}.`);
   const seen = new Set();
   return lines.slice(1, 101).map((line, index) => {
-    const cells = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
+    const parsed = parseCsvLine(line);
+    const cells = parsed.cells;
+    if (parsed.malformed) state.batchErrors.push(`Row ${index + 2} has an unclosed quote.`);
+    if (cells.length !== headers.length) state.batchErrors.push(`Row ${index + 2} has ${cells.length} cells but the header has ${headers.length}.`);
     const raw = {};
     headers.forEach((header, cellIndex) => {
       raw[header] = String(cells[cellIndex] || "").trim().replace(/^"|"$/g, "");
@@ -3894,12 +3912,6 @@ function makeCsv(context, variants) {
     rows.push([draft.key, draft.name, draft.subject, draft.body, context.role, context.industry, context.goal, averageScore(draft)]);
   });
   return rows.map((row) => row.map(csvCell).join(",")).join("\\n");
-}
-
-function csvCell(cell) {
-  let value = String(cell ?? "");
-  if (/^[=+\-@]/.test(value.trim())) value = `'${value}`;
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function downloadCsv(csv) {
@@ -4241,9 +4253,11 @@ document.addEventListener("keydown", (event) => {
 const isLocalRuntime = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
 els.body.classList.toggle("is-local-runtime", isLocalRuntime);
 if (isLocalRuntime) {
-  els.runtimeLabel.textContent = "Local run:";
+  els.runtimeLabel.textContent = "Demo mode:";
+  if (els.runtimeCopy) els.runtimeCopy.textContent = "local Flask preview; CRM, email, and sidebar integrations stay simulated until credentials are connected.";
 } else {
   els.runtimeLabel.textContent = "Deployment:";
+  if (els.runtimeCopy) els.runtimeCopy.textContent = "connected services depend on your configured credentials, database, and workspace settings.";
 }
 
 render();
