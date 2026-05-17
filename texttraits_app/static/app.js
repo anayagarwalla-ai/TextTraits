@@ -132,7 +132,14 @@ const state = {
     syncStatus: "Local only",
     lastSyncedAt: "",
   },
+  accountDraft: {
+    name: "",
+    email: "",
+    verifyToken: "",
+    resetToken: "",
+  },
   accountResetToken: "",
+  accountDeletePending: false,
   adminSettings: {
     workspaceName: "TextTraits Team",
     seats: 3,
@@ -595,6 +602,9 @@ function renderAccountCard() {
     ? `${state.account.workspaceName || "Personal workspace"} / ${state.account.syncStatus || "Synced"}`
     : "Local workspace";
   const errorHtml = state.accountError ? `<p class="error-text">${escapeHtml(state.accountError)}</p>` : "";
+  const deleteWarning = state.accountDeletePending
+    ? `<div class="account-warning" role="status"><strong>Delete account?</strong><span>Enter your password, then confirm. This removes synced workspace data for this account.</span></div>`
+    : "";
 
   if (signedIn) {
     els.accountCard.innerHTML = `
@@ -613,12 +623,13 @@ function renderAccountCard() {
             <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
           </div>
           ${errorHtml}
+          ${deleteWarning}
           <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
           <div class="account-actions sheet-actions">
             <button class="button-secondary" type="button" data-sync-now>Sync now</button>
             <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
             <button class="button-secondary" type="button" data-export-account>Export data</button>
-            <button class="button-secondary" type="button" data-delete-account>Delete account</button>
+            <button class="button-secondary danger-button" type="button" data-delete-account>${state.accountDeletePending ? "Confirm delete account" : "Delete account"}</button>
             <button class="button-secondary" type="button" data-logout>Sign out</button>
           </div>
         </section>
@@ -647,8 +658,8 @@ function renderAccountCard() {
             <article><strong>Enterprise</strong><span>Campaigns, draft history, review queues, exports, and team settings.</span></article>
           </div>
           <div class="auth-grid">
-            <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" placeholder="Your name"></label>
-            <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" placeholder="you@example.com"></label>
+            <label class="field"><span>Name</span><input id="auth-name" autocomplete="name" value="${escapeHtml(state.accountDraft.name)}" placeholder="Your name"></label>
+            <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" value="${escapeHtml(state.accountDraft.email)}" placeholder="you@example.com"></label>
             <label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="current-password" placeholder="At least 12 characters"></label>
             <div class="auth-actions">
               <button type="button" data-signup>Create account</button>
@@ -658,9 +669,9 @@ function renderAccountCard() {
             </div>
             <details class="account-code-panel" ${state.accountResetToken ? "open" : ""}>
               <summary>Have an email code?</summary>
-              <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" placeholder="Paste verification code"></label>
+              <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" value="${escapeHtml(state.accountDraft.verifyToken)}" placeholder="Paste verification code"></label>
               <button class="button-secondary" type="button" data-submit-verification>Verify email</button>
-              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" value="${escapeHtml(state.accountResetToken)}" placeholder="Paste reset code"></label>
+              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" value="${escapeHtml(state.accountResetToken || state.accountDraft.resetToken)}" placeholder="Paste reset code"></label>
               <label class="field"><span>New password</span><input id="reset-new-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
               <button class="button-secondary" type="button" data-submit-reset>Update password</button>
             </details>
@@ -672,10 +683,38 @@ function renderAccountCard() {
   wireAccountCard();
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function passwordPolicyMessage(password, email = "") {
+  const clean = String(password || "").trim();
+  if (clean.length < 12) return "Use at least 12 characters for the password.";
+  const localPart = String(email || "").split("@", 1)[0].toLowerCase();
+  if (localPart && clean.toLowerCase().includes(localPart)) return "Use a password that does not include your email name.";
+  return "";
+}
+
+function syncAccountDraftFromFields() {
+  state.accountDraft.name = els.accountCard?.querySelector("#auth-name")?.value || state.accountDraft.name || "";
+  state.accountDraft.email = els.accountCard?.querySelector("#auth-email")?.value || state.accountDraft.email || "";
+  state.accountDraft.verifyToken = els.accountCard?.querySelector("#verify-token")?.value || state.accountDraft.verifyToken || "";
+  state.accountDraft.resetToken = els.accountCard?.querySelector("#reset-token")?.value || state.accountDraft.resetToken || "";
+}
+
+function showAccountError(message) {
+  syncAccountDraftFromFields();
+  state.accountError = message;
+  state.accountModalOpen = true;
+  els.announcer.textContent = message;
+  renderAccountCard();
+}
+
 function wireAccountCard() {
   els.accountCard?.querySelector("[data-open-account]")?.addEventListener("click", () => {
     state.accountModalOpen = true;
     state.accountError = "";
+    state.accountDeletePending = false;
     renderAccountCard();
     requestAnimationFrame(() => {
       els.accountCard.querySelector("#auth-email, [data-sync-now], [data-close-account]")?.focus?.();
@@ -684,25 +723,36 @@ function wireAccountCard() {
   els.accountCard?.querySelector("[data-close-account]")?.addEventListener("click", () => {
     state.accountModalOpen = false;
     state.accountError = "";
+    state.accountDeletePending = false;
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-account-overlay]")?.addEventListener("click", (event) => {
     if (event.target !== event.currentTarget) return;
     state.accountModalOpen = false;
     state.accountError = "";
+    state.accountDeletePending = false;
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-sync-now]")?.addEventListener("click", () => syncWorkspace());
+  els.accountCard?.querySelectorAll("#auth-name, #auth-email, #verify-token, #reset-token").forEach((field) => {
+    field.addEventListener("input", syncAccountDraftFromFields);
+  });
   els.accountCard?.querySelector("[data-open-onboarding]")?.addEventListener("click", () => {
     state.onboarding.complete = false;
     state.accountModalOpen = false;
     render();
   });
   els.accountCard?.querySelector("[data-logout]")?.addEventListener("click", async () => {
-    await apiClient.logout();
-    state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
-    state.accountModalOpen = false;
-    renderAccountCard();
+    try {
+      await apiClient.logout();
+      state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+      state.accountModalOpen = false;
+      state.accountDeletePending = false;
+      renderAccountCard();
+    } catch (error) {
+      state.accountError = error.message || "Sign out failed.";
+      renderAccountCard();
+    }
   });
   els.accountCard?.querySelector("[data-export-account]")?.addEventListener("click", async (event) => {
     const password = els.accountCard.querySelector("#account-password")?.value || "";
@@ -710,30 +760,54 @@ function wireAccountCard() {
       showToast(event.currentTarget, "Enter your password before exporting account data.");
       return;
     }
-    const data = await apiClient.exportAccount(password);
-    downloadText("texttraits-account-export.json", JSON.stringify(data, null, 2));
-    showToast(event.currentTarget, "Account export downloaded.");
+    try {
+      const data = await apiClient.exportAccount(password);
+      downloadText("texttraits-account-export.json", JSON.stringify(data, null, 2));
+      showToast(event.currentTarget, "Account export downloaded.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Account export failed.");
+    }
   });
   els.accountCard?.querySelector("[data-delete-account]")?.addEventListener("click", async (event) => {
-    if (!confirm("Delete this TextTraits account and synced workspace data?")) return;
+    if (!state.accountDeletePending) {
+      state.accountDeletePending = true;
+      state.accountError = "";
+      renderAccountCard();
+      requestAnimationFrame(() => els.accountCard.querySelector("#account-password")?.focus?.());
+      return;
+    }
     const password = els.accountCard.querySelector("#account-password")?.value || "";
     if (!password) {
       showToast(event.currentTarget, "Enter your password before deleting the account.");
       return;
     }
-    await apiClient.deleteAccount(password);
-    state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
-    state.accountModalOpen = false;
-    showToast(event.currentTarget, "Account deleted.");
-    render();
+    try {
+      await apiClient.deleteAccount(password);
+      state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+      state.accountModalOpen = false;
+      state.accountDeletePending = false;
+      renderAccountCard();
+      showToast(event.currentTarget, "Account deleted.");
+      render();
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Account deletion failed.");
+    }
   });
   els.accountCard?.querySelector("[data-signup]")?.addEventListener("click", () => authRequest("signup"));
   els.accountCard?.querySelector("[data-login]")?.addEventListener("click", () => authRequest("login"));
   els.accountCard?.querySelector("[data-demo-account]")?.addEventListener("click", () => authRequest("demo"));
   els.accountCard?.querySelector("[data-request-reset]")?.addEventListener("click", async (event) => {
     const email = els.accountCard.querySelector("#auth-email")?.value || "";
-    const response = await apiClient.requestPasswordReset(email);
-    showToast(event.currentTarget, response.dev_reset_url ? "Reset helper created for local development." : "Check your email for a reset code.");
+    if (!isValidEmail(email)) {
+      showAccountError("Enter the email for your account first.");
+      return;
+    }
+    try {
+      const response = await apiClient.requestPasswordReset(email);
+      showToast(event.currentTarget, response.dev_reset_url ? "Reset helper created for local development." : "Check your email for a reset code.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Enter the email for your account.");
+    }
   });
   els.accountCard?.querySelector("[data-submit-verification]")?.addEventListener("click", async (event) => {
     const token = els.accountCard.querySelector("#verify-token")?.value || "";
@@ -748,6 +822,15 @@ function wireAccountCard() {
   els.accountCard?.querySelector("[data-submit-reset]")?.addEventListener("click", async (event) => {
     const token = els.accountCard.querySelector("#reset-token")?.value || "";
     const password = els.accountCard.querySelector("#reset-new-password")?.value || "";
+    if (!token.trim()) {
+      showAccountError("Enter the reset code from your email.");
+      return;
+    }
+    const policyMessage = passwordPolicyMessage(password);
+    if (policyMessage) {
+      showAccountError(policyMessage);
+      return;
+    }
     try {
       const data = await apiClient.resetPassword(token, password);
       state.accountResetToken = "";
@@ -766,8 +849,11 @@ function applyAuthenticatedAccount(data, statusText = "Signed in") {
   state.account.syncStatus = statusText;
   state.accountModalOpen = false;
   state.accountError = "";
+  state.accountDeletePending = false;
+  state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
   if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
   persistWorkspace();
+  renderAccountCard();
   renderModeChrome();
   render();
 }
@@ -779,7 +865,23 @@ async function authRequest(action) {
   const payload = action === "demo"
     ? {email: "demo@texttraits.local", password: "texttraits-demo", name: "Demo Workspace"}
     : {email: emailField?.value || "", password: passwordField?.value || "", name: nameField?.value || ""};
-  const endpoint = action === "login" ? "/api/login" : "/api/signup";
+  if (action !== "demo") {
+    if (!isValidEmail(payload.email)) {
+      showAccountError("Enter a valid email address.");
+      return;
+    }
+    if (!payload.password) {
+      showAccountError("Enter your password.");
+      return;
+    }
+    if (action === "signup") {
+      const policyMessage = passwordPolicyMessage(payload.password, payload.email);
+      if (policyMessage) {
+        showAccountError(policyMessage);
+        return;
+      }
+    }
+  }
   try {
     let data;
     if (action === "login") data = await apiClient.login(payload);
@@ -824,6 +926,7 @@ async function initAccount() {
     state.account.workspaceName = workspaceData.workspace?.name || `${sessionData.user.name}'s workspace`;
     state.account.syncStatus = `Synced ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
     applyWorkspacePayload(workspaceData.workspace?.data || {});
+    renderAccountCard();
     renderModeChrome();
     render();
   } catch (error) {
@@ -846,7 +949,10 @@ async function handleAccountLinkTokens() {
       state.account.user = data.user;
       state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
       state.account.syncStatus = "Email verified";
+      state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
       if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+      renderAccountCard();
+      renderModeChrome();
       showToast(els.accountCard, "Email verified.");
       render();
     } catch (error) {
@@ -1881,9 +1987,7 @@ function renderExplorerResult(data) {
   bindCopy("[data-copy-summary]", `Writing style summary: ${summary}`, "Explorer summary copied.");
   bindCopy("[data-copy-explorer-report]", explorerReportText(summary, nextAction, profile), "Clean writing report copied.");
   els.outputPanel.querySelector("[data-copy-rewrite]")?.addEventListener("click", async (event) => {
-    await navigator.clipboard.writeText(makeExplorerRewrite(state.latestText, state.explorerRewriteMode));
-    trackEvent("copy", {message: "Rewrite copied."});
-    showToast(event.currentTarget, "Rewrite copied.");
+    await copyTextFromButton(event.currentTarget, makeExplorerRewrite(state.latestText, state.explorerRewriteMode), "Rewrite copied.");
   });
   const nameField = els.outputPanel.querySelector("#result-reading-name");
   const folderField = els.outputPanel.querySelector("#field-resultExplorerFolder");
@@ -1983,7 +2087,6 @@ function renderExplorerResult(data) {
     button.addEventListener("click", () => {
       recordFeedback(button.dataset.feedback, button.dataset.feedbackScope || "Explorer");
       showToast(button, "Feedback saved. Future suggestions will adapt.");
-      renderExplorerResult(data);
     });
   });
   els.outputPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
@@ -1998,6 +2101,9 @@ function renderExplorerResult(data) {
     state.latestText = "";
     state.explorerReadingName = "";
     state.explorerSavedMessage = "";
+    state.explorerPromptTitle = "";
+    state.explorerPromptText = "";
+    state.explorerPromptSource = "";
     render();
   });
   els.outputPanel.querySelector("[data-edit-explorer-input]")?.addEventListener("click", () => {
@@ -2520,15 +2626,13 @@ function renderEnterpriseResult(data) {
   els.outputPanel.querySelectorAll("[data-copy-draft]").forEach((button) => {
     button.addEventListener("click", async () => {
       const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.copyDraft);
-      await navigator.clipboard.writeText(draft ? draftText(draft) : "");
-      showToast(button, "Variant copied.");
+      await copyTextFromButton(button, draft ? draftText(draft) : "", "Variant copied.");
     });
   });
   els.outputPanel.querySelectorAll("[data-copy-row]").forEach((button) => {
     button.addEventListener("click", async () => {
       const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.copyRow));
-      await navigator.clipboard.writeText(row ? `${row.subject}\n${row.signal}` : "");
-      showToast(button, "Brief copied.");
+      await copyTextFromButton(button, row ? `${row.subject}\n${row.signal}` : "", "Brief copied.");
     });
   });
   els.outputPanel.querySelectorAll("[data-review-row]").forEach((button) => {
@@ -2570,7 +2674,8 @@ function renderEnterpriseResult(data) {
     button.addEventListener("click", () => {
       recordFeedback(button.dataset.feedback, button.dataset.feedbackScope || "Enterprise");
       state.lastActionNote = "Feedback saved. Draft guidance will adapt.";
-      renderEnterpriseResult(data);
+      updateVisibleActionNote();
+      showToast(button, "Feedback saved. Draft guidance will adapt.");
     });
   });
   els.outputPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
@@ -2711,7 +2816,8 @@ function renderEnterpriseResult(data) {
       state.outcomeStats[button.dataset.outcome] = Number(state.outcomeStats[button.dataset.outcome] || 0) + 1;
       state.lastActionNote = `${titleCase(button.dataset.outcome)} outcome recorded.`;
       persistWorkspace();
-      renderEnterpriseResult(data);
+      updateVisibleActionNote();
+      showToast(button, state.lastActionNote);
     });
   });
   els.outputPanel.querySelector("[data-load-sample-csv]")?.addEventListener("click", () => {
@@ -2770,11 +2876,25 @@ function renderEnterpriseResult(data) {
     persistWorkspace();
     renderEnterpriseResult(data);
   });
+  els.outputPanel.querySelectorAll("[data-inbox-reply]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const thread = state.inboxThreads[Number(field.dataset.inboxReply)];
+      if (!thread) return;
+      thread.reply = field.value;
+      thread.status = "Edited reply";
+      persistWorkspace();
+    });
+  });
   els.outputPanel.querySelectorAll("[data-copy-inbox]").forEach((button) => {
     button.addEventListener("click", async () => {
       const thread = state.inboxThreads[Number(button.dataset.copyInbox)];
-      await navigator.clipboard.writeText(thread?.reply || thread?.next || "");
-      showToast(button, "Next response copied.");
+      const editor = button.closest("article")?.querySelector(".suggested-editor");
+      const replyText = editor?.value || thread?.reply || (thread ? inboxReply(thread, context) : "");
+      if (thread) {
+        thread.reply = replyText;
+        persistWorkspace();
+      }
+      await copyTextFromButton(button, replyText, "Next response copied.");
     });
   });
   els.outputPanel.querySelectorAll("[data-draft-inbox]").forEach((button) => {
@@ -3251,7 +3371,7 @@ function inboxPanel(context) {
             <p>${escapeHtml(thread.text)}</p>
             <small>${escapeHtml(thread.status || "Open")} / ${escapeHtml(thread.urgency || "Medium")} urgency / ${escapeHtml(thread.sentiment || "Neutral")} / ${escapeHtml(thread.confidence || 80)} confidence</small>
             <div class="suggested-reply">${escapeHtml(thread.reply || thread.next)}</div>
-            <textarea class="compact-textarea suggested-editor">${escapeHtml(thread.reply || inboxReply(thread, context))}</textarea>
+            <textarea class="compact-textarea suggested-editor" data-inbox-reply="${index}">${escapeHtml(thread.reply || inboxReply(thread, context))}</textarea>
             <p class="muted"><strong>Why:</strong> ${escapeHtml(thread.why || "The reply contains a clear next-step signal.")}</p>
             <div class="result-actions">
               <button class="button-secondary" type="button" data-draft-inbox="${index}">Draft reply</button>
@@ -3872,15 +3992,24 @@ function transformDraft(action, key, context) {
     draft.body = `${clean}\n\nCompliance note: includes one clear business reason for contact, avoids exaggerated claims, and keeps the unsubscribe token available as {{unsubscribe_link}}.`;
   } else if (action === "feedback") {
     const nextKey = String.fromCharCode(65 + state.enterpriseDrafts.length);
+    const nextBody = `Based on the strongest current draft, I would test a more specific version:\n\n${clean}\n\nWould a short comparison against your current ${context.competitor} be useful?`;
     state.enterpriseDrafts.push({
       ...draft,
       key: nextKey,
       name: "Feedback variant",
       subject: `Tighter idea for ${context.pain}`,
-      body: `Based on the strongest current draft, I would test a more specific version:\n\n${clean}\n\nWould a short comparison against your current ${context.competitor} be useful?`,
+      body: nextBody,
+      scores: {...(draft.scores || {clarity: 88, specificity: 88, cta: 86, skimmability: 88})},
+      status: "Draft",
+      owner: draft.owner || "Unassigned",
+      due: draft.due || "This week",
+      note: "Generated from your feedback so the team can compare one more option.",
       history: ["Generated from feedback"],
     });
     state.selectedVariant = nextKey;
+    recordVersion("Enterprise draft", "Generated next variant", before, nextBody, `Variant ${nextKey} created from feedback`);
+    persistWorkspace();
+    return;
   }
   draft.history.push(`${titleCase(action)} transform`);
   recordVersion("Enterprise draft", `${titleCase(action)} transform`, before, draft.body, `Variant ${key} updated`);
@@ -3919,6 +4048,11 @@ function recordExport(type, project, rows) {
     rows,
     date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
   }, ...state.exportHistory].slice(0, 30);
+}
+
+function updateVisibleActionNote() {
+  const note = els.outputPanel?.querySelector(".next-action");
+  if (note && state.lastActionNote) note.textContent = state.lastActionNote;
 }
 
 function showToast(anchor, message) {
@@ -3971,13 +4105,24 @@ function downloadText(filename, text, type = "text/plain") {
   URL.revokeObjectURL(link.href);
 }
 
+async function copyTextFromButton(button, text, successMessage) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    trackEvent("copy", {message: successMessage});
+    showToast(button, successMessage);
+    return true;
+  } catch (error) {
+    showToast(button, "Copy is unavailable in this browser. Select the text and copy it manually.");
+    return false;
+  }
+}
+
 function bindCopy(selector, text, message) {
   const button = els.outputPanel.querySelector(selector);
   if (!button) return;
   button.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(text);
-    trackEvent("copy", {message});
-    showToast(button, message);
+    await copyTextFromButton(button, text, message);
   });
 }
 
@@ -4059,8 +4204,7 @@ function wireInput() {
       render();
     });
     document.querySelector("#copy-explorer-input").addEventListener("click", async () => {
-      await navigator.clipboard.writeText(input.value);
-      showToast(document.querySelector("#copy-explorer-input"), "Input copied.");
+      await copyTextFromButton(document.querySelector("#copy-explorer-input"), input.value, "Input copied.");
     });
     updateInputStats("explorer", input.value);
   } else {

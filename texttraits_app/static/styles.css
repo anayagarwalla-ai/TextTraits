@@ -311,6 +311,33 @@ body.has-work .topbar {
   line-height: 1.35;
 }
 
+.account-warning {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(169, 71, 44, 0.24);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 246, 241, 0.92);
+  color: #763a27;
+}
+
+.account-warning span {
+  color: #805344;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.danger-button {
+  border-color: rgba(169, 71, 44, 0.32);
+  color: #7b341f;
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: rgba(169, 71, 44, 0.54);
+  background: rgba(255, 246, 241, 0.95);
+  color: #692d1a;
+}
+
 .error-text {
   margin: 0;
   border: 1px solid var(--warn);

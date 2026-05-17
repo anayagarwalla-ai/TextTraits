@@ -70,6 +70,9 @@ def main() -> int:
     assert_true("dailyPromptSample" not in app_js, "Daily prompt should not carry sample responses into the writing field")
     assert_true("input.value = `${prompt.prompt}" not in app_js, "Prompt library should not write prompts into the writing sample")
     assert_true("copyInput) copyInput.disabled = !text.trim()" in app_js, "Copy input should be disabled until the user has text")
+    assert_true("confirm(" not in app_js and "accountDeletePending" in app_js, "Account deletion should avoid native confirm dialogs")
+    assert_true("showAccountError" in app_js and "passwordPolicyMessage" in app_js, "Account sheet should validate obvious input errors before calling the API")
+    assert_true("copyTextFromButton" in app_js and "Clipboard unavailable" in app_js, "Copy actions should handle unavailable clipboard APIs")
 
     enterprise_requirements = (
         "Today's work",
@@ -88,6 +91,7 @@ def main() -> int:
         "Paste CSV rows or load the sample CSV first.",
         "data-review-row",
         "data-export-row",
+        "data-inbox-reply",
         "enterpriseTabNote",
         "enterpriseToolNote",
         "parseCsvLine",
