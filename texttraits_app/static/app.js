@@ -41,6 +41,7 @@ const state = {
   enterpriseLandingTab: "",
   enterpriseInputsCollapsed: false,
   enterpriseSetupOpen: false,
+  integrationSetupOpen: false,
   campaignSaved: false,
   lastGeneratedAt: "",
   lastActionNote: "",
@@ -92,6 +93,8 @@ const state = {
   explorerJournalSearch: "",
   explorerJournalFolder: "All",
   explorerJournalOpen: false,
+  explorerQuickChecksOpen: false,
+  explorerStyleDetailsOpen: false,
   explorerReadingName: "",
   explorerFolder: "Daily",
   explorerWritingGoal: "Make this clearer",
@@ -139,6 +142,7 @@ const state = {
     resetToken: "",
   },
   accountResetToken: "",
+  accountCodePanelOpen: false,
   accountDeletePending: false,
   adminSettings: {
     workspaceName: "TextTraits Team",
@@ -667,7 +671,7 @@ function renderAccountCard() {
               ${demoButton}
               <button class="button-secondary" type="button" data-request-reset>Reset password</button>
             </div>
-            <details class="account-code-panel" ${state.accountResetToken ? "open" : ""}>
+            <details class="account-code-panel" ${state.accountCodePanelOpen || state.accountResetToken ? "open" : ""}>
               <summary>Have an email code?</summary>
               <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" value="${escapeHtml(state.accountDraft.verifyToken)}" placeholder="Paste verification code"></label>
               <button class="button-secondary" type="button" data-submit-verification>Verify email</button>
@@ -696,10 +700,14 @@ function passwordPolicyMessage(password, email = "") {
 }
 
 function syncAccountDraftFromFields() {
-  state.accountDraft.name = els.accountCard?.querySelector("#auth-name")?.value || state.accountDraft.name || "";
-  state.accountDraft.email = els.accountCard?.querySelector("#auth-email")?.value || state.accountDraft.email || "";
-  state.accountDraft.verifyToken = els.accountCard?.querySelector("#verify-token")?.value || state.accountDraft.verifyToken || "";
-  state.accountDraft.resetToken = els.accountCard?.querySelector("#reset-token")?.value || state.accountDraft.resetToken || "";
+  const name = els.accountCard?.querySelector("#auth-name");
+  const email = els.accountCard?.querySelector("#auth-email");
+  const verifyToken = els.accountCard?.querySelector("#verify-token");
+  const resetToken = els.accountCard?.querySelector("#reset-token");
+  if (name) state.accountDraft.name = name.value;
+  if (email) state.accountDraft.email = email.value;
+  if (verifyToken) state.accountDraft.verifyToken = verifyToken.value;
+  if (resetToken) state.accountDraft.resetToken = resetToken.value;
 }
 
 function showAccountError(message) {
@@ -708,6 +716,14 @@ function showAccountError(message) {
   state.accountModalOpen = true;
   els.announcer.textContent = message;
   renderAccountCard();
+}
+
+function scrollAccountCodePanelIntoView() {
+  requestAnimationFrame(() => {
+    const panel = els.accountCard?.querySelector(".account-code-panel");
+    if (!panel?.open) return;
+    panel.scrollIntoView({block: "nearest", behavior: "smooth"});
+  });
 }
 
 function wireAccountCard() {
@@ -724,6 +740,7 @@ function wireAccountCard() {
     state.accountModalOpen = false;
     state.accountError = "";
     state.accountDeletePending = false;
+    state.accountCodePanelOpen = false;
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-account-overlay]")?.addEventListener("click", (event) => {
@@ -731,11 +748,16 @@ function wireAccountCard() {
     state.accountModalOpen = false;
     state.accountError = "";
     state.accountDeletePending = false;
+    state.accountCodePanelOpen = false;
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-sync-now]")?.addEventListener("click", () => syncWorkspace());
   els.accountCard?.querySelectorAll("#auth-name, #auth-email, #verify-token, #reset-token").forEach((field) => {
     field.addEventListener("input", syncAccountDraftFromFields);
+  });
+  els.accountCard?.querySelector(".account-code-panel")?.addEventListener("toggle", (event) => {
+    state.accountCodePanelOpen = event.currentTarget.open;
+    if (state.accountCodePanelOpen) scrollAccountCodePanelIntoView();
   });
   els.accountCard?.querySelector("[data-open-onboarding]")?.addEventListener("click", () => {
     state.onboarding.complete = false;
@@ -748,6 +770,7 @@ function wireAccountCard() {
       state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
       state.accountModalOpen = false;
       state.accountDeletePending = false;
+      state.accountCodePanelOpen = false;
       renderAccountCard();
     } catch (error) {
       state.accountError = error.message || "Sign out failed.";
@@ -804,13 +827,22 @@ function wireAccountCard() {
     }
     try {
       const response = await apiClient.requestPasswordReset(email);
+      state.accountCodePanelOpen = true;
       showToast(event.currentTarget, response.dev_reset_url ? "Reset helper created for local development." : "Check your email for a reset code.");
+      renderAccountCard();
+      scrollAccountCodePanelIntoView();
     } catch (error) {
       showToast(event.currentTarget, error.message || "Enter the email for your account.");
     }
   });
   els.accountCard?.querySelector("[data-submit-verification]")?.addEventListener("click", async (event) => {
     const token = els.accountCard.querySelector("#verify-token")?.value || "";
+    if (!token.trim()) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the verification code from your email.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
     try {
       const data = await apiClient.verifyEmail(token);
       applyAuthenticatedAccount(data, "Email verified");
@@ -823,12 +855,16 @@ function wireAccountCard() {
     const token = els.accountCard.querySelector("#reset-token")?.value || "";
     const password = els.accountCard.querySelector("#reset-new-password")?.value || "";
     if (!token.trim()) {
+      state.accountCodePanelOpen = true;
       showAccountError("Enter the reset code from your email.");
+      scrollAccountCodePanelIntoView();
       return;
     }
     const policyMessage = passwordPolicyMessage(password);
     if (policyMessage) {
+      state.accountCodePanelOpen = true;
       showAccountError(policyMessage);
+      scrollAccountCodePanelIntoView();
       return;
     }
     try {
@@ -850,6 +886,7 @@ function applyAuthenticatedAccount(data, statusText = "Signed in") {
   state.accountModalOpen = false;
   state.accountError = "";
   state.accountDeletePending = false;
+  state.accountCodePanelOpen = false;
   state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
   if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
   persistWorkspace();
@@ -950,6 +987,7 @@ async function handleAccountLinkTokens() {
       state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
       state.account.syncStatus = "Email verified";
       state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
+      state.accountCodePanelOpen = false;
       if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
       renderAccountCard();
       renderModeChrome();
@@ -965,6 +1003,7 @@ async function handleAccountLinkTokens() {
 
   if (resetToken) {
     state.accountResetToken = resetToken;
+    state.accountCodePanelOpen = true;
     state.accountModalOpen = true;
     state.accountError = "Enter a new password to finish resetting your account.";
     renderAccountCard();
@@ -1954,7 +1993,7 @@ function renderExplorerResult(data) {
         </div>
       </details>
 
-      <details class="secondary-result-details quick-checks">
+      <details class="secondary-result-details quick-checks" ${state.explorerQuickChecksOpen ? "open" : ""}>
         <summary>Show quick checks</summary>
         <div class="metric-grid">
           <article class="metric-card"><span class="label">Length</span><div class="value">${stats.words >= 40 ? "Enough text" : "Short sample"}</div><p>${stats.words} words analyzed.</p></article>
@@ -1963,7 +2002,7 @@ function renderExplorerResult(data) {
         </div>
       </details>
 
-      <details class="secondary-result-details style-details">
+      <details class="secondary-result-details style-details" ${state.explorerStyleDetailsOpen ? "open" : ""}>
         <summary>See what the app noticed</summary>
         <nav class="tabs" role="tablist" aria-label="Explorer result sections">
           ${tabButton("style", "What stands out", state.activeExplorerTab)}
@@ -1980,9 +2019,18 @@ function renderExplorerResult(data) {
   els.outputPanel.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeExplorerTab = button.dataset.tab;
+      state.explorerStyleDetailsOpen = true;
       renderExplorerResult(data);
       els.outputPanel.querySelector(".tab-panel")?.focus?.();
     });
+  });
+  const quickChecks = els.outputPanel.querySelector(".quick-checks");
+  quickChecks?.addEventListener("toggle", (event) => {
+    state.explorerQuickChecksOpen = event.currentTarget.open;
+  });
+  const styleDetails = els.outputPanel.querySelector(".style-details");
+  styleDetails?.addEventListener("toggle", (event) => {
+    state.explorerStyleDetailsOpen = event.currentTarget.open;
   });
   bindCopy("[data-copy-summary]", `Writing style summary: ${summary}`, "Explorer summary copied.");
   bindCopy("[data-copy-explorer-report]", explorerReportText(summary, nextAction, profile), "Clean writing report copied.");
@@ -2104,6 +2152,8 @@ function renderExplorerResult(data) {
     state.explorerPromptTitle = "";
     state.explorerPromptText = "";
     state.explorerPromptSource = "";
+    state.explorerQuickChecksOpen = false;
+    state.explorerStyleDetailsOpen = false;
     render();
   });
   els.outputPanel.querySelector("[data-edit-explorer-input]")?.addEventListener("click", () => {
@@ -2605,6 +2655,7 @@ function renderEnterpriseResult(data) {
   els.outputPanel.querySelector("[data-open-crm-setup]")?.addEventListener("click", () => {
     state.activeEnterpriseTab = "tools";
     state.activeEnterpriseTool = "insights";
+    state.integrationSetupOpen = true;
     state.lastActionNote = enterpriseToolNote("insights");
     renderEnterpriseResult(data);
   });
@@ -2797,6 +2848,9 @@ function renderEnterpriseResult(data) {
       const name = button.dataset.crm;
       const current = state.crmConnections[name];
       if (current !== "connected") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = "insights";
+        state.integrationSetupOpen = true;
         state.lastActionNote = `${name} setup requires real credentials and provider approval.`;
         showToast(button, `${name} needs credentials before export.`);
         renderEnterpriseResult(data);
@@ -2831,8 +2885,6 @@ function renderEnterpriseResult(data) {
     state.batchInput = batchInput.value;
     state.batchProgress = 0;
     state.batchErrors = [];
-    const generateButton = els.outputPanel.querySelector("[data-generate-batch]");
-    if (generateButton) generateButton.disabled = !state.batchInput.trim();
     persistWorkspace();
   });
   els.outputPanel.querySelector("[data-generate-batch]")?.addEventListener("click", () => {
@@ -3289,7 +3341,6 @@ function renderToolPanel(context, sequence, angles) {
 function batchPanel(context) {
   const errors = state.batchErrors.length ? `<div class="error-list">${state.batchErrors.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
   const batchValue = state.batchInput || "";
-  const canGenerate = Boolean(batchValue.trim());
   const canExport = state.batchRows.length > 0;
   return `
     <div class="batch-workspace">
@@ -3308,7 +3359,7 @@ function batchPanel(context) {
         <p class="muted">${state.batchProgress ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns before generating."}</p>
         <div class="result-actions split-actions">
           <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
-          <button type="button" data-generate-batch ${canGenerate ? "" : "disabled"}>Generate batch briefs</button>
+          <button type="button" data-generate-batch>Generate batch briefs</button>
           <button class="button-secondary" type="button" data-export-batch ${canExport ? "" : "disabled"}>Download export CSV</button>
         </div>
       </article>
@@ -3483,7 +3534,7 @@ function analyticsWorkspace(context, angles) {
           ` : `<p class="muted">No exports yet. Export a campaign or batch to start the audit trail.</p>`}
         </article>
       </details>
-      <details class="analytics-section">
+      <details class="analytics-section" ${state.integrationSetupOpen ? "open" : ""}>
         <summary>Integrations and admin</summary>
         <article class="strategy-card">
           <strong>CRM import/export status</strong>
@@ -4357,11 +4408,14 @@ async function runAnalysis(text) {
     state.enterpriseDrafts = [];
     state.enterpriseInputsCollapsed = true;
     state.enterpriseSetupOpen = false;
+    state.integrationSetupOpen = false;
     state.campaignSaved = false;
     state.lastActionNote = landingTab === "dashboard" ? "Sample workspace ready. Next: open the review queue." : "Next: review the recommended draft, then approve or export.";
   } else {
     state.activeExplorerTab = "style";
     state.explorerSavedMessage = "";
+    state.explorerQuickChecksOpen = false;
+    state.explorerStyleDetailsOpen = false;
   }
   els.outputPanel.innerHTML = uiHelpers.loadingCard?.(state.mode) || `<div class="empty-hero fade-in"><span class="status-pill">Working</span><h2>Reading the submitted text...</h2><p class="muted">Preparing the next view.</p></div>`;
   uiHelpers.focusWithin?.(els.outputPanel, ".loading-card");
@@ -4453,6 +4507,8 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || !state.accountModalOpen) return;
   state.accountModalOpen = false;
   state.accountError = "";
+  state.accountDeletePending = false;
+  state.accountCodePanelOpen = false;
   renderAccountCard();
 });
 

@@ -30,6 +30,7 @@ def main() -> int:
     ui_js = client.get("/static/ui_helpers.js").get_data(as_text=True)
     csv_js = client.get("/static/csv_utils.js").get_data(as_text=True)
     enterprise_copy_js = client.get("/static/enterprise_copy.js").get_data(as_text=True)
+    styles_css = client.get("/static/styles.css").get_data(as_text=True)
 
     assert_true("workflow" in config_js and "Import" in config_js and "Track" in config_js, "enterprise workflow config missing")
     assert_true("TextTraitsUtils" in utils_js and "escapeHtml" in utils_js, "text utility module missing")
@@ -72,7 +73,11 @@ def main() -> int:
     assert_true("copyInput) copyInput.disabled = !text.trim()" in app_js, "Copy input should be disabled until the user has text")
     assert_true("confirm(" not in app_js and "accountDeletePending" in app_js, "Account deletion should avoid native confirm dialogs")
     assert_true("showAccountError" in app_js and "passwordPolicyMessage" in app_js, "Account sheet should validate obvious input errors before calling the API")
+    assert_true("accountCodePanelOpen" in app_js and "scrollAccountCodePanelIntoView" in app_js, "Email code account panel should stay reachable on mobile")
     assert_true("copyTextFromButton" in app_js and "Clipboard unavailable" in app_js, "Copy actions should handle unavailable clipboard APIs")
+    assert_true("sheetIn" in styles_css and "softReveal" in styles_css and "prefers-reduced-motion" in styles_css, "Subtle UI motion should be present and respect reduced motion")
+    assert_true("explorerStyleDetailsOpen" in app_js and "explorerQuickChecksOpen" in app_js, "Explorer result drawers should preserve open state during tab changes")
+    assert_true("opacity: 0.94" in styles_css and "opacity: 0.96" in styles_css, "Animations should stay subtle enough to avoid blank-feeling transitions")
 
     enterprise_requirements = (
         "Today's work",
@@ -98,6 +103,8 @@ def main() -> int:
     )
     for phrase in enterprise_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")
+    assert_true("integrationSetupOpen" in app_js, "CRM setup actions should open the exact setup section")
+    assert_true('data-generate-batch ${canGenerate' not in app_js and 'data-generate-batch>Generate batch briefs' in app_js, "Batch generate should stay clickable so empty input can show helpful guidance")
 
     print("Frontend regression checks passed.")
     return 0
