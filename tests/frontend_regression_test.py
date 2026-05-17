@@ -62,9 +62,14 @@ def main() -> int:
         "sourceExcerpt",
         "data-open-journal",
         "data-apply-journal-filter",
+        "selected-prompt",
+        "explorerPlaceholder",
     )
     for phrase in explorer_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Explorer coach flow missing {phrase}")
+    assert_true("dailyPromptSample" not in app_js, "Daily prompt should not carry sample responses into the writing field")
+    assert_true("input.value = `${prompt.prompt}" not in app_js, "Prompt library should not write prompts into the writing sample")
+    assert_true("copyInput) copyInput.disabled = !text.trim()" in app_js, "Copy input should be disabled until the user has text")
 
     enterprise_requirements = (
         "Today's work",
@@ -76,10 +81,13 @@ def main() -> int:
         "status-token",
         "data-review-draft",
         "data-review-prospect",
+        "data-tree-shortcut",
         "Operations",
         "\"insights\", \"Insights\"",
         "data-enterprise-primary-tab=\"drafts\"",
         "Paste CSV rows or load the sample CSV first.",
+        "data-review-row",
+        "data-export-row",
         "enterpriseTabNote",
         "enterpriseToolNote",
         "parseCsvLine",

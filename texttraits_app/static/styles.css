@@ -1334,6 +1334,40 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   line-height: 1.35;
 }
 
+.prompt-card small {
+  color: var(--quiet);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.selected-prompt {
+  display: grid;
+  gap: 6px;
+  padding: 11px;
+  border: 1px solid rgba(13, 122, 111, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(239, 247, 244, 0.72);
+}
+
+.selected-prompt strong {
+  font-size: 16px;
+}
+
+.selected-prompt p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.selected-prompt .quiet-button {
+  width: fit-content;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none;
+}
+
 .onboarding-card {
   display: grid;
   gap: 12px;

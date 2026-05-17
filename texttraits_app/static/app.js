@@ -98,6 +98,9 @@ const state = {
   explorerRewriteGoal: "Email",
   explorerRewriteMode: "clearer",
   explorerSavedMessage: "",
+  explorerPromptTitle: "",
+  explorerPromptText: "",
+  explorerPromptSource: "",
   batchMapping: {
     first_name: "first_name",
     company: "company",
@@ -205,31 +208,31 @@ const industryPlaybooks = [
 const dailyPrompts = [
   {
     title: "One thing you understood better today",
-    sample: "Today I understood that the problem was not the amount of work in front of me, but the way I was trying to hold every detail at once. Once I wrote down the next two decisions, the whole situation felt calmer and easier to explain to someone else.",
+    prompt: "Write about one thing that became clearer today. Use your own words and include what changed in how you see it.",
   },
   {
     title: "A decision you made today",
-    sample: "I decided to slow down and ask for one clearer example before moving forward. I had enough information to guess, but guessing would probably create more work later. The better choice was to name what I did not understand yet and make the next step smaller.",
+    prompt: "Write about a decision you made today, why you made it, and what the next step is.",
   },
   {
     title: "A problem you are working through",
-    sample: "I am trying to work through a problem that has too many possible starting points. The goal is clear, but the path still feels messy. I think the next useful move is to separate what matters today from what can wait, then explain that decision simply.",
+    prompt: "Write about a problem you are working through. Name what feels messy and what would make the next step smaller.",
   },
   {
     title: "Something harder than expected",
-    sample: "Something felt harder than expected today because I kept treating a small mistake like proof that the whole plan was weak. When I looked again, the mistake was specific and fixable. I want my next message to sound honest without making the situation feel bigger than it is.",
+    prompt: "Write about something that felt harder than expected. Try to separate the facts from the worry around it.",
   },
   {
     title: "One idea to remember tomorrow",
-    sample: "The idea I want to remember tomorrow is that clarity usually comes from removing one extra thought, not adding three new explanations. If I can say the main point first, then give one example and one next step, the message becomes easier to trust.",
+    prompt: "Write down one idea you want to remember tomorrow and why it matters.",
   },
   {
     title: "A message that could be clearer and kinder",
-    sample: "I want to rewrite a message so it sounds clearer and kinder. The original version explains the issue, but it may feel sharper than I intend. I want to keep the boundary, remove the extra frustration, and make the next step obvious for the other person.",
+    prompt: "Draft a message that could be clearer and kinder. Keep the boundary, remove extra frustration, and make the next step obvious.",
   },
   {
     title: "Something you noticed today",
-    sample: "Today I noticed that people responded better when I gave the reason before the request. The request did not change, but the context made it feel less abrupt. That is a useful reminder: a short explanation can make a practical message feel more respectful.",
+    prompt: "Write about something you noticed today. Include what happened and what it might teach you for tomorrow.",
   },
 ];
 
@@ -275,6 +278,9 @@ function loadWorkspace() {
     if (typeof saved.explorerJournalFolder === "string") state.explorerJournalFolder = saved.explorerJournalFolder;
     if (typeof saved.explorerWritingGoal === "string") state.explorerWritingGoal = saved.explorerWritingGoal;
     if (typeof saved.explorerRewriteGoal === "string") state.explorerRewriteGoal = saved.explorerRewriteGoal;
+    if (typeof saved.explorerPromptTitle === "string") state.explorerPromptTitle = saved.explorerPromptTitle;
+    if (typeof saved.explorerPromptText === "string") state.explorerPromptText = saved.explorerPromptText;
+    if (typeof saved.explorerPromptSource === "string") state.explorerPromptSource = saved.explorerPromptSource;
     if (saved.enterpriseContext) state.enterpriseContext = saved.enterpriseContext;
     if (typeof saved.mode === "string") state.mode = saved.mode;
   } catch (error) {
@@ -314,6 +320,9 @@ function workspacePayload() {
     explorerJournalFolder: state.explorerJournalFolder,
     explorerWritingGoal: state.explorerWritingGoal,
     explorerRewriteGoal: state.explorerRewriteGoal,
+    explorerPromptTitle: state.explorerPromptTitle,
+    explorerPromptText: state.explorerPromptText,
+    explorerPromptSource: state.explorerPromptSource,
     batchMapping: state.batchMapping,
     exportHistory: state.exportHistory.slice(0, 30),
     reviewQueue: state.reviewQueue.slice(0, 50),
@@ -468,8 +477,51 @@ function dailyPromptTitle() {
   return dailyPrompt().title || dailyPrompt();
 }
 
-function dailyPromptSample() {
-  return dailyPrompt().sample || dailyPrompt();
+function dailyPromptInstruction() {
+  const prompt = dailyPrompt();
+  return prompt.prompt || `Write your own response to this prompt: ${dailyPromptTitle()}.`;
+}
+
+function activeExplorerPrompt() {
+  if (!state.explorerPromptTitle || !state.explorerPromptText) return null;
+  return {
+    title: state.explorerPromptTitle,
+    text: state.explorerPromptText,
+    source: state.explorerPromptSource || "Prompt",
+  };
+}
+
+function explorerPlaceholder() {
+  const prompt = activeExplorerPrompt();
+  if (!prompt) return "Paste an email, journal note, comment, essay paragraph, or message draft.";
+  return `Write your own response to: ${prompt.title}. Nothing will be filled in for you.`;
+}
+
+function explorerPromptGuidance() {
+  const prompt = activeExplorerPrompt();
+  if (!prompt) return "";
+  return `
+    <aside class="selected-prompt" aria-label="Selected writing prompt">
+      <span class="label">${escapeHtml(prompt.source)}</span>
+      <strong>${escapeHtml(prompt.title)}</strong>
+      <p>${escapeHtml(prompt.text)}</p>
+      <button class="quiet-button" type="button" data-clear-explorer-prompt>Clear prompt</button>
+    </aside>
+  `;
+}
+
+function selectExplorerPrompt({title, text, source = "Prompt"}) {
+  state.explorerPromptTitle = title;
+  state.explorerPromptText = text;
+  state.explorerPromptSource = source;
+  if (!state.explorerReadingName) state.explorerReadingName = title;
+  state.latestData = null;
+  persistWorkspace();
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector("#explorer-text")?.focus();
+    uiHelpers.announce?.(els.announcer, `${title} selected. Write your own response in the writing sample box.`);
+  });
 }
 
 function modeFromPath(pathname = window.location.pathname) {
@@ -879,7 +931,8 @@ function renderExplorerInput() {
 
     <div class="field">
       <label for="explorer-text">Writing sample</label>
-      <textarea id="explorer-text" placeholder="Paste an email, journal note, comment, essay paragraph, or message draft.">${escapeHtml(state.latestText)}</textarea>
+      ${explorerPromptGuidance()}
+      <textarea id="explorer-text" placeholder="${escapeHtml(explorerPlaceholder())}">${escapeHtml(state.latestText)}</textarea>
     </div>
 
     <div class="quality-row">
@@ -920,6 +973,7 @@ function renderExplorerInput() {
             <button class="prompt-card" type="button" data-prompt-index="${index}">
               <strong>${escapeHtml(item.name)}</strong>
               <span>${escapeHtml(item.goal)}</span>
+              <small>${escapeHtml(item.prompt)}</small>
             </button>
           `).join("")}
         </div>
@@ -1099,18 +1153,6 @@ function renderExplorerEmpty() {
       `}
 
       ${renderOnboardingCard("explorer")}
-
-      <details class="advanced-card prompt-library-card">
-        <summary>Open prompt library</summary>
-        <div class="prompt-library">
-          ${consumerPromptLibrary.map((item, index) => `
-            <button class="prompt-card" type="button" data-prompt-index="${index}">
-              <strong>${escapeHtml(item.name)}</strong>
-              <span>${escapeHtml(item.goal)}</span>
-            </button>
-          `).join("")}
-        </div>
-      </details>
 
       <details class="advanced-card">
         <summary>Privacy controls</summary>
@@ -1759,9 +1801,9 @@ function renderExplorerResult(data) {
           <strong>${escapeHtml(nextAction)}</strong>
           <p>Pick one goal. The rewrite keeps your meaning and changes only the delivery.</p>
           <div class="quick-rewrite-actions primary-rewrite-actions">
-            <button type="button" data-explorer-rewrite="clearer">Make clearer</button>
-            <button class="button-secondary" type="button" data-explorer-rewrite="warmer">Make warmer</button>
-            <button class="button-secondary" type="button" data-explorer-rewrite="shorter">Make shorter</button>
+            <button type="button" data-explorer-rewrite="clearer" aria-pressed="${String(state.explorerRewriteMode === "clearer")}">Make clearer</button>
+            <button class="button-secondary" type="button" data-explorer-rewrite="warmer" aria-pressed="${String(state.explorerRewriteMode === "warmer")}">Make warmer</button>
+            <button class="button-secondary" type="button" data-explorer-rewrite="shorter" aria-pressed="${String(state.explorerRewriteMode === "shorter")}">Make shorter</button>
           </div>
           <div class="rewrite-goals">
             ${primaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
@@ -1777,8 +1819,8 @@ function renderExplorerResult(data) {
         </article>
         <article class="strategy-card coach-card rewrite-card">
           <span class="label">Try this rewrite</span>
-          <strong>${escapeHtml(state.explorerRewriteGoal)} version</strong>
-          <p>${escapeHtml(rewritePreview)}</p>
+          <strong data-rewrite-title>${escapeHtml(state.explorerRewriteGoal)} version</strong>
+          <p data-rewrite-preview>${escapeHtml(rewritePreview)}</p>
           <div class="result-actions">
             <button type="button" data-copy-rewrite>Copy rewrite</button>
             <button class="button-secondary" type="button" data-save-reading>Update journal</button>
@@ -1838,7 +1880,11 @@ function renderExplorerResult(data) {
   });
   bindCopy("[data-copy-summary]", `Writing style summary: ${summary}`, "Explorer summary copied.");
   bindCopy("[data-copy-explorer-report]", explorerReportText(summary, nextAction, profile), "Clean writing report copied.");
-  bindCopy("[data-copy-rewrite]", rewritePreview, "Rewrite copied.");
+  els.outputPanel.querySelector("[data-copy-rewrite]")?.addEventListener("click", async (event) => {
+    await navigator.clipboard.writeText(makeExplorerRewrite(state.latestText, state.explorerRewriteMode));
+    trackEvent("copy", {message: "Rewrite copied."});
+    showToast(event.currentTarget, "Rewrite copied.");
+  });
   const nameField = els.outputPanel.querySelector("#result-reading-name");
   const folderField = els.outputPanel.querySelector("#field-resultExplorerFolder");
   const journalSearch = els.outputPanel.querySelector("#journal-search");
@@ -1900,8 +1946,15 @@ function renderExplorerResult(data) {
       recordVersion("Explorer rewrite", button.textContent.trim(), before, after, `${button.textContent.trim()} generated`);
       state.activeExplorerTab = "style";
       state.explorerRewriteMode = button.dataset.explorerRewrite;
-      renderExplorerResult(data);
-      showToast(els.outputPanel.querySelector(`[data-explorer-rewrite="${button.dataset.explorerRewrite}"]`) || button, `${button.textContent.trim()} version ready.`);
+      persistWorkspace();
+      const title = els.outputPanel.querySelector("[data-rewrite-title]");
+      const preview = els.outputPanel.querySelector("[data-rewrite-preview]");
+      if (title) title.textContent = `${state.explorerRewriteGoal} version`;
+      if (preview) preview.textContent = after;
+      els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((item) => {
+        item.setAttribute("aria-pressed", String(item.dataset.explorerRewrite === state.explorerRewriteMode));
+      });
+      showToast(button, `${button.textContent.trim()} version ready.`);
     });
   });
   els.outputPanel.querySelector("[data-open-journal]")?.addEventListener("click", () => {
@@ -2393,6 +2446,25 @@ function renderEnterpriseResult(data) {
       els.outputPanel.querySelector(".workspace-panel")?.focus?.();
     });
   });
+  els.outputPanel.querySelectorAll("[data-tree-shortcut]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const shortcut = button.dataset.treeShortcut;
+      if (shortcut === "campaigns") {
+        state.activeEnterpriseTab = "dashboard";
+        state.lastActionNote = "Opened the campaign dashboard.";
+      } else if (shortcut === "batch" || shortcut === "inbox") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = shortcut;
+        state.lastActionNote = enterpriseToolNote(shortcut);
+      } else if (shortcut === "personas" || shortcut === "templates") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = "libraries";
+        state.lastActionNote = shortcut === "personas" ? "Opened persona and ICP libraries." : "Opened team templates and brand voice.";
+      }
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
   els.outputPanel.querySelectorAll("[data-enterprise-primary-tab]").forEach((button) => {
     button.addEventListener("click", (event) => {
       state.activeEnterpriseTab = event.currentTarget.dataset.enterprisePrimaryTab;
@@ -2457,6 +2529,34 @@ function renderEnterpriseResult(data) {
       const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.copyRow));
       await navigator.clipboard.writeText(row ? `${row.subject}\n${row.signal}` : "");
       showToast(button, "Brief copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-row]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.reviewRow));
+      if (!row) return;
+      row.status = "Needs review";
+      row.next = "Approve or edit";
+      state.selectedProspectId = Number(row.id);
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = `${row.first_name} at ${row.company} moved into review.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".prospect-detail-card")?.setAttribute("open", "");
+      els.outputPanel.querySelector(".draft-editor")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-export-row]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.exportRow));
+      if (!row) return;
+      row.status = "Exported";
+      row.next = "Track outcome";
+      state.selectedProspectId = Number(row.id);
+      recordExport(`Batch row: ${row.company}`, context.project, 1);
+      state.lastActionNote = `${row.first_name} at ${row.company} marked exported.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
     });
   });
   els.outputPanel.querySelectorAll("[data-transform]").forEach((button) => {
@@ -2739,18 +2839,18 @@ function projectSidebar(context) {
   const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
   const rows = state.sampleWorkspaceLoaded
     ? [
-      ["Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
-      ["Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
-      ["Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
-      ["Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
-      ["Templates", `Sample: ${outboundTemplates.length} approved`],
+      ["campaigns", "Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
+      ["batch", "Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
+      ["inbox", "Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
+      ["personas", "Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
+      ["templates", "Templates", `Sample: ${outboundTemplates.length} approved`],
     ]
     : [
-      ["Campaigns", "No saved campaigns"],
-      ["Batches", "No imported prospects"],
-      ["Replies", "Connect inbox"],
-      ["Personas", "Create library"],
-      ["Templates", "Add templates"],
+      ["campaigns", "Campaigns", "No saved campaigns"],
+      ["batch", "Batches", "No imported prospects"],
+      ["inbox", "Replies", "Connect inbox"],
+      ["personas", "Personas", "Create library"],
+      ["templates", "Templates", "Add templates"],
     ];
   return `
     <aside class="project-sidebar" aria-label="Project sidebar">
@@ -2758,7 +2858,7 @@ function projectSidebar(context) {
         <span class="label">Workspace</span>
         <strong>${escapeHtml(context.folder || "RevOps")}</strong>
       </div>
-      ${rows.map(([label, meta]) => `<button type="button" class="tree-row"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta)}</small></button>`).join("")}
+      ${rows.map(([key, label, meta]) => `<button type="button" class="tree-row" data-tree-shortcut="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta)}</small></button>`).join("")}
     </aside>
   `;
 }
@@ -3683,8 +3783,8 @@ function batchRowsHtml(context) {
       <div class="mini-brief">Subject: ${escapeHtml(row.subject)}<br>Angle: ${escapeHtml(context.pain || "pipeline quality")} with ${escapeHtml(context.proof || "proof point")}.</div>
       <div class="result-actions">
         <button class="button-secondary" type="button" data-copy-row="${escapeHtml(row.id)}">Copy brief</button>
-        <button class="button-secondary" type="button">Review</button>
-        <button class="button-secondary" type="button">Export row</button>
+        <button class="button-secondary" type="button" data-review-row="${escapeHtml(row.id)}">Review</button>
+        <button class="button-secondary" type="button" data-export-row="${escapeHtml(row.id)}">Export row</button>
       </div>
     </article>
   `).join("");
@@ -3823,6 +3923,7 @@ function recordExport(type, project, rows) {
 
 function showToast(anchor, message) {
   els.announcer.textContent = message;
+  (els.toastStack || document.body).querySelectorAll?.(".inline-toast").forEach((item) => item.remove());
   const toast = document.createElement("span");
   toast.className = "inline-toast";
   toast.textContent = message;
@@ -3889,6 +3990,9 @@ function wireInput() {
         state.explorerReadingName = "";
         state.explorerSavedMessage = "";
         state.latestData = null;
+        state.explorerPromptTitle = "";
+        state.explorerPromptText = "";
+        state.explorerPromptSource = "";
         persistWorkspace();
         render();
       });
@@ -3918,11 +4022,21 @@ function wireInput() {
       persistWorkspace();
     });
     document.querySelector("[data-use-daily-prompt]")?.addEventListener("click", () => {
-      input.value = dailyPromptSample();
-      input.focus();
       state.latestText = input.value;
-      updateInputStats("explorer", input.value);
+      selectExplorerPrompt({
+        title: dailyPromptTitle(),
+        text: dailyPromptInstruction(),
+        source: "Today's prompt",
+      });
+    });
+    document.querySelector("[data-clear-explorer-prompt]")?.addEventListener("click", () => {
+      state.latestText = input.value;
+      state.explorerPromptTitle = "";
+      state.explorerPromptText = "";
+      state.explorerPromptSource = "";
       persistWorkspace();
+      render();
+      requestAnimationFrame(() => document.querySelector("#explorer-text")?.focus());
     });
     document.querySelector("#technical-visible").addEventListener("change", (event) => {
       state.technicalVisible = event.target.value === "show";
@@ -3938,6 +4052,10 @@ function wireInput() {
       state.explorerReadingName = "";
       state.explorerSavedMessage = "";
       state.latestData = null;
+      state.explorerPromptTitle = "";
+      state.explorerPromptText = "";
+      state.explorerPromptSource = "";
+      persistWorkspace();
       render();
     });
     document.querySelector("#copy-explorer-input").addEventListener("click", async () => {
@@ -4024,14 +4142,13 @@ function wireInput() {
       const prompt = consumerPromptLibrary[Number(button.dataset.promptIndex)];
       const input = document.querySelector("#explorer-text");
       if (!prompt || !input) return;
-      input.value = `${prompt.prompt}\n\n`;
       state.latestText = input.value;
-      state.explorerReadingName = prompt.name;
       state.explorerWritingGoal = prompt.goal.includes("clear") ? "Make this clearer" : prompt.goal.includes("accountable") ? "Sound less harsh" : "Make this warmer";
-      updateInputStats("explorer", input.value);
-      persistWorkspace();
-      renderExplorerEmpty();
-      input.focus();
+      selectExplorerPrompt({
+        title: prompt.name,
+        text: prompt.prompt,
+        source: "Prompt library",
+      });
     });
   });
 
@@ -4073,6 +4190,7 @@ function updateInputStats(prefix, text) {
   const quality = document.querySelector(`#${prefix}-quality`);
   const meter = document.querySelector(`#${prefix}-meter`);
   const action = prefix === "enterprise" ? document.querySelector("#generate-enterprise") : document.querySelector("#analyze-explorer");
+  const copyInput = prefix === "explorer" ? document.querySelector("#copy-explorer-input") : null;
   if (count) count.textContent = `${stats.words} ${stats.words === 1 ? "word" : "words"}`;
   if (quality) quality.textContent = stats.words ? (stats.words >= 40 ? "Good first-pass length." : "Short sample. Add more context for stronger output.") : (prefix === "enterprise" ? "Add prospect language to generate a brief." : "Add text to analyze.");
   if (meter) {
@@ -4081,6 +4199,7 @@ function updateInputStats(prefix, text) {
     meter.textContent = `${Math.round(value)}%`;
   }
   if (action) action.disabled = !text.trim();
+  if (copyInput) copyInput.disabled = !text.trim();
 }
 
 async function runAnalysis(text) {

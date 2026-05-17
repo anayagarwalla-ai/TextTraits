@@ -87,6 +87,8 @@ def main() -> int:
     assert_true("journal-search" in js, "Explorer journal search missing")
     assert_true("data-open-journal" in js and "data-apply-journal-filter" in js, "Explorer journal actions missing")
     assert_true('aria-controls="explorer-journal"' in js, "Explorer journal opener should expose controlled panel")
+    assert_true("selected-prompt" in js and "explorerPlaceholder" in js, "Explorer prompts should guide writing without filling the sample")
+    assert_true("dailyPromptSample" not in js, "Daily prompt should not include a sample-response autofill path")
     assert_true("integrationSetupCards" in js, "integration setup cards missing")
     assert_true("versionHistoryHtml" in js, "version history missing")
     assert_true("restoreVersion" in js, "restoreable version workflow missing")
