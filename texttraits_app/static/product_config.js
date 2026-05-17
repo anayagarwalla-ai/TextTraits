@@ -3,15 +3,15 @@
     products: {
       explorer: {
         name: "Explorer",
-        headline: "One paragraph. One clearer version.",
+        headline: "A clearer note, in your own voice.",
         compactHeadline: "Explorer",
-        promise: "A daily writing coach for ordinary notes, emails, and hard messages.",
+        promise: "Write one real paragraph. Get one plain read and one useful rewrite.",
       },
       enterprise: {
         name: "Enterprise",
-        headline: "Today’s outreach work, in order.",
+        headline: "Review the right draft next.",
         compactHeadline: "Enterprise",
-        promise: "Import, draft, review, export, and track from one focused workspace.",
+        promise: "A focused outreach workspace for import, draft, review, export, and outcome tracking.",
       },
     },
     rewriteGoals: ["Send as email", "Make it kinder", "Sound confident", "School-ready", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"],

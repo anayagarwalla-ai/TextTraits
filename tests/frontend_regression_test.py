@@ -68,6 +68,7 @@ def main() -> int:
         "daily-home-card",
         "streakMilestone",
         "inferExplorerSource",
+        "emailRewriteOpener",
         "goalRewriteClose",
         "mobile-result-actions",
     )
@@ -75,6 +76,7 @@ def main() -> int:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Explorer coach flow missing {phrase}")
     assert_true("dailyPromptSample" not in app_js, "Daily prompt should not carry sample responses into the writing field")
     assert_true("input.value = `${prompt.prompt}" not in app_js, "Prompt library should not write prompts into the writing sample")
+    assert_true('replace(/^i wanted to send/i, "Quick update:")' not in app_js, "Email rewrite opener should not create duplicated quick-update phrasing")
     assert_true("copyInput) copyInput.disabled = !text.trim()" in app_js, "Copy input should be disabled until the user has text")
     assert_true("confirm(" not in app_js and "accountDeletePending" in app_js, "Account deletion should avoid native confirm dialogs")
     assert_true("showAccountError" in app_js and "passwordPolicyMessage" in app_js, "Account sheet should validate obvious input errors before calling the API")
