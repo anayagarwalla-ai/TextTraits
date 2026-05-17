@@ -1066,6 +1066,12 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   font-weight: 800;
 }
 
+.command-meta .demo-badge {
+  border-color: rgba(76, 94, 120, 0.16);
+  background: rgba(244, 246, 250, 0.86);
+  color: #4c5e78;
+}
+
 .command-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1336,6 +1342,80 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   margin: 7px 0 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.explorer-daily-home {
+  gap: 12px;
+}
+
+.daily-home-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid rgba(206, 222, 216, 0.85);
+  border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(242,249,246,0.86));
+}
+
+.daily-home-card h2 {
+  margin-top: 4px;
+}
+
+.daily-home-card p {
+  max-width: 680px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.daily-home-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.daily-home-stats article,
+.editor-change-note,
+.team-comments,
+.inline-sample-menu {
+  border: 1px solid rgba(214, 226, 222, 0.78);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.daily-home-stats article {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.daily-home-stats span {
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.daily-home-stats p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.quiet-more-drawer {
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.quiet-more-drawer > summary {
+  font-size: 14px;
+}
+
+.mobile-result-actions {
+  display: none;
 }
 
 .daily-insight-grid {
@@ -2455,6 +2535,25 @@ body[data-mode="enterprise"] .advanced-card {
   font-weight: 800;
 }
 
+.inline-sample-menu {
+  display: inline-grid;
+  align-items: center;
+  padding: 0;
+  border: 1px solid rgba(214, 222, 234, 0.78);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.inline-sample-menu summary {
+  cursor: pointer;
+  padding: 10px 13px;
+  font-weight: 900;
+}
+
+.inline-sample-menu button {
+  margin: 0 8px 8px;
+}
+
 .error-list span {
   border-color: rgba(162, 61, 46, 0.24);
   background: var(--warn-soft);
@@ -2613,6 +2712,14 @@ body[data-mode="enterprise"] .advanced-card {
   grid-template-columns: minmax(190px, 0.36fr) minmax(0, 1fr);
 }
 
+.drafts-workspace.is-focus-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.drafts-workspace.is-focus-mode .review-queue {
+  display: none;
+}
+
 .review-queue {
   display: grid;
   align-content: start;
@@ -2672,6 +2779,48 @@ body[data-mode="enterprise"] .advanced-card {
 
 .draft-focus-card .section-title {
   margin-bottom: 0;
+}
+
+.editor-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 8px;
+  align-items: center;
+}
+
+.editor-change-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(214, 222, 234, 0.78);
+  border-radius: var(--radius-sm);
+  background: rgba(245, 247, 251, 0.86);
+  color: #364153;
+}
+
+.editor-change-note span {
+  color: var(--muted);
+}
+
+.team-comments {
+  padding: 10px 12px;
+  border: 1px solid rgba(214, 222, 234, 0.78);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.comment-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.comment-list span {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .draft-subject {
@@ -3131,9 +3280,27 @@ body[data-mode="enterprise"] .advanced-card {
 
 .footer-note {
   display: none;
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 30;
+  max-width: min(520px, calc(100vw - 28px));
+  padding: 8px 11px;
+  border: 1px solid rgba(214, 222, 234, 0.82);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 26px rgba(31, 41, 55, 0.08);
   color: var(--quiet);
   font-size: 12px;
-  text-align: right;
+  text-align: left;
+  backdrop-filter: blur(12px);
+}
+
+.footer-note a {
+  margin-left: 8px;
+  color: var(--accent-strong);
+  font-weight: 900;
+  text-decoration: none;
 }
 
 body.is-local-runtime .footer-note {
@@ -3348,6 +3515,46 @@ details[open] > *:not(summary) {
   .mode-switch button {
     padding: 7px 8px;
     font-size: 12px;
+  }
+
+  .daily-home-card,
+  .daily-home-stats,
+  .focus-stats,
+  .dashboard-focus-card .compact-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-home-card {
+    padding: 14px;
+  }
+
+  .daily-home-card p {
+    font-size: 14px;
+  }
+
+  body[data-mode="enterprise"] .enterprise-command-header {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  body[data-mode="enterprise"] .command-actions,
+  body[data-mode="enterprise"] .command-meta {
+    display: none;
+  }
+
+  body[data-mode="enterprise"] .compact-workspace-nav {
+    padding: 3px;
+  }
+
+  body[data-mode="enterprise"] .compact-workspace-nav button,
+  body[data-mode="enterprise"] .tool-switcher button {
+    min-height: 34px;
+    padding: 6px 7px;
+    font-size: 12px;
+  }
+
+  body[data-mode="enterprise"] .project-sidebar {
+    display: none;
   }
 
   h1 {
@@ -3680,6 +3887,26 @@ details[open] > *:not(summary) {
     grid-template-columns: 1fr;
   }
 
+  .mobile-result-actions {
+    display: grid;
+    grid-template-columns: 1fr 0.72fr 0.72fr;
+    gap: 6px;
+    position: sticky;
+    bottom: 56px;
+    z-index: 20;
+    padding: 8px;
+    border: 1px solid rgba(214, 222, 234, 0.9);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 14px 30px rgba(31, 41, 55, 0.10);
+    backdrop-filter: blur(12px);
+  }
+
+  .mobile-result-actions button {
+    min-height: 42px;
+    padding: 8px 10px;
+  }
+
   body[data-mode="enterprise"] .empty-hero,
   body[data-mode="enterprise"] .strategy-card,
   body[data-mode="enterprise"] .guide-card,
@@ -3706,7 +3933,12 @@ details[open] > *:not(summary) {
   }
 
   body.is-local-runtime .footer-note {
-    display: none;
+    display: block;
+    right: 10px;
+    left: 10px;
+    bottom: 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
   }
 
   .explorer-result .metric-card,

@@ -32,6 +32,8 @@ def main() -> int:
     assert_true("focus-visible" in css, "visible focus styles missing")
     assert_true("aria-pressed" in js, "pressed states missing for toggle-like buttons")
     assert_true("aria-label" in js or "aria-label" in html, "accessible labels missing")
+    assert_true("trapAccountFocus" in js and 'event.key === "Tab"' in js, "account modal focus trap missing")
+    assert_true("mobile-result-actions" in js and "mobile-result-actions" in css, "mobile result-first actions missing")
     assert_true("clientError" in js, "client-side error reporting missing")
     assert_true("toast-stack" in html and "toast-stack" in css, "consistent toast region missing")
     assert_true("role=\"status\"" in ui_js and "role=\"alert\"" in ui_js, "shared loading/error states need live semantics")

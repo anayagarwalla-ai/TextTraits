@@ -78,6 +78,7 @@ def main() -> int:
 
             page.goto(f"{BASE}/enterprise?visual=1", wait_until="load")
             page.screenshot(path=str(OUT / "enterprise-empty.png"), full_page=False)
+            page.get_by_text("Load sample workspace", exact=True).click()
             page.get_by_role("button", name="Generate sample drafts").click()
             expect(page.get_by_text("Sample workspace ready. Next: open the review queue.", exact=True)).to_be_visible(timeout=15000)
             page.screenshot(path=str(OUT / "enterprise-dashboard.png"), full_page=False)
@@ -104,6 +105,7 @@ def main() -> int:
 
             page.set_viewport_size({"width": 390, "height": 844})
             page.goto(f"{BASE}/enterprise?visual=mobile", wait_until="load")
+            page.get_by_text("Load sample workspace", exact=True).click()
             page.get_by_role("button", name="Generate sample drafts").click()
             expect(page.get_by_text("Sample workspace ready. Next: open the review queue.", exact=True)).to_be_visible(timeout=15000)
             page.screenshot(path=str(OUT / "enterprise-mobile.png"), full_page=False)

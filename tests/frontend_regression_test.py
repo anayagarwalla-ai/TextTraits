@@ -65,6 +65,11 @@ def main() -> int:
         "data-apply-journal-filter",
         "selected-prompt",
         "explorerPlaceholder",
+        "daily-home-card",
+        "streakMilestone",
+        "inferExplorerSource",
+        "goalRewriteClose",
+        "mobile-result-actions",
     )
     for phrase in explorer_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Explorer coach flow missing {phrase}")
@@ -100,10 +105,15 @@ def main() -> int:
         "enterpriseTabNote",
         "enterpriseToolNote",
         "parseCsvLine",
+        "enterpriseFocusMode",
+        "Focus editor",
+        "What changed",
+        "Local demo / preview integrations",
     )
     for phrase in enterprise_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")
     assert_true("integrationSetupOpen" in app_js, "CRM setup actions should open the exact setup section")
+    assert_true("Local demo:" in html and "Privacy" in html and "Terms" in html, "Local demo footer should expose trust links")
     assert_true('data-generate-batch ${canGenerate' not in app_js and 'data-generate-batch>Generate batch briefs' in app_js, "Batch generate should stay clickable so empty input can show helpful guidance")
 
     print("Frontend regression checks passed.")
