@@ -1282,6 +1282,49 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   line-height: 1.05;
 }
 
+.message-coach-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(216, 226, 220, 0.72);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(239,247,244,0.72));
+}
+
+.message-coach-strip p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.mode-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mode-chip {
+  min-height: 34px;
+  padding: 7px 10px;
+  border-color: rgba(214, 222, 234, 0.88);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #44524c;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mode-chip[aria-pressed="true"] {
+  border-color: rgba(22, 128, 116, 0.4);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 1px rgba(22, 128, 116, 0.12);
+}
+
 .coach-flow {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
@@ -1296,6 +1339,63 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .coach-card.rewrite-card {
   grid-column: 1 / -1;
   background: #fff;
+}
+
+.coach-insight-grid,
+.dashboard-coaching-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.coach-insight-grid.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.triage-card,
+.decision-card,
+.personal-profile-card {
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mini-grid span {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(247, 248, 250, 0.72);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.36;
+}
+
+.mini-grid b {
+  color: var(--ink);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.profile-snapshot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.profile-snapshot span {
+  padding: 7px 10px;
+  border: 1px solid rgba(216, 226, 220, 0.72);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .friendly-score {
@@ -3084,6 +3184,18 @@ body.enterprise-collapsed .project-sidebar {
   flex: 1 0 100%;
 }
 
+.send-checklist span.is-ok {
+  border-color: rgba(22, 128, 116, 0.24);
+  background: rgba(219, 242, 237, 0.58);
+  color: var(--accent-strong);
+}
+
+.send-checklist span.needs-work {
+  border-color: rgba(176, 112, 44, 0.28);
+  background: rgba(255, 244, 224, 0.78);
+  color: #7a4a12;
+}
+
 body[data-mode="enterprise"] .strategy-card,
 body[data-mode="enterprise"] .guide-card,
 body[data-mode="enterprise"] .metric-card,
@@ -3568,6 +3680,63 @@ body[data-mode="enterprise"] .advanced-card {
 .batch-progress progress::-moz-progress-bar {
   border-radius: inherit;
   background: var(--blue);
+}
+
+.batch-qa-panel,
+.outcome-learning-card,
+.manager-coaching-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(214, 222, 234, 0.62);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(247,248,250,0.78));
+}
+
+.qa-list,
+.manager-coaching-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qa-list span,
+.manager-coaching-list span,
+.qa-token {
+  border: 1px solid rgba(214, 222, 234, 0.82);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.qa-list b,
+.manager-coaching-list b {
+  color: var(--ink);
+}
+
+.manager-coaching-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.manager-coaching-list span {
+  display: grid;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  line-height: 1.35;
+}
+
+.manager-coaching-list em {
+  color: var(--accent-strong);
+  font-style: normal;
+}
+
+.qa-issues {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .split-actions button[data-generate-batch] {
@@ -4339,8 +4508,17 @@ details[open] > *:not(summary) {
     .enterprise-today-hero,
     .tools-command-center,
     .compact-draft-workspace,
-    .journal-before-after {
+    .journal-before-after,
+    .message-coach-strip,
+    .coach-insight-grid,
+    .dashboard-coaching-row,
+    .mini-grid,
+    .manager-coaching-list {
     grid-template-columns: 1fr;
+  }
+
+  .mode-chip-row {
+    justify-content: flex-start;
   }
 
   .account-sheet .auth-actions,
@@ -4739,9 +4917,10 @@ details[open] > *:not(summary) {
 
   body.is-local-runtime .footer-note {
     display: block;
-    right: 8px;
-    left: auto;
-    bottom: 8px;
+    position: static;
+    width: fit-content;
+    max-width: calc(100vw - 24px);
+    margin: 12px auto 18px;
     border-radius: var(--radius-sm);
     font-size: 11px;
   }
