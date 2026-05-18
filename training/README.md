@@ -78,6 +78,25 @@ browser Colab high-RAM cell that polls a GitHub job JSON and writes status to
 Drive. It avoids SSH, tunnels, inbound ports, and arbitrary remote code
 execution.
 
+## Model Output Diagnostics
+
+Use `training/evaluate_model_outputs.py` to tell how well a model is doing from
+its predictions and optional ground-truth labels. It reports accuracy, macro F1,
+balanced accuracy, simple baselines, calibration/error proxies, abstention
+coverage, text-quality stats, and row-level predictions.
+
+Local smoke example:
+
+```bash
+python training/evaluate_model_outputs.py \
+  --input-csv legacy_project/Data/pandora_big_info.csv \
+  --max-rows 5000 \
+  --sample-mode author
+```
+
+Full PANDORA evaluation should run in Colab because loading and joining the full
+dataset is memory-heavy.
+
 For a very fast debugging run:
 
 ```python
