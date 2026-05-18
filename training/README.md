@@ -70,6 +70,14 @@ that workflow, open `training/pycharm_colab_one_shot.ipynb` in PyCharm and use
 the notebook server menu to sign in to Google and create a Colab server. See
 `training/PYCHARM_COLAB_SETUP.md` for the local setup notes.
 
+## Remote Worker Option
+
+If PyCharm cannot reach a Colab server or does not expose the needed high-RAM
+runtime shape, use `training/COLAB_REMOTE_WORKER.md`. That workflow starts a
+browser Colab high-RAM cell that polls a GitHub job JSON and writes status to
+Drive. It avoids SSH, tunnels, inbound ports, and arbitrary remote code
+execution.
+
 For a very fast debugging run:
 
 ```python
