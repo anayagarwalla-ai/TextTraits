@@ -29,10 +29,9 @@ def main() -> int:
     assert_true("static/app.js" in html, "app script missing")
     assert_true("static/styles.css" in html, "stylesheet missing")
     assert_true("Strong confidence" not in html, "truth-confidence wording should not render")
-    removed_decision_word = "conse" + "quential"
-    assert_true(removed_decision_word not in html.lower(), "removed warning copy should not render")
-    removed_phrase = "may be " + "wron" + "g"
-    assert_true(removed_phrase not in html.lower(), "removed warning copy should not render")
+    assert_true("Responsible use" in html, "responsible-use note missing")
+    assert_true("not facts about a person" in html, "probabilistic framing missing")
+    assert_true("consequential decisions" in html, "consequential decision warning missing")
     assert_true("Developer tools" not in html, "developer tools should be hidden by default")
     assert_true("response-debug" not in html, "raw response debug should be hidden by default")
     assert_true("model_path" not in html, "model internals should not render in public HTML")
@@ -67,15 +66,18 @@ def main() -> int:
     assert_true("Writing log" in js, "Explorer writing log missing")
     assert_true("Save this reading" in js, "Explorer save-reading workflow missing")
     assert_true("Make clearer" in js, "Explorer rewrite action missing")
-    assert_true(removed_decision_word not in js.lower(), "removed warning copy should not render in JS")
-    assert_true(removed_phrase not in js.lower(), "removed warning copy should not render in JS")
-
     styles = client.get("/static/styles.css")
     assert_true(styles.status_code == 200, f"styles.css returned {styles.status_code}")
 
     health = client.get("/health")
     assert_true(health.status_code == 200, f"health returned {health.status_code}")
     assert_true("model" in health.get_json(), "health payload missing model")
+
+    dev_model = client.get("/dev/model")
+    assert_true(dev_model.status_code == 404, "developer model endpoint should be hidden by default")
+
+    dev_model = client.get("/dev/model")
+    assert_true(dev_model.status_code == 404, "developer model endpoint should be hidden by default")
 
     payload = {
         "text": (
@@ -91,6 +93,18 @@ def main() -> int:
     assert_true("predictions" in data, "response missing predictions")
     assert_true("gender" in data["predictions"], "response missing gender prediction")
     assert_true("text_stats" in data["predictions"], "response missing text stats")
+    serialized = str(data)
+    assert_true("raw_label" not in serialized, "public response should not expose raw labels")
+    assert_true("raw_value" not in serialized, "public response should not expose raw values")
+    assert_true("available_targets" not in serialized, "public response should not expose target internals")
+    for term in data["predictions"].get("gender", {}).get("cue_terms", []):
+        assert_true(set(term) == {"term"}, "public cue terms should omit model weights")
+    serialized = str(data)
+    assert_true("raw_label" not in serialized, "public response should not expose raw labels")
+    assert_true("raw_value" not in serialized, "public response should not expose raw values")
+    assert_true("available_targets" not in serialized, "public response should not expose target internals")
+    for term in data["predictions"].get("gender", {}).get("cue_terms", []):
+        assert_true(set(term) == {"term"}, "public cue terms should omit model weights")
 
     print("Smoke tests passed.")
     return 0

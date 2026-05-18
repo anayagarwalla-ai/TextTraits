@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
@@ -56,12 +57,19 @@ AVAILABLE_MODELS = [
 ]
 
 
+APP_DIR = Path(__file__).resolve().parent
+
+
 try:
     predictor = TextTraitsPredictor()
 except FileNotFoundError as error:
     predictor = DemoPredictor(error) if ALLOW_DEMO_MODE else MissingPredictor(error)
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=str(APP_DIR / "templates"),
+    static_folder=str(APP_DIR / "static"),
+)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
@@ -73,6 +81,31 @@ def public_model_info() -> dict:
         "name": "Demo predictor" if getattr(predictor, "is_demo", False) else "Local inference model",
         "target_count": len(getattr(predictor, "metadata", {}).get("targets", [])),
     }
+
+
+def public_prediction_payload(predictions: dict) -> dict:
+    """Remove raw model internals from the default public API response."""
+    return scrub_public_value(predictions)
+
+
+def scrub_public_value(value):
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, child in value.items():
+            if key in {"raw_label", "raw_value", "available_targets"}:
+                continue
+            if key == "cue_terms":
+                cleaned[key] = [
+                    {"term": str(item.get("term", ""))}
+                    for item in child
+                    if isinstance(item, dict) and item.get("term")
+                ][:6]
+                continue
+            cleaned[key] = scrub_public_value(child)
+        return cleaned
+    if isinstance(value, list):
+        return [scrub_public_value(item) for item in value]
+    return value
 
 
 @app.get("/")
@@ -116,11 +149,12 @@ def evaluate():
     if model_id != "local":
         return jsonify({"error": "The PANDORA cloud-trained model is not connected yet."}), 503
     try:
+        predictions = predictor.predict(text)
         return jsonify(
             {
                 "model": model_id,
                 "demo": bool(getattr(predictor, "is_demo", False)),
-                "predictions": predictor.predict(text),
+                "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
             }
         )
     except RuntimeError as error:
