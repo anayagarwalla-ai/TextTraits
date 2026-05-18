@@ -1,12 +1,12 @@
 TextTraits Free Deploy Requirements For The Repository Owner
 ============================================================
 
-This is the free-only checklist for the owner of csboi/TextTraits to deploy TextTraits as a hosted beta. The codex/production-readiness branch already contains the app code, Dockerfile, Procfile, render.yaml, WSGI entrypoint, Postgres support, production preflight checks, and deploy docs.
+This is the free-only checklist for the owner of csboi/TextTraits to deploy TextTraits as a hosted beta. The merged production-ready app contains the app code, Dockerfile, Procfile, render.yaml, WSGI entrypoint, Postgres support, production preflight checks, and deploy docs.
 
 1. Merge or deploy the correct branch
-   - Review the codex/production-readiness branch.
-   - Either merge codex/production-readiness into main or deploy directly from codex/production-readiness.
-   - Do not deploy an older branch unless these production-readiness changes have been merged.
+   - Deploy main only after the production-readiness merge commit has been pushed to GitHub.
+   - If main has not been advanced to that merge commit yet, deploy codex/production-readiness instead.
+   - Do not deploy an older branch unless these production-readiness changes are included.
 
 2. Create a free dynamic web service
    - Use a free web service host such as Render, Railway, Fly.io, or another free Python/Docker host.
@@ -83,9 +83,7 @@ This is the free-only checklist for the owner of csboi/TextTraits to deploy Text
    - https://<live-app-url>/health
    Confirm:
    - ok is true
-   - persistence is postgres
-   - database.ok is true
-   - dev_tools_enabled is false
+   The public health endpoint intentionally exposes only aggregate readiness. Use deploy logs, Sentry, database provider status, and preflight output to verify Postgres/email/integration details.
 
 Can Wait Until After Free Beta
 ==============================

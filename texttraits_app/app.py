@@ -427,6 +427,31 @@ def public_app_info() -> dict:
     }
 
 
+def public_prediction_payload(predictions: dict) -> dict:
+    """Remove raw model internals from the default public API response."""
+    return scrub_public_value(predictions)
+
+
+def scrub_public_value(value):
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, child in value.items():
+            if key in {"raw_label", "raw_value", "available_targets"}:
+                continue
+            if key == "cue_terms":
+                cleaned[key] = [
+                    {"term": str(item.get("term", ""))}
+                    for item in child
+                    if isinstance(item, dict) and item.get("term")
+                ][:6]
+                continue
+            cleaned[key] = scrub_public_value(child)
+        return cleaned
+    if isinstance(value, list):
+        return [scrub_public_value(item) for item in value]
+    return value
+
+
 def sanitize_workspace_data(data: dict[str, Any]) -> dict[str, Any]:
     clean = {key: value for key, value in data.items() if key in ALLOWED_WORKSPACE_KEYS}
     # The frontend intentionally syncs only metadata/history. Keep raw pasted text out of cloud persistence.
@@ -482,11 +507,12 @@ def evaluate():
         return jsonify({"error": "The PANDORA cloud-trained model is not connected yet."}), 503
     try:
         log_event(current_user_id(), "evaluate", {"mode": payload.get("mode", "unknown"), "words": len(text.split())})
+        predictions = predictor.predict(text)
         return jsonify(
             {
                 "model": model_id,
                 "demo": bool(getattr(predictor, "is_demo", False)),
-                "predictions": predictor.predict(text),
+                "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
             }
         )
     except RuntimeError as error:
