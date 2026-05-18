@@ -1,0 +1,90 @@
+TextTraits Free Deploy Requirements Status
+==========================================
+
+This file maps the original free-deploy checklist from `origin/codex/production-readiness` to the current `main` branch.
+
+Short answer:
+
+- Repo deployability: complete for the current Flask public app.
+- Live public deployment: pending. No live public URL has been verified from this checkout.
+- Branch expectation: `main` is the current public UI branch. `origin/codex/production-readiness` is a larger unmerged production/auth/persistence branch and should not be treated as merged unless reviewed.
+
+1. Merge or deploy the correct branch
+   Status: PARTIAL / DECISION NEEDED.
+   Evidence: `main` is synced to `origin/main` and contains the verified public Explorer/Enterprise app. `origin/codex/production-readiness` exists but diverges substantially and is not merged.
+   Next action: Deploy `main` for the current public demo. Review `codex/production-readiness` separately before merging its auth, persistence, and legal/security changes.
+
+2. Create a free dynamic web service
+   Status: REPO READY, LIVE DEPLOY PENDING.
+   Evidence: `Procfile`, `render.yaml`, and `texttraits_app/wsgi.py` now exist on `main`.
+   Start command:
+     gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+   Next action: The repo owner must connect the repo to a free dynamic web host and start the service.
+
+3. Create a free hosted Postgres database
+   Status: NOT APPLICABLE TO CURRENT MAIN.
+   Evidence: The current `main` app does not implement account persistence or server-side workspace storage. It serves the public demo and local browser-side workspace state.
+   Next action: Required only if the larger `codex/production-readiness` branch is adopted.
+
+4. Set production environment variables
+   Status: PARTIAL / HOSTING PENDING.
+   Required for current `main`:
+     ENABLE_DEV_TOOLS=false
+     TEXTTRAITS_ALLOW_DEMO=false
+   Host-provided:
+     PORT
+   Next action: Set these in the hosting provider before deploy.
+
+5. Add free transactional email
+   Status: NOT APPLICABLE TO CURRENT MAIN.
+   Evidence: The current `main` app has no signup, verification, or password reset flow.
+   Next action: Required only if account flows from `codex/production-readiness` are adopted.
+
+6. Verify the sender email or sender domain
+   Status: NOT APPLICABLE TO CURRENT MAIN.
+   Evidence: No production email is sent by current `main`.
+   Next action: Required only if transactional email is added.
+
+7. Add free error monitoring
+   Status: OPTIONAL / PENDING.
+   Evidence: Current `main` has no Sentry integration.
+   Next action: Optional for a private demo. Add Sentry or host-native logs before a broader public beta.
+
+8. Use the host's free HTTPS URL
+   Status: PENDING.
+   Evidence: GitHub Pages is not configured, and no live web-service URL is present in the repo or GitHub deployment checks.
+   Next action: After the host deploys, record the HTTPS URL in `DEPLOYMENT_NOTES.md` and verify `/health`.
+
+9. Review privacy and terms before launch
+   Status: PARTIAL.
+   Evidence: The public UI and README include responsible-use warnings and consequential-decision limitations.
+   Gap: Current `main` does not include full legal/privacy routes.
+   Next action: For a private demo, current warning copy is acceptable. For a public beta, add formal privacy/terms pages or merge reviewed equivalents.
+
+10. Run pre-deploy validation
+    Status: COMPLETE FOR CURRENT MAIN.
+    Evidence from local verification:
+      python -m py_compile texttraits_app/app.py texttraits_app/predictor.py texttraits_app/demo_predictor.py texttraits_app/wsgi.py
+      python scripts/verify_models.py
+      python tests/smoke_test.py
+      python tests/browser_smoke_test.py
+    Note: Additional production/security tests listed on `codex/production-readiness` are not present on current `main`.
+
+11. Confirm the live health endpoint
+    Status: LOCAL COMPLETE, LIVE PENDING.
+    Local evidence:
+      http://127.0.0.1:5000/health returns ok=true, demo=false, dev_tools_enabled=false.
+    Live evidence:
+      Pending because no hosted public URL has been configured or verified.
+
+Can Wait Until After Free Beta
+==============================
+
+- Paid custom domain.
+- Paid database tier.
+- Paid email tier.
+- Real HubSpot/Salesforce/Gmail/Outlook OAuth credentials.
+- Chrome extension packaging.
+- Enterprise SSO.
+- Full legal counsel review.
+- Advanced backups.

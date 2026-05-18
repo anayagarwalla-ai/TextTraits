@@ -76,9 +76,6 @@ def main() -> int:
     dev_model = client.get("/dev/model")
     assert_true(dev_model.status_code == 404, "developer model endpoint should be hidden by default")
 
-    dev_model = client.get("/dev/model")
-    assert_true(dev_model.status_code == 404, "developer model endpoint should be hidden by default")
-
     payload = {
         "text": (
             "I keep thinking about how much a short piece of writing can reveal. "
@@ -93,12 +90,6 @@ def main() -> int:
     assert_true("predictions" in data, "response missing predictions")
     assert_true("gender" in data["predictions"], "response missing gender prediction")
     assert_true("text_stats" in data["predictions"], "response missing text stats")
-    serialized = str(data)
-    assert_true("raw_label" not in serialized, "public response should not expose raw labels")
-    assert_true("raw_value" not in serialized, "public response should not expose raw values")
-    assert_true("available_targets" not in serialized, "public response should not expose target internals")
-    for term in data["predictions"].get("gender", {}).get("cue_terms", []):
-        assert_true(set(term) == {"term"}, "public cue terms should omit model weights")
     serialized = str(data)
     assert_true("raw_label" not in serialized, "public response should not expose raw labels")
     assert_true("raw_value" not in serialized, "public response should not expose raw values")
