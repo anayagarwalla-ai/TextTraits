@@ -39,6 +39,37 @@ drive.mount("/content/drive/")
 !python training/colab_one_shot_export_logged.py --candidate-profile balanced --selection-sample 500000
 ```
 
+## Supervised One-Shot Command
+
+For the most observable high-RAM run, prefer the supervisor wrapper. It runs the
+logged trainer, tees output to Drive, and continuously updates `RUN_STATUS.json`
+so a disconnected or frozen-looking notebook can be inspected later.
+
+```python
+from google.colab import drive
+drive.mount("/content/drive/")
+
+!git clone https://github.com/csboi/TextTraits.git
+%cd TextTraits
+!python training/colab_supervised_export.py run --candidate-profile balanced --selection-sample 500000
+```
+
+Monitor an existing supervised run without loading PANDORA:
+
+```python
+%cd /content/TextTraits
+!python training/colab_supervised_export.py monitor --watch
+```
+
+For pasteable clone/update cells, see `training/COLAB_ONE_SHOT.md`.
+
+## PyCharm Colab Setup
+
+PyCharm 2025.3.2+ can connect a local notebook to a Google Colab server. For
+that workflow, open `training/pycharm_colab_one_shot.ipynb` in PyCharm and use
+the notebook server menu to sign in to Google and create a Colab server. See
+`training/PYCHARM_COLAB_SETUP.md` for the local setup notes.
+
 For a very fast debugging run:
 
 ```python
@@ -73,6 +104,9 @@ Expected files:
 - `texttraits_checkpoint_latest.joblib`: partial checkpoint from the logged
   trainer after the latest completed target.
 - `texttraits_checkpoint_state.json`: checkpoint state and completed targets.
+- `RUN_STATUS.json`: supervised run state, file inventory, recent metrics, and
+  log tail.
+- `run.log`: durable stdout/stderr log from the supervised run.
 
 The JS bundle is intentionally a data export, not a finished JS runtime. It
 contains TF-IDF vocabularies, IDF values, linear coefficients, intercepts, class
