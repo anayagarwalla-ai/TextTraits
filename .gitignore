@@ -1,13 +1,29 @@
 .DS_Store
 __pycache__/
 *.py[cod]
+.env
+.venv/
+venv/
 
 # Local/runtime artifacts
+.playwright-cli/
 .playwright-mcp/
+output/
 *.log
+texttraits-current-ux*.png
 texttraits-updated-ui.png
 
 # Extracted research data and generated model binaries are too large for GitHub.
 legacy_project/
-texttraits_app/artifacts/
-texttraits_app/models/
+texttraits_app/artifacts/*
+!texttraits_app/artifacts/README.md
+
+# Keep the current small runtime bundle tracked, but ignore future scratch models by default.
+texttraits_app/models/*
+!texttraits_app/models/README.md
+!texttraits_app/models/texttraits_inference_bundle.joblib
+!texttraits_app/models/texttraits_inference_manifest.json
+
+accessible-text-inference-app/models/*
+!accessible-text-inference-app/models/.gitkeep
+!accessible-text-inference-app/models/README.md
