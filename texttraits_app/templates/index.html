@@ -4,359 +4,75 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TextTraits</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --ink: #171717;
-        --muted: #666;
-        --line: #d8d8d8;
-        --accent: #0f766e;
-        --accent-dark: #115e59;
-        --accent-soft: #cde8e3;
-        --warm: #9a5b13;
-        --warm-soft: #f4dfbd;
-        --bg: #f7f7f4;
-        --panel: #fff;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
-        color: var(--ink);
-        background: var(--bg);
-      }
-
-      main {
-        width: min(860px, calc(100% - 32px));
-        margin: 48px auto;
-      }
-
-      h1 {
-        margin: 0 0 8px;
-        font-size: 34px;
-        font-weight: 700;
-      }
-
-      p {
-        margin: 0 0 22px;
-        color: var(--muted);
-        line-height: 1.45;
-      }
-
-
-
-      .startup-warning {
-        margin: 0 0 22px;
-        padding: 10px 12px;
-        border: 1px solid #e9b2be;
-        border-radius: 6px;
-        background: #fff1f4;
-        color: #9f1239;
-        font-size: 14px;
-      }
-
-      .status-panel {
-        margin: 0 0 22px;
-        padding: 14px 16px;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: var(--panel);
-      }
-
-      .status-head {
-        margin-bottom: 10px;
-        font-size: 18px;
-        font-weight: 700;
-      }
-
-      .status-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px 14px;
-        margin-bottom: 12px;
-      }
-
-      .status-meta {
-        font-size: 14px;
-        color: var(--muted);
-      }
-
-      .status-targets {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-      }
-
-      .status-targets th,
-      .status-targets td {
-        text-align: left;
-        border-top: 1px solid var(--line);
-        padding: 7px 4px;
-        vertical-align: top;
-      }
-
-      textarea {
-        display: block;
-        width: 100%;
-        min-height: 220px;
-        resize: vertical;
-        padding: 16px;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: var(--panel);
-        color: var(--ink);
-        font: 16px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-      }
-
-      button {
-        margin-top: 14px;
-        padding: 11px 18px;
-        border: 0;
-        border-radius: 6px;
-        background: var(--accent);
-        color: white;
-        font: 700 15px/1.1 Georgia, "Times New Roman", serif;
-        cursor: pointer;
-      }
-
-      button:hover {
-        background: var(--accent-dark);
-      }
-
-      button:disabled {
-        opacity: 0.65;
-        cursor: wait;
-      }
-
-      #results {
-        margin-top: 28px;
-        display: grid;
-        gap: 18px;
-      }
-
-      .result {
-        border-top: 1px solid var(--line);
-        padding-top: 16px;
-      }
-
-      .label {
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .value {
-        margin-top: 4px;
-        font-size: 22px;
-        font-weight: 700;
-      }
-
-      .subvalue {
-        margin-top: 4px;
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .bars {
-        display: grid;
-        gap: 9px;
-        margin-top: 12px;
-      }
-
-      .bar-row {
-        display: grid;
-        grid-template-columns: minmax(96px, 150px) 1fr 48px;
-        gap: 10px;
-        align-items: center;
-        position: relative;
-      }
-
-      .bar-name,
-      .bar-percent {
-        font-size: 14px;
-        color: var(--muted);
-      }
-
-      .bar-percent {
-        text-align: right;
-        font-variant-numeric: tabular-nums;
-      }
-
-      .bar-track {
-        height: 13px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: #e5e2db;
-      }
-
-      .bar-fill {
-        height: 100%;
-        min-width: 2px;
-        border-radius: inherit;
-        background: var(--accent-soft);
-        transition: width 180ms ease;
-      }
-
-      .bar-row.is-top .bar-name,
-      .bar-row.is-top .bar-percent {
-        color: var(--ink);
-        font-weight: 700;
-      }
-
-      .bar-row.is-top .bar-fill {
-        background: var(--accent);
-      }
-
-      .bar-row::after {
-        content: attr(data-tooltip);
-        position: absolute;
-        left: 156px;
-        bottom: calc(100% + 6px);
-        z-index: 2;
-        display: none;
-        width: max-content;
-        max-width: min(280px, calc(100vw - 48px));
-        padding: 7px 9px;
-        border: 1px solid var(--line);
-        border-radius: 5px;
-        background: var(--panel);
-        color: var(--ink);
-        box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
-        font: 13px/1.3 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-      }
-
-      .bar-row:hover::after,
-      .bar-row:focus-within::after {
-        display: block;
-      }
-
-      .mbti-code {
-        margin-top: 6px;
-        font-size: 42px;
-        font-weight: 700;
-        letter-spacing: 0;
-      }
-
-      .dimension-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px 22px;
-        margin-top: 14px;
-      }
-
-      .dimension {
-        min-width: 0;
-      }
-
-      .dimension-title {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        color: var(--muted);
-        font-size: 14px;
-      }
-
-      .dimension-title strong {
-        color: var(--ink);
-      }
-
-      .dimension .bar-fill {
-        background: var(--warm-soft);
-      }
-
-      .dimension .bar-row.is-top .bar-fill {
-        background: var(--warm);
-      }
-
-      .error {
-        color: #9f1239;
-        font-weight: 700;
-      }
-
-      @media (max-width: 640px) {
-        main {
-          margin: 28px auto;
-        }
-
-        .bar-row {
-          grid-template-columns: minmax(82px, 112px) 1fr 44px;
-          gap: 8px;
-        }
-
-        .bar-row::after {
-          left: 0;
-        }
-
-        .status-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .dimension-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .mbti-code {
-          font-size: 34px;
-        }
-      }
-    </style>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
-  <body>
-    <main>
-      <h1>TextTraits</h1>
-      <p>Enter a sample of writing and evaluate it with the local text classifiers trained from the included project data.</p>
+  <body data-mode="explorer">
+    <main class="app-shell">
+      <div id="announcer" class="sr-only" aria-live="polite"></div>
 
-      {% if startup_error %}
-      <div class="startup-warning">
-        Model bundle is missing, so evaluation is disabled until you run <code>python extract_trained_model.py</code>.<br>
-        <strong>Details:</strong> {{ startup_error }}
-      </div>
-      {% endif %}
-
-      <section class="status-panel" aria-label="Model status">
-        <div class="status-head">Model/status panel</div>
-        <div class="status-grid">
-          <div class="status-meta"><strong>Bundle:</strong> {{ model_status.bundle }}</div>
-          <div class="status-meta"><strong>Format:</strong> {{ model_status.format }}</div>
-          <div class="status-meta"><strong>Trained:</strong> {{ model_status.trained_at }}</div>
-          <div class="status-meta"><strong>Dataset:</strong> {{ model_status.dataset }}</div>
+      <header class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">TextTraits</p>
+          <h1 id="hero-title">Write a little clearer every day</h1>
+          <p id="hero-subtitle">A simple writing coach for understanding how your words come across and making the next draft easier to read.</p>
         </div>
-        <table class="status-targets" aria-label="Validation metrics per target">
-          <thead>
-            <tr><th>Target</th><th>Model</th><th>Validation metrics</th></tr>
-          </thead>
-          <tbody>
-            {% if model_status.targets %}
-            {% for target in model_status.targets %}
-            <tr>
-              <td>{{ target.name }}</td>
-              <td>{{ target.model }}</td>
-              <td>{{ target.metrics }}</td>
-            </tr>
-            {% endfor %}
-            {% else %}
-            <tr>
-              <td colspan="3">No target metrics available.</td>
-            </tr>
-            {% endif %}
-          </tbody>
-        </table>
+
+        <div class="mode-card" aria-label="Workspace mode">
+          <div class="mode-switch">
+            <button id="mode-explorer" type="button" aria-pressed="true">Explorer</button>
+            <button id="mode-enterprise" type="button" aria-pressed="false">Enterprise</button>
+          </div>
+          <p id="mode-note">Explorer is for everyday writing. Enterprise opens a separate outreach workspace.</p>
+        </div>
+      </header>
+
+      <section id="account-card" class="account-card" aria-label="Account and sync"></section>
+      <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+      <section id="persona-strip" class="persona-strip" aria-label="Explorer habits">
+        <article><strong>Daily check-in</strong><span>Paste one paragraph and get one clear next edit.</span></article>
+        <article><strong>Writing journal</strong><span>Save readings and compare how your style changes over time.</span></article>
+        <article><strong>Rewrite practice</strong><span>Make a note clearer, warmer, or shorter without overthinking it.</span></article>
       </section>
 
-      <textarea id="text" autofocus placeholder="Paste or type text here..."></textarea>
-      <button id="evaluate">Evaluate</button>
-      <section id="results" aria-live="polite"></section>
+      <section id="workspace" class="workspace" aria-label="TextTraits workspace">
+        <aside id="input-panel" class="panel input-panel"></aside>
+        <section id="output-panel" class="panel output-panel" tabindex="-1" aria-live="polite"></section>
+      </section>
+
+      <footer class="footer-note">
+        <strong id="runtime-label">Local demo:</strong>
+        <span id="runtime-copy">CRM, email, and sidebar integrations stay preview-only until credentials are connected.</span>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </footer>
+
+      {% if dev_tools_enabled %}
+      <details class="dev-tools">
+        <summary>Developer tools</summary>
+        <p>Visible because <code>ENABLE_DEV_TOOLS=true</code>. Keep this disabled in public deployments.</p>
+        <pre id="model-debug">{{ model_info|tojson(indent=2) }}</pre>
+        <pre id="metrics-debug">{{ metrics|tojson(indent=2) }}</pre>
+        <pre id="response-debug">{}</pre>
+      </details>
+      {% endif %}
     </main>
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
       window.TEXTTRAITS_CONFIG = {
         devTools: {{ dev_tools_enabled|tojson }},
-        publicModel: {{ public_model_info|tojson }}
+        publicModel: {{ public_model_info|tojson }},
+        app: {{ public_app_info|tojson }},
+        csrfToken: {{ csrf_token|tojson }}
       };
     </script>
+    <script src="{{ url_for('static', filename='text_utils.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='product_config.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='api_client.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='ui_helpers.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='csv_utils.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='enterprise_copy.js') }}" defer></script>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>
 </html>

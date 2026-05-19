@@ -12,6 +12,8 @@ output/
 *.log
 texttraits-current-ux*.png
 texttraits-updated-ui.png
+texttraits-redesign-*.png
+texttraits-rebased-*.png
 
 # Extracted research data and generated model binaries are too large for GitHub.
 legacy_project/

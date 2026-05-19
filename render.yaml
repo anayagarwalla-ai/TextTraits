@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: texttraits
+    env: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: TEXTTRAITS_ENV
+        value: production
+      - key: ENABLE_DEV_TOOLS
+        value: false
+      - key: TEXTTRAITS_ALLOW_DEMO
+        value: false
+      - key: TEXTTRAITS_DEV_ACCOUNT_LINKS
+        value: false
+      - key: TEXTTRAITS_SECURE_COOKIES
+        value: true
+      - key: TEXTTRAITS_TRUST_PROXY
+        value: true
+      - key: TEXTTRAITS_DB_SSLMODE
+        value: require
+      - key: TEXTTRAITS_LOG_JSON
+        value: true
+      - key: TEXTTRAITS_SECRET_KEY
+        sync: false
+      - key: TEXTTRAITS_PUBLIC_BASE_URL
+        sync: false
+      - key: TEXTTRAITS_ALLOWED_PUBLIC_HOSTS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TEXTTRAITS_EMAIL_PROVIDER
+        sync: false
+      - key: TEXTTRAITS_FROM_EMAIL
+        sync: false
+      - key: TEXTTRAITS_SMTP_HOST
+        sync: false
+      - key: TEXTTRAITS_SMTP_USERNAME
+        sync: false
+      - key: TEXTTRAITS_SMTP_PASSWORD
+        sync: false
+      - key: SENTRY_DSN
+        sync: false

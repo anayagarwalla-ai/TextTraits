@@ -47,9 +47,11 @@ Copy `.env.example` if your deployment system loads environment files.
 - `HOST` - Flask host, default `127.0.0.1`.
 - `PORT` - Flask port, default `5000`.
 - `ENABLE_DEV_TOOLS` - set `true` only for local developer diagnostics.
-- `TEXTTRAITS_ALLOW_DEMO` - if `true`, missing model files produce clearly labeled mock output instead of a hard crash.
+- `TEXTTRAITS_ALLOW_DEMO` - keep `false` in production; local developers can set `true` only for clearly labeled mock output.
+- `TEXTTRAITS_DEV_ACCOUNT_LINKS` - keep `false` in production; local developers can set `true` to surface verification/reset helper links when email is not configured.
+- `TEXTTRAITS_SECURE_COOKIES` - set `true` behind HTTPS.
 
-Public deployments should keep `ENABLE_DEV_TOOLS=false`.
+Public deployments should keep `ENABLE_DEV_TOOLS=false` and run `python3 scripts/preflight.py`.
 
 ## Model Files
 
@@ -121,8 +123,26 @@ This app is currently a Flask service. A production deployment should:
 - Install dependencies from `requirements.txt`.
 - Provide `texttraits_app/models/texttraits_inference_bundle.joblib`.
 - Set `ENABLE_DEV_TOOLS=false`.
-- Decide whether `TEXTTRAITS_ALLOW_DEMO` should be `true` or `false`.
+- Set `TEXTTRAITS_ALLOW_DEMO=false`.
+- Run `python3 scripts/verify_models.py` so the runtime model checksum is checked.
+- Review `SECURITY_HARDENING.md`.
 - Run behind a production WSGI server or the platform's Python web runtime.
+
+The repo includes a deployable WSGI entrypoint and free-hosting handoff files:
+
+- `texttraits_app/wsgi.py`
+- `Procfile`
+- `render.yaml`
+- `DEPLOYMENT_NOTES.md`
+- `production_readiness/FREE_DEPLOY_REQUIREMENTS.txt`
+
+Public demo start command:
+
+```bash
+gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+```
+
+The repository is deploy-ready, but no live public URL is currently verified in this checkout.
 
 ## Troubleshooting
 

@@ -64,7 +64,7 @@ python scripts/verify_models.py
 python app.py
 ```
 
-If the model is missing, `python app.py` still starts in clearly labeled demo mode unless `TEXTTRAITS_ALLOW_DEMO=false`.
+If the model is missing, local developers can set `TEXTTRAITS_ALLOW_DEMO=true` for clearly labeled demo mode. Public deployments should fail closed.
 
 ## Public Deployment Defaults
 
@@ -72,10 +72,10 @@ Use these defaults for public-facing deployments:
 
 ```text
 ENABLE_DEV_TOOLS=false
-TEXTTRAITS_ALLOW_DEMO=true
+TEXTTRAITS_ALLOW_DEMO=false
 ```
 
-Set `TEXTTRAITS_ALLOW_DEMO=false` only if the deployment should fail whenever a real trained model is missing.
+Set `TEXTTRAITS_ALLOW_DEMO=true` only for local demos where mock output is acceptable.
 
 ## Responsible Use Copy
 

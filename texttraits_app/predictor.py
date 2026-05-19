@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import hashlib
+import json
+import os
+import re
+import warnings
 from pathlib import Path
 
 import joblib
@@ -13,14 +17,14 @@ APP_DIR = Path(__file__).resolve().parent
 DEFAULT_MODEL_PATH = APP_DIR / "models" / "texttraits_inference_bundle.joblib"
 
 GENDER_LABELS = {
-    "m": "Male",
-    "f": "Female",
-    "t": "Other / unspecified data label",
+    "m": "Male-associated language",
+    "f": "Female-associated language",
+    "t": "Source label: trans or other",
 }
 
 IS_FEMALE_LABELS = {
-    "0": "Not female",
-    "1": "Female",
+    "0": "No strong female-associated signal",
+    "1": "Female-associated language",
 }
 
 AGE_UNDER_25_LABELS = {
@@ -55,6 +59,7 @@ class TextTraitsPredictor:
             raise FileNotFoundError(
                 f"Runtime model not found at {self.model_path}. Run `python extract_trained_model.py` first."
             )
+        self._verify_model_hash()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
             self.artifact = joblib.load(self.model_path)
@@ -73,6 +78,22 @@ class TextTraitsPredictor:
             "dataset": self.artifact.get("dataset") or self.artifact.get("dataset_name") or "Unknown",
         }
 
+    def _verify_model_hash(self) -> None:
+        expected = os.getenv("TEXTTRAITS_MODEL_SHA256", "").strip()
+        manifest_path = self.model_path.with_name("texttraits_inference_manifest.json")
+        if not expected and manifest_path.exists():
+            try:
+                expected = json.loads(manifest_path.read_text(encoding="utf-8")).get("runtime_model_sha256", "")
+            except json.JSONDecodeError:
+                expected = ""
+        if not expected:
+            if os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production":
+                raise RuntimeError("Production model loading requires TEXTTRAITS_MODEL_SHA256 or a trusted manifest checksum.")
+            return
+        actual = hashlib.sha256(self.model_path.read_bytes()).hexdigest()
+        if actual.lower() != expected.lower():
+            raise RuntimeError("Runtime model checksum does not match the trusted manifest.")
+
     def _normalize_loaded_models(self) -> None:
         for model in self.models.values():
             estimator = self._final_estimator(model)
@@ -84,47 +105,6 @@ class TextTraitsPredictor:
         if steps:
             return steps[-1][1]
         return model
-
-    def status_panel(self) -> dict:
-        metadata = self.artifact.get("metadata", {})
-        trained_at = metadata.get("trained_at") or metadata.get("created_at")
-        if not trained_at:
-            trained_at = datetime.fromtimestamp(self.model_path.stat().st_mtime, tz=timezone.utc).isoformat()
-
-        dataset = metadata.get("dataset") or metadata.get("dataset_name") or "Included project dataset"
-        return {
-            "bundle": self.model_path.name,
-            "format": self.format,
-            "trained_at": str(trained_at),
-            "dataset": str(dataset),
-            "targets": self._status_targets(),
-        }
-
-    def _status_targets(self) -> list[dict]:
-        targets: list[dict] = []
-        metric_aliases = {
-            "accuracy": "Accuracy",
-            "macro_f1": "Macro-F1",
-            "f1_macro": "Macro-F1",
-            "roc_auc": "ROC-AUC",
-            "mae": "MAE",
-        }
-
-        for name in sorted(self.models.keys()):
-            raw_metrics = self.metrics.get(name, {}) if isinstance(self.metrics, dict) else {}
-            summary = []
-            if isinstance(raw_metrics, dict):
-                for key, label in metric_aliases.items():
-                    value = raw_metrics.get(key)
-                    if isinstance(value, (int, float)):
-                        summary.append(f"{label}: {value:.3f}")
-            targets.append({
-                "name": name,
-                "model": type(self.models[name]).__name__,
-                "metrics": ", ".join(summary) if summary else "Not available",
-            })
-
-        return targets
 
     def predict(self, text: str) -> dict:
         cleaned = text.strip()
