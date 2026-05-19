@@ -41,13 +41,14 @@ source .venv/bin/activate
 Use this for Render, Railway, Fly, Heroku-style platforms, or any dynamic Python host that supports WSGI:
 
 ```bash
-gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
 ```
 
 The repo also includes:
 
 - `Procfile`
 - `render.yaml`
+- `app.py` compatibility entrypoint
 - `texttraits_app/wsgi.py`
 
 ## Required Environment Variables
@@ -120,7 +121,7 @@ The simplest current free path is a free Render Web Service plus a free external
 3. Create a dynamic Web Service, not a static site.
 4. Use the repo `render.yaml`, or set:
    - Build command: `pip install -r requirements.txt`
-   - Start command: `gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60`
+   - Start command: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60`
 5. Set env vars:
    - the required production variables above
 6. Deploy.

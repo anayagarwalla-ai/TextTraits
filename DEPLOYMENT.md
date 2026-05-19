@@ -74,8 +74,7 @@ Install production dependencies and run through a WSGI server:
 
 ```bash
 pip install -r requirements.txt gunicorn
-cd texttraits_app
-gunicorn wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2
+gunicorn app:app --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 60
 ```
 
 Place the app behind HTTPS and set `TEXTTRAITS_SECURE_COOKIES=true`.

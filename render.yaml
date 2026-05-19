@@ -1,8 +1,10 @@
 services:
   - type: web
     name: texttraits
-    env: docker
+    env: python
     plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers ${WEB_CONCURRENCY:-2} --timeout 60
     healthCheckPath: /health
     autoDeploy: false
     envVars:

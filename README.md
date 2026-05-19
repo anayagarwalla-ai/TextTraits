@@ -131,6 +131,7 @@ This app is currently a Flask service. A production deployment should:
 The repo includes a deployable WSGI entrypoint and free-hosting handoff files:
 
 - `texttraits_app/wsgi.py`
+- `app.py`
 - `Procfile`
 - `render.yaml`
 - `DEPLOYMENT_NOTES.md`
@@ -139,7 +140,7 @@ The repo includes a deployable WSGI entrypoint and free-hosting handoff files:
 Public demo start command:
 
 ```bash
-gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
 ```
 
 The repository is deploy-ready, but no live public URL is currently verified in this checkout.
