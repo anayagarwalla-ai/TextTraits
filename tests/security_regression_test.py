@@ -12,6 +12,9 @@ sys.path.insert(0, str(APP_DIR))
 
 tmpdir = tempfile.TemporaryDirectory()
 os.environ["TEXTTRAITS_DB_PATH"] = str(Path(tmpdir.name) / "workspace.sqlite3")
+os.environ["DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_EMAIL_PROVIDER"] = ""
 os.environ.setdefault("ENABLE_DEV_TOOLS", "false")
 os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "test-secret-key")
 
@@ -42,20 +45,31 @@ def main() -> int:
 
     signup = client.post("/api/signup", json={"email": "security@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
     assert_true(signup.status_code == 200, signup.get_data(as_text=True))
-    stored_user = storage_module.get_user_by_email("security@example.com")
-    assert_true(str(stored_user["verification_token"]).startswith("sha256:"), "verification token should be stored hashed")
+    assert_true(signup.get_json()["authenticated"] is False, "signup should not authenticate before email verification")
+    pending_signup = storage_module.get_pending_signup_by_email("security@example.com")
+    assert_true(str(pending_signup["verification_token"]).startswith("sha256:"), "verification code should be stored hashed")
     duplicate = client.post("/api/signup", json={"email": "SECURITY@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
     assert_true(duplicate.status_code == 200, "duplicate signup should not expose account existence by status")
     assert_true(duplicate.get_json()["authenticated"] is False, "duplicate signup should not authenticate")
 
     bad_login = client.post("/api/login", json={"email": "security@example.com", "password": "wrong-password"}, headers=csrf_headers(client))
     assert_true(bad_login.status_code == 401, "bad login should fail")
+    unverified_login = client.post("/api/login", json={"email": "security@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
+    assert_true(unverified_login.status_code == 403, "unverified login should require email verification")
 
     bad_reset = client.post("/api/reset-password", json={"token": "not-real", "password": "new-password"}, headers=csrf_headers(client))
     assert_true(bad_reset.status_code == 400, "invalid reset token should fail")
-    reset_request = client.post("/api/request-password-reset", json={"email": "security@example.com"}, headers=csrf_headers(client))
+    reset_user = storage_module.create_user("reset-security@example.com", "texttraits-test", "Reset Security")
+    storage_module.verify_email_token(reset_user["_verification_token"], "reset-security@example.com")
+    login_verified = client.post(
+        "/api/login",
+        json={"email": "reset-security@example.com", "password": "texttraits-test"},
+        headers=csrf_headers(client),
+    )
+    assert_true(login_verified.status_code == 200, "verified security account should sign in")
+    reset_request = client.post("/api/request-password-reset", json={"email": "reset-security@example.com"}, headers=csrf_headers(client))
     assert_true(reset_request.status_code == 200, "reset request should succeed")
-    stored_user = storage_module.get_user_by_email("security@example.com")
+    stored_user = storage_module.get_user_by_email("reset-security@example.com")
     assert_true(str(stored_user["reset_token"]).startswith("sha256:"), "reset token should be stored hashed")
 
     headers = client.get("/").headers

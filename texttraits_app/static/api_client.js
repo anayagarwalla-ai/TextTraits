@@ -70,9 +70,9 @@
       method: "POST",
       body: JSON.stringify({token, password}),
     }),
-    verifyEmail: (token) => request("/api/verify-email", {
+    verifyEmail: (token, email) => request("/api/verify-email", {
       method: "POST",
-      body: JSON.stringify({token}),
+      body: JSON.stringify({token, email}),
     }),
     exportAccount: (password) => request("/api/account/export", {
       method: "POST",

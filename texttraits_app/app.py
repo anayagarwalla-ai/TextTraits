@@ -34,8 +34,8 @@ from predictor import DEFAULT_MODEL_PATH, TextTraitsPredictor
 from storage import (
     authenticate_user,
     check_database,
+    create_pending_signup,
     create_password_reset,
-    create_user,
     database_backend,
     database_url,
     delete_user,
@@ -45,6 +45,7 @@ from storage import (
     init_db,
     integrations,
     log_event,
+    needs_email_verification,
     recent_events,
     reset_password,
     save_workspace,
@@ -303,6 +304,13 @@ def require_user() -> tuple[int | None, tuple | None]:
     user_id = current_user_id()
     if not user_id:
         return None, (jsonify({"error": "Please sign in to sync this workspace."}), 401)
+    user = get_user_by_id(user_id)
+    if not user or not user.get("email_verified"):
+        csrf = session.get("csrf_token")
+        session.clear()
+        if csrf:
+            session["csrf_token"] = csrf
+        return None, (jsonify({"error": "Verify your email before using account sync."}), 403)
     return user_id, None
 
 
@@ -319,9 +327,9 @@ def send_verification_email(user: dict, token: str | None) -> dict:
     try:
         return send_account_email(
             user["email"],
-            "Verify your TextTraits account",
-            f"Open TextTraits and enter this verification code:\n\n{token}\n\nOpen TextTraits here: {url}\n\nIf you did not create this account, you can ignore this email.",
-            f"<p>Open TextTraits and enter this verification code:</p><p><code>{safe_token}</code></p><p><a href=\"{safe_url}\">Open TextTraits</a></p>",
+            "Your TextTraits verification code",
+            f"Your TextTraits verification code is:\n\n{token}\n\nEnter this 6-digit code in TextTraits to create your account. Open TextTraits here: {url}\n\nIf you did not request this, you can ignore this email.",
+            f"<p>Your TextTraits verification code is:</p><p><code>{safe_token}</code></p><p>Enter this 6-digit code in TextTraits to create your account.</p><p><a href=\"{safe_url}\">Open TextTraits</a></p>",
         )
     except Exception as error:
         logging.exception("verification_email_failed")
@@ -523,6 +531,11 @@ def evaluate():
 def api_session():
     user_id = current_user_id()
     user = get_user_by_id(user_id) if user_id else None
+    if user and not user.get("email_verified"):
+        csrf = csrf_token()
+        session.clear()
+        session["csrf_token"] = csrf
+        user = None
     return jsonify(
         {
             "authenticated": bool(user),
@@ -546,21 +559,36 @@ def api_signup():
     if password_error:
         return jsonify({"error": password_error}), 400
     try:
-        user = create_user(email, password, name)
+        pending = create_pending_signup(email, password, name)
     except Exception:
         return jsonify(
             {
                 "authenticated": False,
-                "message": "If this email can be used, the next step is ready. Try signing in or resetting your password.",
+                "pending_verification": True,
+                "message": "If this email can be used, check it for a 6-digit verification code.",
             }
         )
-    verification_token = user.pop("_verification_token", None)
-    start_user_session(user)
-    log_event(user["id"], "signup", {})
-    email_result = send_verification_email(user, verification_token)
-    response = {"authenticated": True, "user": user, "workspace": get_workspace(user["id"]), "email_delivery": {"sent": bool(email_result.get("sent")), "provider": email_result.get("provider")}}
+    verification_token = pending.get("token")
+    email_result = send_verification_email(pending, verification_token)
+    message = "Check your email for a 6-digit verification code before signing in."
+    if not verification_token:
+        message = "If this email can be used, check it for a 6-digit verification code."
+    elif not email_result.get("sent"):
+        if PRODUCTION:
+            message = "We could not send a verification code right now. Try again in a moment."
+        elif email_status()["configured"]:
+            message = "A code was created, but the email provider rejected this recipient. With Resend testing, use the email address on your Resend account or verify a sending domain."
+        else:
+            message = "A code was created, but email delivery is not configured for this environment."
+    response = {
+        "authenticated": False,
+        "pending_verification": True,
+        "email": email,
+        "message": message,
+        "email_delivery": {"sent": bool(email_result.get("sent")), "provider": email_result.get("provider")},
+    }
     if ALLOW_DEV_ACCOUNT_LINKS and not email_result.get("sent") and verification_token:
-        response["dev_verify_url"] = public_url(f"/api/verify-email/{verification_token}")
+        response["dev_verify_code"] = verification_token
     return jsonify(response)
 
 
@@ -568,8 +596,12 @@ def api_signup():
 @rate_limited(20)
 def api_login():
     payload = request.get_json(silent=True) or {}
-    user = authenticate_user(str(payload.get("email", "")), str(payload.get("password", "")))
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", ""))
+    user = authenticate_user(email, password)
     if not user:
+        if needs_email_verification(email, password):
+            return jsonify({"error": "Verify your email with the 6-digit code before signing in."}), 403
         return jsonify({"error": "Email or password did not match."}), 401
     start_user_session(user)
     log_event(user["id"], "login", {})
@@ -631,9 +663,13 @@ def api_reset_password_link(token: str | None = None):
 @rate_limited(20)
 def api_verify_email():
     payload = request.get_json(silent=True) or {}
-    user = verify_email_token(str(payload.get("token", "")))
+    email = str(payload.get("email", "")).strip().lower()
+    token = str(payload.get("token", ""))
+    if not email or not token:
+        return jsonify({"error": "Enter the email address and 6-digit verification code."}), 400
+    user = verify_email_token(token, email)
     if not user:
-        return jsonify({"error": "Verification link is invalid."}), 400
+        return jsonify({"error": "Verification code is invalid or expired."}), 400
     start_user_session(user)
     return jsonify({"authenticated": True, "user": user, "workspace": get_workspace(user["id"])})
 

@@ -11,6 +11,8 @@ import urllib.request
 from email.message import EmailMessage
 from typing import Any
 
+import certifi
+
 
 class EmailDeliveryError(RuntimeError):
     pass
@@ -76,13 +78,17 @@ def send_smtp(to_email: str, subject: str, text_body: str, html_body: str | None
     if html_body:
         message.add_alternative(html_body, subtype="html")
 
-    context = ssl.create_default_context()
+    context = smtp_ssl_context()
     with smtplib.SMTP(host, port, timeout=20) as smtp:
         if use_tls:
             smtp.starttls(context=context)
         if username or password:
             smtp.login(username, password)
         smtp.send_message(message)
+
+
+def smtp_ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def send_sendgrid(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:

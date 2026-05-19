@@ -12,6 +12,9 @@ sys.path.insert(0, str(APP_DIR))
 
 tmpdir = tempfile.TemporaryDirectory()
 os.environ["TEXTTRAITS_DB_PATH"] = str(Path(tmpdir.name) / "attack_workspace.sqlite3")
+os.environ["DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_EMAIL_PROVIDER"] = ""
 os.environ.setdefault("ENABLE_DEV_TOOLS", "false")
 os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "attack-harness-secret")
 os.environ.setdefault("TEXTTRAITS_DEV_ACCOUNT_LINKS", "false")
@@ -70,7 +73,7 @@ def main() -> int:
         json={"email": "attack@example.com", "password": "correct-horse-battery", "name": "<img src=x onerror=alert(1)>"},
         headers=csrf_headers(client),
     )
-    assert_true(signup.status_code == 200 and signup.get_json()["authenticated"] is True, signup.get_data(as_text=True))
+    assert_true(signup.status_code == 200 and signup.get_json()["authenticated"] is False, signup.get_data(as_text=True))
     duplicate = client.post(
         "/api/signup",
         json={"email": "ATTACK@example.com", "password": "correct-horse-battery"},
@@ -81,6 +84,15 @@ def main() -> int:
     for url in ("/api/reset-password?token=stolen", "/api/reset-password/stolen", "/api/verify-email?token=stolen", "/api/verify-email/stolen"):
         redirect = client.get(url, follow_redirects=False)
         assert_true("stolen" not in redirect.headers.get("Location", ""), f"dev token helper leaked token through {url}")
+
+    verified_user = storage_module.create_user("verified-attack@example.com", "correct-horse-battery", "Attack User")
+    storage_module.verify_email_token(verified_user["_verification_token"], "verified-attack@example.com")
+    login = client.post(
+        "/api/login",
+        json={"email": "verified-attack@example.com", "password": "correct-horse-battery"},
+        headers=csrf_headers(client),
+    )
+    assert_true(login.status_code == 200, "verified account should sign in for authenticated attack checks")
 
     bad_workspace = client.put(
         "/api/workspace",
@@ -109,7 +121,7 @@ def main() -> int:
         headers=csrf_headers(client),
     )
     assert_true(client_error.status_code == 200, "client error endpoint failed")
-    user = storage_module.get_user_by_email("attack@example.com")
+    user = storage_module.get_user_by_email("verified-attack@example.com")
     latest_event = storage_module.recent_events(user["id"], limit=1)[0]
     assert_true("hunter2" not in str(latest_event) and "abc123" not in str(latest_event), "client error log leaked credentials")
 

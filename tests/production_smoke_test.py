@@ -12,6 +12,9 @@ sys.path.insert(0, str(APP_DIR))
 
 tmpdir = tempfile.TemporaryDirectory()
 os.environ["TEXTTRAITS_DB_PATH"] = str(Path(tmpdir.name) / "workspace.sqlite3")
+os.environ["DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_EMAIL_PROVIDER"] = ""
 os.environ.setdefault("ENABLE_DEV_TOOLS", "false")
 os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "test-secret-key")
 os.environ.setdefault("TEXTTRAITS_DEV_ACCOUNT_LINKS", "true")
@@ -58,14 +61,18 @@ def main() -> int:
     )
     assert_true(signup.status_code == 200, signup.get_data(as_text=True))
     payload = signup.get_json()
-    assert_true(payload["authenticated"] is True, "signup did not authenticate")
-    assert_true(payload["workspace"]["data"] == {}, "new workspace should start empty")
-    assert_true("dev_verify_url" in payload, "local verification helper missing")
-    verify_token = payload["dev_verify_url"].rsplit("/", 1)[-1]
+    assert_true(payload["authenticated"] is False, "signup should wait for email verification")
+    assert_true(payload["pending_verification"] is True, "signup should create a pending verification")
+    assert_true("dev_verify_code" in payload, "local verification helper missing")
+    verify_token = payload["dev_verify_code"]
+    assert_true(verify_token.isdigit() and len(verify_token) == 6, "verification code should be 6 digits")
     verify = client.get(f"/api/verify-email/{verify_token}", follow_redirects=False)
     assert_true(verify.status_code == 302, "verification link should redirect back to app")
-    verify_post = client.post("/api/verify-email", json={"token": verify_token}, headers=csrf_headers(client))
+    login_before_verify = client.post("/api/login", json={"email": "qa@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
+    assert_true(login_before_verify.status_code == 403, "login should require email verification")
+    verify_post = client.post("/api/verify-email", json={"email": "qa@example.com", "token": verify_token}, headers=csrf_headers(client))
     assert_true(verify_post.status_code == 200, "verification post should verify account")
+    assert_true(verify_post.get_json()["workspace"]["data"] == {}, "new workspace should start empty")
 
     workspace_payload = {
         "mode": "explorer",

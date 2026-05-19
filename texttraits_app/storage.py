@@ -91,6 +91,15 @@ def token_matches(stored_value: str | None, token: str) -> bool:
     return hmac.compare_digest(stored_value, token_digest(token.strip()))
 
 
+def verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def normalize_verification_code(token: str) -> str:
+    digits = re.sub(r"\D+", "", token.strip())
+    return digits if len(digits) == 6 else ""
+
+
 def redact_string(value: str) -> str:
     cleaned = SENSITIVE_VALUE_RE.sub(lambda match: f"{match.group(1)}=[redacted]", value)
     cleaned = BEARER_TOKEN_RE.sub("Bearer [redacted]", cleaned)
@@ -180,6 +189,19 @@ def init_db() -> None:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS pending_signups (
+                  email TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  password_hash TEXT NOT NULL,
+                  verification_token TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  attempts INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS workspaces (
                   id BIGSERIAL PRIMARY KEY,
                   user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -239,6 +261,16 @@ def init_db() -> None:
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_signups (
+              email TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              password_hash TEXT NOT NULL,
+              verification_token TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              attempts INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS audit_events (
@@ -346,11 +378,47 @@ def get_user_by_email(email: str):
         return execute(conn, "SELECT * FROM users WHERE lower(email) = lower(?)", (email,)).fetchone()
 
 
+def get_pending_signup_by_email(email: str):
+    with connect() as conn:
+        return execute(conn, "SELECT * FROM pending_signups WHERE lower(email) = lower(?)", (email.strip().lower(),)).fetchone()
+
+
+def create_pending_signup(email: str, password: str, name: str = "") -> dict[str, Any]:
+    clean_email = email.strip().lower()
+    clean_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
+    now = utc_now()
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(timespec="seconds")
+    code = verification_code()
+    digest = token_digest(code)
+    password_hash = generate_password_hash(password)
+    with connect() as conn:
+        existing = execute(conn, "SELECT * FROM users WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
+        if existing is not None:
+            if existing["email_verified_at"]:
+                return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True}
+            execute(
+                conn,
+                "UPDATE users SET verification_token = ? WHERE id = ?",
+                (digest, existing["id"]),
+            )
+            return {"email": clean_email, "name": existing["name"], "token": code, "expires_at": expires, "existing": True}
+        execute(conn, "DELETE FROM pending_signups WHERE lower(email) = lower(?)", (clean_email,))
+        execute(
+            conn,
+            """
+            INSERT INTO pending_signups (email, name, password_hash, verification_token, expires_at, attempts, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (clean_email, clean_name, password_hash, digest, expires, 0, now),
+        )
+    return {"email": clean_email, "name": clean_name, "token": code, "expires_at": expires, "existing": False}
+
+
 def create_user(email: str, password: str, name: str = "") -> dict[str, Any]:
     clean_email = email.strip().lower()
     clean_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
     now = utc_now()
-    verification_token = secrets.token_urlsafe(24)
+    verification_token = verification_code()
     verification_digest = token_digest(verification_token)
     with connect() as conn:
         if uses_postgres():
@@ -385,6 +453,8 @@ def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
     row = get_user_by_email(email)
     if row is None or not check_password_hash(row["password_hash"], password):
         return None
+    if not row["email_verified_at"]:
+        return None
     now = utc_now()
     with connect() as conn:
         execute(conn, "UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
@@ -392,20 +462,84 @@ def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
     return public_user(updated)
 
 
+def needs_email_verification(email: str, password: str) -> bool:
+    clean_email = email.strip().lower()
+    if not clean_email or not password:
+        return False
+    row = get_user_by_email(clean_email)
+    if row is not None:
+        return bool(not row["email_verified_at"] and check_password_hash(row["password_hash"], password))
+    pending = get_pending_signup_by_email(clean_email)
+    return bool(pending is not None and check_password_hash(pending["password_hash"], password))
+
+
 def get_verification_token(user_id: int) -> str | None:
     # Verification tokens are stored hashed and cannot be recovered after issue.
     return None
 
 
-def verify_email_token(token: str) -> dict[str, Any] | None:
-    clean = token.strip()
+def verify_email_token(token: str, email: str = "") -> dict[str, Any] | None:
+    clean = normalize_verification_code(token)
     if not clean:
         return None
+    clean_email = email.strip().lower()
+    if clean_email:
+        created_user: dict[str, Any] | None = None
+        created_user_id: int | None = None
+        with connect() as conn:
+            pending = execute(conn, "SELECT * FROM pending_signups WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
+            if pending is not None:
+                now_dt = datetime.now(timezone.utc)
+                expires = datetime.fromisoformat(pending["expires_at"]) if pending["expires_at"] else now_dt
+                if expires < now_dt or int(pending["attempts"] or 0) >= 8:
+                    execute(conn, "DELETE FROM pending_signups WHERE email = ?", (pending["email"],))
+                    return None
+                if not token_matches(pending["verification_token"], clean):
+                    execute(conn, "UPDATE pending_signups SET attempts = attempts + 1 WHERE email = ?", (pending["email"],))
+                    return None
+                existing = execute(conn, "SELECT * FROM users WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
+                if existing is not None:
+                    execute(conn, "DELETE FROM pending_signups WHERE email = ?", (pending["email"],))
+                    return None
+                now = utc_now()
+                if uses_postgres():
+                    inserted = conn.execute(
+                        """
+                        INSERT INTO users (email, name, password_hash, email_verified_at, verification_token, created_at, last_login_at)
+                        VALUES (%s, %s, %s, %s, NULL, %s, %s)
+                        RETURNING id
+                        """,
+                        (pending["email"], pending["name"], pending["password_hash"], now, pending["created_at"], now),
+                    ).fetchone()
+                    user_id = int(inserted["id"])
+                else:
+                    cursor = execute(
+                        conn,
+                        """
+                        INSERT INTO users (email, name, password_hash, email_verified_at, verification_token, created_at, last_login_at)
+                        VALUES (?, ?, ?, ?, NULL, ?, ?)
+                        """,
+                        (pending["email"], pending["name"], pending["password_hash"], now, pending["created_at"], now),
+                    )
+                    user_id = int(cursor.lastrowid)
+                execute(
+                    conn,
+                    "INSERT INTO workspaces (user_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, f"{pending['name']}'s workspace", "{}", now, now),
+                )
+                execute(conn, "DELETE FROM pending_signups WHERE email = ?", (pending["email"],))
+                updated = execute(conn, "SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                created_user = public_user(updated)
+                created_user_id = int(user_id) if created_user else None
+        if created_user and created_user_id:
+            log_event(created_user_id, "signup", {})
+            log_event(created_user_id, "email_verified", {})
+            return created_user
     with connect() as conn:
         row = execute(
             conn,
-            "SELECT * FROM users WHERE verification_token = ?",
-            (token_digest(clean),),
+            "SELECT * FROM users WHERE lower(email) = lower(?) AND verification_token = ?",
+            (clean_email, token_digest(clean)),
         ).fetchone()
         if row is None:
             return None

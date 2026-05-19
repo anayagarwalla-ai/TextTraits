@@ -729,16 +729,16 @@ function renderAccountCard() {
             <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" value="${escapeHtml(state.accountDraft.email)}" placeholder="you@example.com"></label>
             ${showPassword ? `<label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="${authMode === "create" ? "new-password" : "current-password"}" placeholder="${authMode === "create" ? "At least 12 characters" : "Your password"}"></label>` : ""}
             <div class="auth-actions">
-              ${authMode === "create" ? `<button type="button" data-signup>Create account</button><button class="button-secondary" type="button" data-auth-mode="signin">Sign in instead</button>` : ""}
+              ${authMode === "create" ? `<button type="button" data-signup>Email me a code</button><button class="button-secondary" type="button" data-auth-mode="signin">Sign in instead</button>` : ""}
               ${authMode === "signin" ? `<button type="button" data-login>Sign in</button><button class="button-secondary" type="button" data-auth-mode="create">Create account</button>` : ""}
               ${authMode === "reset" ? `<button type="button" data-request-reset>Send reset code</button><button class="button-secondary" type="button" data-auth-mode="signin">Back to sign in</button>` : ""}
               ${demoButton}
               ${authMode !== "reset" ? `<button class="button-secondary quiet-button" type="button" data-auth-mode="reset">Reset password</button>` : ""}
             </div>
             <details class="account-code-panel" ${state.accountCodePanelOpen || state.accountResetToken ? "open" : ""}>
-              <summary>Have an email code?</summary>
-              <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" value="${escapeHtml(state.accountDraft.verifyToken)}" placeholder="Paste verification code"></label>
-              <button class="button-secondary" type="button" data-submit-verification>Verify email</button>
+              <summary>Have a 6-digit email code?</summary>
+              <label class="field"><span>Verification code</span><input id="verify-token" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" value="${escapeHtml(state.accountDraft.verifyToken)}" placeholder="123456"></label>
+              <button class="button-secondary" type="button" data-submit-verification>Create verified account</button>
               <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" value="${escapeHtml(state.accountResetToken || state.accountDraft.resetToken)}" placeholder="Paste reset code"></label>
               <label class="field"><span>New password</span><input id="reset-new-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
               <button class="button-secondary" type="button" data-submit-reset>Update password</button>
@@ -926,7 +926,14 @@ function wireAccountCard() {
     }
   });
   els.accountCard?.querySelector("[data-submit-verification]")?.addEventListener("click", async (event) => {
+    const email = els.accountCard.querySelector("#auth-email")?.value || state.accountDraft.email || "";
     const token = els.accountCard.querySelector("#verify-token")?.value || "";
+    if (!isValidEmail(email)) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the email address that received the code.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
     if (!token.trim()) {
       state.accountCodePanelOpen = true;
       showAccountError("Enter the verification code from your email.");
@@ -934,9 +941,9 @@ function wireAccountCard() {
       return;
     }
     try {
-      const data = await apiClient.verifyEmail(token);
+      const data = await apiClient.verifyEmail(token, email);
       applyAuthenticatedAccount(data, "Email verified");
-      showToast(event.currentTarget, "Email verified.");
+      showToast(event.currentTarget, "Account created.");
     } catch (error) {
       showToast(event.currentTarget, error.message || "Verification code expired.");
     }
@@ -1026,10 +1033,14 @@ async function authRequest(action) {
         applyAuthenticatedAccount(data);
         return;
       }
-      els.announcer.textContent = data.message || "Check your account details.";
-      state.accountError = data.message || "Check your account details.";
+      state.accountDraft.email = payload.email;
+      state.accountDraft.name = payload.name || state.accountDraft.name;
+      state.accountCodePanelOpen = true;
+      els.announcer.textContent = data.message || "Check your email for a 6-digit code.";
+      state.accountError = data.message || "Check your email for a 6-digit code.";
       state.accountModalOpen = true;
       renderAccountCard();
+      scrollAccountCodePanelIntoView();
       return;
     }
     applyAuthenticatedAccount(data);
@@ -1070,22 +1081,13 @@ async function handleAccountLinkTokens() {
   let changed = false;
 
   if (verifyToken) {
-    try {
-      const data = await apiClient.verifyEmail(verifyToken);
-      state.account.authenticated = true;
-      state.account.user = data.user;
-      state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
-      state.account.syncStatus = "Email verified";
-      state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
-      state.accountCodePanelOpen = false;
-      if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
-      renderAccountCard();
-      renderModeChrome();
-      showToast(els.accountCard, "Email verified.");
-      render();
-    } catch (error) {
-      showToast(els.accountCard, error.message || "Verification link expired.");
-    }
+    state.accountDraft.verifyToken = verifyToken.replace(/\D+/g, "").slice(0, 6);
+    state.accountCodePanelOpen = true;
+    state.accountModalOpen = true;
+    state.accountAuthMode = "create";
+    state.accountError = "Enter the email address that received this code.";
+    renderAccountCard();
+    requestAnimationFrame(() => els.accountCard.querySelector("#auth-email")?.focus?.());
     params.delete("verify_token");
     hashParams.delete("verify_token");
     changed = true;
