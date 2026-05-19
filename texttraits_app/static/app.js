@@ -139,6 +139,7 @@ const state = {
     syncStatus: "Local only",
     lastSyncedAt: "",
   },
+  accountRequestPending: false,
   accountDraft: {
     name: "",
     email: "",
@@ -993,6 +994,7 @@ function applyAuthenticatedAccount(data, statusText = "Signed in") {
 }
 
 async function authRequest(action) {
+  if (state.accountRequestPending) return;
   const emailField = els.accountCard.querySelector("#auth-email");
   const passwordField = els.accountCard.querySelector("#auth-password");
   const nameField = els.accountCard.querySelector("#auth-name");
@@ -1017,6 +1019,12 @@ async function authRequest(action) {
     }
   }
   try {
+    state.accountRequestPending = true;
+    const clickedButton = els.accountCard.querySelector(action === "login" ? "[data-login]" : action === "signup" ? "[data-signup]" : "[data-demo-account]");
+    if (clickedButton) {
+      clickedButton.disabled = true;
+      clickedButton.setAttribute("aria-busy", "true");
+    }
     let data;
     if (action === "login") data = await apiClient.login(payload);
     else {
@@ -1050,6 +1058,8 @@ async function authRequest(action) {
     state.accountError = error.message || "Sign-in failed.";
     state.accountModalOpen = true;
     renderAccountCard();
+  } finally {
+    state.accountRequestPending = false;
   }
 }
 

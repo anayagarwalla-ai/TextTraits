@@ -51,6 +51,7 @@ def main() -> int:
     duplicate = client.post("/api/signup", json={"email": "SECURITY@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
     assert_true(duplicate.status_code == 200, "duplicate signup should not expose account existence by status")
     assert_true(duplicate.get_json()["authenticated"] is False, "duplicate signup should not authenticate")
+    assert_true("dev_verify_code" not in duplicate.get_json(), "duplicate signup should not issue another verification code")
 
     bad_login = client.post("/api/login", json={"email": "security@example.com", "password": "wrong-password"}, headers=csrf_headers(client))
     assert_true(bad_login.status_code == 401, "bad login should fail")

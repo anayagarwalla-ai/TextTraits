@@ -20,6 +20,7 @@ os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "test-secret-key")
 os.environ.setdefault("TEXTTRAITS_DEV_ACCOUNT_LINKS", "true")
 
 import app as app_module  # noqa: E402
+import storage as storage_module  # noqa: E402
 
 
 def assert_true(condition: bool, message: str) -> None:
@@ -66,9 +67,21 @@ def main() -> int:
     assert_true("dev_verify_code" in payload, "local verification helper missing")
     verify_token = payload["dev_verify_code"]
     assert_true(verify_token.isdigit() and len(verify_token) == 6, "verification code should be 6 digits")
+    pending_before_duplicate = storage_module.get_pending_signup_by_email("qa@example.com")
+    duplicate_signup = client.post(
+        "/api/signup",
+        json={"email": "qa@example.com", "password": "texttraits-test-updated", "name": "QA Updated"},
+        headers=csrf_headers(client),
+    )
+    assert_true(duplicate_signup.status_code == 200, duplicate_signup.get_data(as_text=True))
+    duplicate_payload = duplicate_signup.get_json()
+    pending_after_duplicate = storage_module.get_pending_signup_by_email("qa@example.com")
+    assert_true("dev_verify_code" not in duplicate_payload, "duplicate signup should not create a second code")
+    assert_true("already emailed" in duplicate_payload["message"].lower(), "duplicate signup should tell the user to use the existing code")
+    assert_true(pending_before_duplicate["verification_token"] == pending_after_duplicate["verification_token"], "duplicate signup should keep the original verification code")
     verify = client.get(f"/api/verify-email/{verify_token}", follow_redirects=False)
     assert_true(verify.status_code == 302, "verification link should redirect back to app")
-    login_before_verify = client.post("/api/login", json={"email": "qa@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
+    login_before_verify = client.post("/api/login", json={"email": "qa@example.com", "password": "texttraits-test-updated"}, headers=csrf_headers(client))
     assert_true(login_before_verify.status_code == 403, "login should require email verification")
     verify_post = client.post("/api/verify-email", json={"email": "qa@example.com", "token": verify_token}, headers=csrf_headers(client))
     assert_true(verify_post.status_code == 200, "verification post should verify account")
@@ -111,7 +124,7 @@ def main() -> int:
     oauth_start = client.post("/api/integrations/hubspot/oauth/start", headers=csrf_headers(client))
     assert_true(oauth_start.status_code == 409, "OAuth start should require configured provider credentials")
 
-    export = client.post("/api/account/export", json={"password": "texttraits-test"}, headers=csrf_headers(client))
+    export = client.post("/api/account/export", json={"password": "texttraits-test-updated"}, headers=csrf_headers(client))
     assert_true(export.status_code == 200, "account export failed")
     assert_true(export.get_json()["workspace"]["name"] == "QA workspace", "account export missing workspace")
 

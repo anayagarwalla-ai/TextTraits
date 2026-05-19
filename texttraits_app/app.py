@@ -571,7 +571,9 @@ def api_signup():
     verification_token = pending.get("token")
     email_result = send_verification_email(pending, verification_token)
     message = "Check your email for a 6-digit verification code before signing in."
-    if not verification_token:
+    if pending.get("already_sent"):
+        message = "We already emailed a 6-digit code. Use that code to create your account."
+    elif not verification_token:
         message = "If this email can be used, check it for a 6-digit verification code."
     elif not email_result.get("sent"):
         if PRODUCTION:

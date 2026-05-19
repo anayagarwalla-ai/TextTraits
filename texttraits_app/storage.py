@@ -387,6 +387,7 @@ def create_pending_signup(email: str, password: str, name: str = "") -> dict[str
     clean_email = email.strip().lower()
     clean_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
     now = utc_now()
+    now_dt = datetime.now(timezone.utc)
     expires = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(timespec="seconds")
     code = verification_code()
     digest = token_digest(code)
@@ -396,13 +397,32 @@ def create_pending_signup(email: str, password: str, name: str = "") -> dict[str
         if existing is not None:
             if existing["email_verified_at"]:
                 return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True}
+            if existing["verification_token"]:
+                return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True, "already_sent": True}
             execute(
                 conn,
                 "UPDATE users SET verification_token = ? WHERE id = ?",
                 (digest, existing["id"]),
             )
             return {"email": clean_email, "name": existing["name"], "token": code, "expires_at": expires, "existing": True}
-        execute(conn, "DELETE FROM pending_signups WHERE lower(email) = lower(?)", (clean_email,))
+        pending = execute(conn, "SELECT * FROM pending_signups WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
+        if pending is not None:
+            pending_expires = datetime.fromisoformat(pending["expires_at"]) if pending["expires_at"] else now_dt
+            if pending_expires >= now_dt:
+                execute(
+                    conn,
+                    "UPDATE pending_signups SET name = ?, password_hash = ? WHERE email = ?",
+                    (clean_name, password_hash, pending["email"]),
+                )
+                return {
+                    "email": clean_email,
+                    "name": clean_name,
+                    "token": None,
+                    "expires_at": pending["expires_at"],
+                    "existing": False,
+                    "already_sent": True,
+                }
+            execute(conn, "DELETE FROM pending_signups WHERE email = ?", (pending["email"],))
         execute(
             conn,
             """
