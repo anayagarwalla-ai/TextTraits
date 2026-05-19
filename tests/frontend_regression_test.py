@@ -31,6 +31,7 @@ def main() -> int:
     csv_js = client.get("/static/csv_utils.js").get_data(as_text=True)
     enterprise_copy_js = client.get("/static/enterprise_copy.js").get_data(as_text=True)
     styles_css = client.get("/static/styles.css").get_data(as_text=True)
+    app_js_lf = app_js.replace("\r\n", "\n")
 
     assert_true("workflow" in config_js and "Import" in config_js and "Track" in config_js, "enterprise workflow config missing")
     assert_true("TextTraitsUtils" in utils_js and "escapeHtml" in utils_js, "text utility module missing")
@@ -133,7 +134,7 @@ def main() -> int:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")
     assert_true("integrationSetupOpen" in app_js, "CRM setup actions should open the exact setup section")
     assert_true("return state.batchErrors.length ? [] : rows;" in app_js, "Batch CSV should block generated rows when validation errors exist")
-    assert_true("state.batchErrors = [];\n    state.batchRows = [];\n    state.batchProgress = 0;\n    state.sampleWorkspaceLoaded = true;" in app_js, "Loading sample CSV should clear stale batch errors before showing valid input")
+    assert_true("state.batchErrors = [];\n    state.batchRows = [];\n    state.batchProgress = 0;\n    state.sampleWorkspaceLoaded = true;" in app_js_lf, "Loading sample CSV should clear stale batch errors before showing valid input")
     assert_true("Local demo:" in html and "Privacy" in html and "Terms" in html, "Local demo footer should expose trust links")
     assert_true('data-generate-batch ${canGenerate' not in app_js and 'data-generate-batch>Generate batch briefs' in app_js, "Batch generate should stay clickable so empty input can show helpful guidance")
     assert_true("starter-sample-panel" not in app_js, "Enterprise setup should not show duplicate sample panels")

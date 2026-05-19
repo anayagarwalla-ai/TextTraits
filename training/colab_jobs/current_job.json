@@ -1,0 +1,6 @@
+{
+  "job_id": "noop-2026-05-18-0001",
+  "action": "noop",
+  "params": {},
+  "note": "Default no-op job for the Colab remote worker. Change job_id and action on a pushed branch to dispatch work."
+}

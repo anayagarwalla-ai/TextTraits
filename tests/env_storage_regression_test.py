@@ -37,7 +37,16 @@ def main() -> int:
         assert_true("sslmode=require" in secure_url, "remote production Postgres should require SSL")
         assert_true("connect_timeout=10" in secure_url, "Postgres URL should include connect timeout")
 
+        os.environ.pop("TEXTTRAITS_DATABASE_URL", None)
+        os.environ["DATABASE_URL"] = "postgresql://postgres.projectref:secret@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+        supabase_url = storage.database_url()
+        assert_true(supabase_url.startswith("postgresql://postgres.projectref:"), "DATABASE_URL should configure Postgres without TEXTTRAITS_DATABASE_URL")
+        assert_true("pooler.supabase.com" in supabase_url, "Supabase pooler host should be preserved")
+        assert_true("sslmode=require" in supabase_url, "Supabase DATABASE_URL should require SSL in production")
+        assert_true("connect_timeout=10" in supabase_url, "Supabase DATABASE_URL should include connect timeout")
+
         os.environ["TEXTTRAITS_DATABASE_URL"] = "postgresql://user:pass@localhost:5432/texttraits"
+        os.environ.pop("DATABASE_URL", None)
         local_url = storage.database_url()
         assert_true("sslmode=require" not in local_url, "local Postgres should not force SSL by default")
     finally:

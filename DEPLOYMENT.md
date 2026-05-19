@@ -27,6 +27,10 @@ Copy `.env.example` into your deployment environment and set:
 - `TEXTTRAITS_DEV_ACCOUNT_LINKS=false`: never expose local verification/reset helper links in production responses.
 - `TEXTTRAITS_MAX_CONTENT_LENGTH`, `TEXTTRAITS_MAX_WORKSPACE_BYTES`, and `TEXTTRAITS_MAX_EVENT_BYTES`: request and persistence size guards.
 
+For Supabase, set `DATABASE_URL` to the project connection string from
+`Project > Connect`. Prefer the Supabase session pooler URL for hosted services
+that may not support IPv6. See `SUPABASE_POSTGRES_SETUP.md`.
+
 ## Run Locally
 
 ```bash
@@ -38,6 +42,17 @@ For local Postgres:
 ```bash
 export DATABASE_URL="postgresql://texttraits:texttraits123@localhost:5432/texttraits"
 PORT=5001 python3 texttraits_app/app.py
+```
+
+For Supabase-backed production, use the hosted connection string instead:
+
+```bash
+export TEXTTRAITS_ENV=production
+export TEXTTRAITS_SECRET_KEY="<long random secret>"
+export TEXTTRAITS_PUBLIC_BASE_URL="https://your-app.example"
+export DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+export TEXTTRAITS_DB_SSLMODE=require
+python3 scripts/migrate.py
 ```
 
 You can also create a local `.env` file. The app loads `.env` automatically for local development without overriding real deployment environment variables.

@@ -128,6 +128,22 @@ This app is currently a Flask service. A production deployment should:
 - Review `SECURITY_HARDENING.md`.
 - Run behind a production WSGI server or the platform's Python web runtime.
 
+The repo includes a deployable WSGI entrypoint and free-hosting handoff files:
+
+- `texttraits_app/wsgi.py`
+- `Procfile`
+- `render.yaml`
+- `DEPLOYMENT_NOTES.md`
+- `production_readiness/FREE_DEPLOY_REQUIREMENTS.txt`
+
+Public demo start command:
+
+```bash
+gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+```
+
+The repository is deploy-ready, but no live public URL is currently verified in this checkout.
+
 ## Troubleshooting
 
 - If `/evaluate` says the model is unavailable, run `python scripts/verify_models.py` and confirm the model bundle exists.

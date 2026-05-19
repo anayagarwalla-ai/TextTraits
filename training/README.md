@@ -39,6 +39,64 @@ drive.mount("/content/drive/")
 !python training/colab_one_shot_export_logged.py --candidate-profile balanced --selection-sample 500000
 ```
 
+## Supervised One-Shot Command
+
+For the most observable high-RAM run, prefer the supervisor wrapper. It runs the
+logged trainer, tees output to Drive, and continuously updates `RUN_STATUS.json`
+so a disconnected or frozen-looking notebook can be inspected later.
+
+```python
+from google.colab import drive
+drive.mount("/content/drive/")
+
+!git clone https://github.com/csboi/TextTraits.git
+%cd TextTraits
+!python training/colab_supervised_export.py run --candidate-profile balanced --selection-sample 500000
+```
+
+Monitor an existing supervised run without loading PANDORA:
+
+```python
+%cd /content/TextTraits
+!python training/colab_supervised_export.py monitor --watch
+```
+
+For pasteable clone/update cells, see `training/COLAB_ONE_SHOT.md`.
+
+## PyCharm Colab Setup
+
+PyCharm 2025.3.2+ can connect a local notebook to a Google Colab server. For
+that workflow, open `training/pycharm_colab_one_shot.ipynb` in PyCharm and use
+the notebook server menu to sign in to Google and create a Colab server. See
+`training/PYCHARM_COLAB_SETUP.md` for the local setup notes.
+
+## Remote Worker Option
+
+If PyCharm cannot reach a Colab server or does not expose the needed high-RAM
+runtime shape, use `training/COLAB_REMOTE_WORKER.md`. That workflow starts a
+browser Colab high-RAM cell that polls a GitHub job JSON and writes status to
+Drive. It avoids SSH, tunnels, inbound ports, and arbitrary remote code
+execution.
+
+## Model Output Diagnostics
+
+Use `training/evaluate_model_outputs.py` to tell how well a model is doing from
+its predictions and optional ground-truth labels. It reports accuracy, macro F1,
+balanced accuracy, simple baselines, calibration/error proxies, abstention
+coverage, text-quality stats, and row-level predictions.
+
+Local smoke example:
+
+```bash
+python training/evaluate_model_outputs.py \
+  --input-csv legacy_project/Data/pandora_big_info.csv \
+  --max-rows 5000 \
+  --sample-mode author
+```
+
+Full PANDORA evaluation should run in Colab because loading and joining the full
+dataset is memory-heavy.
+
 For a very fast debugging run:
 
 ```python
@@ -73,6 +131,9 @@ Expected files:
 - `texttraits_checkpoint_latest.joblib`: partial checkpoint from the logged
   trainer after the latest completed target.
 - `texttraits_checkpoint_state.json`: checkpoint state and completed targets.
+- `RUN_STATUS.json`: supervised run state, file inventory, recent metrics, and
+  log tail.
+- `run.log`: durable stdout/stderr log from the supervised run.
 
 The JS bundle is intentionally a data export, not a finished JS runtime. It
 contains TF-IDF vocabularies, IDF values, linear coefficients, intercepts, class

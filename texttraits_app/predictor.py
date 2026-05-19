@@ -17,14 +17,14 @@ APP_DIR = Path(__file__).resolve().parent
 DEFAULT_MODEL_PATH = APP_DIR / "models" / "texttraits_inference_bundle.joblib"
 
 GENDER_LABELS = {
-    "m": "Male",
-    "f": "Female",
-    "t": "Other / unspecified data label",
+    "m": "Male-associated language",
+    "f": "Female-associated language",
+    "t": "Source label: trans or other",
 }
 
 IS_FEMALE_LABELS = {
-    "0": "Not female",
-    "1": "Female",
+    "0": "No strong female-associated signal",
+    "1": "Female-associated language",
 }
 
 AGE_UNDER_25_LABELS = {

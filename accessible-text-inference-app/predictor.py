@@ -17,14 +17,14 @@ APP_DIR = Path(__file__).resolve().parent
 DEFAULT_MODEL_PATH = APP_DIR / "models" / "texttraits_inference_bundle.joblib"
 
 GENDER_LABELS = {
-    "m": "Male",
-    "f": "Female",
-    "t": "Trans/other source label",
+    "m": "Male-associated language",
+    "f": "Female-associated language",
+    "t": "Source label: trans or other",
 }
 
 IS_FEMALE_LABELS = {
-    "0": "Not female",
-    "1": "Female",
+    "0": "No strong female-associated signal",
+    "1": "Female-associated language",
 }
 
 AGE_UNDER_25_LABELS = {
@@ -227,11 +227,11 @@ class TextTraitsPredictor:
         prediction["margin"] = margin
 
         if top < 0.55 or margin < 0.08:
-            label = "Low confidence"
+            label = "Low model separation"
         elif top < 0.70 or margin < 0.18:
-            label = "Mixed signal"
+            label = "Medium model separation"
         else:
-            label = "Strong signal"
+            label = "High model separation"
         prediction["confidence_label"] = label
 
     def _text_stats(self, text: str) -> dict:
