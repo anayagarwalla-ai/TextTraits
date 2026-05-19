@@ -56,7 +56,7 @@ For public hosting:
 
 ```text
 TEXTTRAITS_ENV=production
-DATABASE_URL=<Supabase or hosted Postgres connection string>
+DATABASE_URL=<Supabase pooler URL for project olacwelhrgzxzrxtmvto>
 TEXTTRAITS_SECRET_KEY=<high-entropy-secret>
 TEXTTRAITS_PUBLIC_BASE_URL=<hosted-https-url>
 TEXTTRAITS_SECURE_COOKIES=true
@@ -66,6 +66,17 @@ ENABLE_DEV_TOOLS=false
 TEXTTRAITS_ALLOW_DEMO=false
 TEXTTRAITS_DEV_ACCOUNT_LINKS=false
 ```
+
+Supabase CLI setup for the project:
+
+```bash
+supabase login
+supabase init
+supabase link --project-ref olacwelhrgzxzrxtmvto
+```
+
+The helper `scripts/setup_supabase_cli.sh` runs the same setup and accepts
+`SUPABASE_ACCESS_TOKEN` for non-interactive login.
 
 Optional:
 

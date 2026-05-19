@@ -30,8 +30,16 @@ This is the free-only checklist for the owner of csboi/TextTraits to deploy Text
    - TEXTTRAITS_SECURE_COOKIES=true
    - TEXTTRAITS_TRUST_PROXY=true
    - TEXTTRAITS_DB_SSLMODE=require
-   - DATABASE_URL=<hosted Postgres connection string>
+   - DATABASE_URL=<Supabase pooler URL for project olacwelhrgzxzrxtmvto>
    - ENABLE_DEV_TOOLS=false
+
+   Supabase CLI setup for this project:
+   - supabase login
+   - supabase init
+   - supabase link --project-ref olacwelhrgzxzrxtmvto
+
+   Or run:
+   - scripts/setup_supabase_cli.sh
 
 5. Add free transactional email
    Account verification and password reset need real email delivery.

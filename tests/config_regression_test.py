@@ -28,6 +28,15 @@ def run_preflight(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
 
 
 def main() -> int:
+    supabase_ref = "olacwelhrgzxzrxtmvto"
+    supabase_docs = (ROOT / "SUPABASE_POSTGRES_SETUP.md").read_text(encoding="utf-8")
+    supabase_script = (ROOT / "scripts" / "setup_supabase_cli.sh").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert_true(supabase_ref in supabase_docs, "Supabase docs should include the project ref")
+    assert_true(f"supabase link --project-ref {supabase_ref}" in supabase_docs, "Supabase docs should include the CLI link command")
+    assert_true(supabase_ref in supabase_script and "supabase login" in supabase_script and "supabase init" in supabase_script, "Supabase helper should run login/init/link flow")
+    assert_true(supabase_ref in env_example and "DATABASE_URL=" in env_example, ".env example should point DATABASE_URL users to the Supabase project")
+
     local = run_preflight({"TEXTTRAITS_ENV": "development", "TEXTTRAITS_EMAIL_PROVIDER": ""})
     assert_true(local.returncode == 0, local.stderr)
 

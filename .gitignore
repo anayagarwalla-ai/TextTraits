@@ -15,6 +15,13 @@ texttraits-updated-ui.png
 texttraits-redesign-*.png
 texttraits-rebased-*.png
 
+# Supabase CLI local state. Keep migrations/config tracked, but never commit
+# linked-project temp files, generated branches, or local seed dumps.
+supabase/.temp/
+supabase/.branches/
+supabase/.env
+supabase/seed.sql
+
 # Extracted research data and generated model binaries are too large for GitHub.
 legacy_project/
 texttraits_app/artifacts/*

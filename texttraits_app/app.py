@@ -354,11 +354,11 @@ def add_security_headers(response):
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
-        f"script-src {script_src}; "
+        f"script-src {script_src} https://js.sentry-cdn.com; "
         "style-src 'self'; "
         "img-src 'self' data:; "
         "font-src 'self' data:; "
-        "connect-src 'self'; "
+        "connect-src 'self' https://*.sentry.io; "
         "object-src 'none'; "
         "base-uri 'self'; "
         "form-action 'self'; "
@@ -831,7 +831,19 @@ def api_integration_oauth_callback(provider: str):
 def privacy():
     return render_template_string(
         """
-        <!doctype html><title>TextTraits Privacy</title><link rel="stylesheet" href="/static/styles.css">
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TextTraits Privacy</title>
+            <link rel="stylesheet" href="/static/styles.css">
+            <script
+              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+              crossorigin="anonymous"
+            ></script>
+          </head>
+          <body>
         <main class="legal-page">
           <h1>Privacy</h1>
           <p>TextTraits stores account and workspace data for signed-in users, including saved writing history, campaigns, drafts, outcomes, settings, and integration connection status.</p>
@@ -841,6 +853,8 @@ def privacy():
           <p>Operational logs and error reports are used to keep the service reliable and should avoid storing passwords, reset codes, API keys, and OAuth credentials.</p>
           <p><a href="/">Back to TextTraits</a></p>
         </main>
+          </body>
+        </html>
         """
     )
 
@@ -849,7 +863,19 @@ def privacy():
 def terms():
     return render_template_string(
         """
-        <!doctype html><title>TextTraits Terms</title><link rel="stylesheet" href="/static/styles.css">
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TextTraits Terms</title>
+            <link rel="stylesheet" href="/static/styles.css">
+            <script
+              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+              crossorigin="anonymous"
+            ></script>
+          </head>
+          <body>
         <main class="legal-page">
           <h1>Terms</h1>
           <p>TextTraits is a writing coach and outreach workflow tool. Users are responsible for reviewing generated drafts before using them.</p>
@@ -858,6 +884,8 @@ def terms():
           <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
           <p><a href="/">Back to TextTraits</a></p>
         </main>
+          </body>
+        </html>
         """
     )
 

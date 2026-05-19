@@ -29,8 +29,17 @@ def csrf_headers(client) -> dict[str, str]:
     return {"X-CSRF-Token": token}
 
 
+SENTRY_BROWSER_SCRIPT = "https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+
+
 def main() -> int:
     client = app_module.app.test_client()
+
+    home = client.get("/")
+    assert_true(SENTRY_BROWSER_SCRIPT in home.get_data(as_text=True), "Sentry browser loader missing from app shell")
+    csp = home.headers.get("Content-Security-Policy", "")
+    assert_true("https://js.sentry-cdn.com" in csp, "CSP should allow the Sentry browser loader")
+    assert_true("https://*.sentry.io" in csp, "CSP should allow Sentry event transport")
 
     health = client.get("/health")
     assert_true(health.status_code == 200, f"health returned {health.status_code}")
@@ -111,6 +120,8 @@ def main() -> int:
     terms = client.get("/terms")
     assert_true(privacy.status_code == 200 and "Privacy" in privacy.get_data(as_text=True), "privacy route missing")
     assert_true(terms.status_code == 200 and "Terms" in terms.get_data(as_text=True), "terms route missing")
+    assert_true(SENTRY_BROWSER_SCRIPT in privacy.get_data(as_text=True), "Sentry browser loader missing from privacy page")
+    assert_true(SENTRY_BROWSER_SCRIPT in terms.get_data(as_text=True), "Sentry browser loader missing from terms page")
 
     logout = client.post("/api/logout", headers=csrf_headers(client))
     assert_true(logout.status_code == 200, "logout failed")

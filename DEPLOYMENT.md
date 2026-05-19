@@ -31,6 +31,17 @@ For Supabase, set `DATABASE_URL` to the project connection string from
 `Project > Connect`. Prefer the Supabase session pooler URL for hosted services
 that may not support IPv6. See `SUPABASE_POSTGRES_SETUP.md`.
 
+Supabase CLI setup for the current project:
+
+```bash
+supabase login
+supabase init
+supabase link --project-ref olacwelhrgzxzrxtmvto
+```
+
+You can also run `scripts/setup_supabase_cli.sh`, which uses the same project
+ref and keeps Supabase's local link state out of Git.
+
 ## Run Locally
 
 ```bash
@@ -50,7 +61,7 @@ For Supabase-backed production, use the hosted connection string instead:
 export TEXTTRAITS_ENV=production
 export TEXTTRAITS_SECRET_KEY="<long random secret>"
 export TEXTTRAITS_PUBLIC_BASE_URL="https://your-app.example"
-export DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+export DATABASE_URL="postgresql://postgres.olacwelhrgzxzrxtmvto:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
 export TEXTTRAITS_DB_SSLMODE=require
 python3 scripts/migrate.py
 ```

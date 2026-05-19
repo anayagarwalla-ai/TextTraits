@@ -3,12 +3,43 @@
 The production-readiness app supports Supabase through a normal Postgres
 connection string. No Supabase API key is needed for server-side persistence.
 
+## Project Ref
+
+The Supabase project ref for this deployment is:
+
+```text
+olacwelhrgzxzrxtmvto
+```
+
+## CLI Setup
+
+From the repository root, run:
+
+```bash
+supabase login
+supabase init
+supabase link --project-ref olacwelhrgzxzrxtmvto
+```
+
+Or use the checked-in helper:
+
+```bash
+scripts/setup_supabase_cli.sh
+```
+
+For non-interactive shells, set `SUPABASE_ACCESS_TOKEN` first and then run the
+helper. The helper keeps the project ref configurable through
+`SUPABASE_PROJECT_REF`, defaulting to `olacwelhrgzxzrxtmvto`.
+
+The CLI creates local link state under `supabase/.temp/`; that directory is
+ignored and must not be committed.
+
 ## Required Environment Variable
 
 Set this on the hosting provider:
 
 ```text
-DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+DATABASE_URL=postgresql://postgres.olacwelhrgzxzrxtmvto:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
 ```
 
 The app also accepts `TEXTTRAITS_DATABASE_URL`, but `DATABASE_URL` is the
