@@ -6,13 +6,13 @@ It has not been deployed to a live public URL from this checkout.
 ## Current Deployment State
 
 - Branch intended for this advanced production-readiness review: `codex/sync-production-readiness`.
-- Base advanced app branch: `origin/codex/production-readiness`.
+- Base app branch: `origin/codex/production-readiness`, currently in sync with `origin/main`.
 - Merged sync source: `origin/codex/pycharm-colab-setup`, which includes current `main` plus Colab/training diagnostics workflow updates.
 - Latest verified commit: see the handoff message or `git rev-parse HEAD`.
 - Live public URL: pending.
 - GitHub Pages: not configured, and not appropriate for the Flask app.
 - GitHub deployment API check: no public deployment evidence was available from the unauthenticated API check.
-- `main` remains the simpler public demo branch. Do not assume this advanced production/auth/persistence work is live until this branch is reviewed and intentionally merged or deployed.
+- `codex/production-readiness` and `main` now contain the production app, account, persistence, security, and workflow work. This sync branch adds the Supabase handoff and Colab/training workflow material on top.
 
 ## Local Run
 
@@ -57,8 +57,8 @@ For public hosting:
 ```text
 TEXTTRAITS_ENV=production
 DATABASE_URL=<Supabase or hosted Postgres connection string>
-TEXTTRAITS_SECRET_KEY=<long random secret>
-TEXTTRAITS_PUBLIC_BASE_URL=https://<hosted-url>
+TEXTTRAITS_SECRET_KEY=<high-entropy-secret>
+TEXTTRAITS_PUBLIC_BASE_URL=<hosted-https-url>
 TEXTTRAITS_SECURE_COOKIES=true
 TEXTTRAITS_TRUST_PROXY=true
 TEXTTRAITS_DB_SSLMODE=require
@@ -72,6 +72,12 @@ Optional:
 ```text
 PORT=<provided by host>
 WEB_CONCURRENCY=2
+TEXTTRAITS_EMAIL_PROVIDER=smtp
+TEXTTRAITS_FROM_EMAIL=<verified-sender>
+TEXTTRAITS_SMTP_HOST=<provider-host>
+TEXTTRAITS_SMTP_USERNAME=<provider-user>
+TEXTTRAITS_SMTP_PASSWORD=<provider-secret>
+SENTRY_DSN=<optional-sentry-dsn>
 ```
 
 Do not set `ENABLE_DEV_TOOLS=true` in a public deployment. That exposes model metadata and debug payloads.
@@ -96,7 +102,7 @@ For a public deployment, keep `TEXTTRAITS_ALLOW_DEMO=false` so missing models fa
 
 ## Free Deployment Path
 
-The simplest current free path is Render Free Web Service:
+The simplest current free path is a free Render Web Service plus a free external Postgres provider such as Supabase or Neon:
 
 1. Connect GitHub repo `csboi/TextTraits`.
 2. Select branch `main`.
@@ -105,13 +111,11 @@ The simplest current free path is Render Free Web Service:
    - Build command: `pip install -r requirements.txt`
    - Start command: `gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60`
 5. Set env vars:
-   - `ENABLE_DEV_TOOLS=false`
-   - `TEXTTRAITS_ALLOW_DEMO=false`
+   - the required production variables above
 6. Deploy.
-7. Open `https://<hosted-url>/health` and confirm:
-   - `ok` is `true`
-   - `demo` is `false`
-   - `dev_tools_enabled` is `false`
+7. Open `https://<hosted-url>/health` and confirm `ok` is `true`.
+
+The public health endpoint intentionally exposes only aggregate readiness. Verify database/email/integration details through `scripts/preflight.py`, deploy logs, provider dashboards, and Sentry.
 
 Railway can also run this as a dynamic service, but current free/trial behavior depends on account verification and credits. Fly.io is not a true no-cost free tier for new accounts; check billing before using it.
 
@@ -135,4 +139,4 @@ python scripts/verify_models.py --export
 
 ## What Remains For A Live Public URL
 
-The repo is deploy-ready. A live public URL still requires the repository owner to create or authorize a free hosting service account, connect the GitHub repo, set the environment variables above, and start the service.
+The repo is deploy-ready after the merge commit is on the deployment branch. A live public URL still requires the repository owner to create or authorize a free hosting service account, connect the GitHub repo, set the environment variables above, connect hosted Postgres and email, and start the service.

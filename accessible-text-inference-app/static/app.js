@@ -82,6 +82,20 @@ const state = {
 };
 
 const STORAGE_KEY = "texttraits.workspace.v2";
+const copyPayloads = new Map();
+let copyPayloadCounter = 0;
+
+function resetCopyPayloads() {
+  copyPayloads.clear();
+  copyPayloadCounter = 0;
+}
+
+function registerCopyPayload(text) {
+  copyPayloadCounter += 1;
+  const id = `copy-${copyPayloadCounter}`;
+  copyPayloads.set(id, String(text || ""));
+  return id;
+}
 
 const defaultCampaigns = [
   {name: "Q3 pipeline quality", folder: "RevOps", status: "Drafts ready", updated: "Today", prospects: 42},
@@ -1315,6 +1329,7 @@ function buildSequence(context) {
 
 function renderEnterpriseResult(data) {
   syncBodyState();
+  resetCopyPayloads();
   const context = enterpriseContext();
   state.enterpriseContext = context;
   state.recipient = {
@@ -1437,9 +1452,9 @@ function renderEnterpriseResult(data) {
     showToast(event.currentTarget, "Campaign saved to workspace.");
     renderEnterpriseResult(data);
   });
-  els.outputPanel.querySelectorAll("[data-copy-text]").forEach((button) => {
+  els.outputPanel.querySelectorAll("[data-copy-id]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(button.dataset.copyText || "");
+      await navigator.clipboard.writeText(copyPayloads.get(button.dataset.copyId) || "");
       showToast(button, "Variant copied.");
     });
   });
@@ -1791,7 +1806,7 @@ function draftsWorkspace(context, variants) {
             ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(scoreLabel(label))}</span>`).join("")}
           </div>
           <div class="result-actions">
-            <button type="button" data-copy-text="${escapeHtml(draftText(draft))}">Copy draft</button>
+            <button type="button" data-copy-id="${escapeHtml(registerCopyPayload(draftText(draft)))}">Copy draft</button>
             <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
             <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
           </div>
@@ -2320,7 +2335,7 @@ function variantRow(draft, best) {
       <p class="muted">${escapeHtml(draft.note)}</p>
       <div class="result-actions">
         <button type="button" data-select-variant="${draft.key}">Open editor</button>
-        <button class="button-secondary" data-copy-text="${escapeHtml(draftText(draft))}">Copy</button>
+        <button class="button-secondary" data-copy-id="${escapeHtml(registerCopyPayload(draftText(draft)))}">Copy</button>
       </div>
     </article>
   `;
@@ -2413,7 +2428,7 @@ function batchRowsHtml(context) {
       </div>
       <div class="mini-brief">Subject: ${escapeHtml(row.subject)}<br>Angle: ${escapeHtml(context.pain || "pipeline quality")} with ${escapeHtml(context.proof || "proof point")}.</div>
       <div class="result-actions">
-        <button class="button-secondary" type="button" data-copy-text="${escapeHtml(`${row.subject}\n${row.signal}`)}">Copy brief</button>
+        <button class="button-secondary" type="button" data-copy-id="${escapeHtml(registerCopyPayload(`${row.subject}\n${row.signal}`))}">Copy brief</button>
         <button class="button-secondary" type="button">Review</button>
         <button class="button-secondary" type="button">Export row</button>
       </div>
