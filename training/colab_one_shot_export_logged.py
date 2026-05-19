@@ -60,11 +60,12 @@ HARD_PROFILES_PATH = "/content/drive/MyDrive/Anay Agarwalla/Data/author_profiles
 DEFAULT_OUTPUT_DIR = "/content/drive/MyDrive/Anay Agarwalla/Models/texttraits_full_export"
 
 TEXT_COL = "body"
+AUTHOR_COL = "author"
 RANDOM_STATE = 42
 TEST_SIZE = 0.25
 MIN_TEXT_CHARS = 15
 MIN_CLASS_COUNT = 400
-SELECTION_METRIC = "accuracy"
+SELECTION_METRIC = "macro_f1"
 
 BINARY_TARGETS = [
     "is_female",
@@ -527,6 +528,61 @@ def score_predictions(y_true: pd.Series, y_pred: Iterable[Any]) -> Dict[str, Any
     }
 
 
+def split_train_test(
+    data: pd.DataFrame,
+    y: pd.Series,
+    split_mode: str,
+    author_col: str,
+) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, Dict[str, Any]]:
+    if split_mode != "author" or author_col not in data.columns:
+        X_train, X_test, y_train, y_test = train_test_split(
+            data[TEXT_COL],
+            y,
+            test_size=TEST_SIZE,
+            random_state=RANDOM_STATE,
+            stratify=y,
+        )
+        return X_train, X_test, y_train, y_test, {
+            "split_mode": "row",
+            "n_train_authors": None,
+            "n_test_authors": None,
+            "author_col": author_col if author_col in data.columns else None,
+        }
+
+    author_labels = (
+        pd.DataFrame({author_col: data[author_col].astype(str).values, "y": y.astype(str).values})
+        .dropna()
+        .drop_duplicates()
+    )
+    author_counts = author_labels["y"].value_counts()
+    if len(author_counts) < 2 or int(author_counts.min()) < 2:
+        log(f"[split] author split unavailable; falling back to row split. Author class counts:\n{author_counts.to_string()}")
+        return split_train_test(data, y, "row", author_col)
+
+    train_authors, test_authors = train_test_split(
+        author_labels[author_col],
+        test_size=TEST_SIZE,
+        random_state=RANDOM_STATE,
+        stratify=author_labels["y"],
+    )
+    train_set = set(train_authors.astype(str))
+    test_set = set(test_authors.astype(str))
+    train_mask = data[author_col].astype(str).isin(train_set)
+    test_mask = data[author_col].astype(str).isin(test_set)
+    return (
+        data.loc[train_mask, TEXT_COL],
+        data.loc[test_mask, TEXT_COL],
+        y.loc[train_mask],
+        y.loc[test_mask],
+        {
+            "split_mode": "author",
+            "n_train_authors": len(train_set),
+            "n_test_authors": len(test_set),
+            "author_col": author_col,
+        },
+    )
+
+
 def train_target(
     frame: pd.DataFrame,
     target: str,
@@ -535,8 +591,14 @@ def train_target(
     full_refit: bool,
     candidate_profile: str,
     heartbeat_seconds: int,
+    selection_metric: str,
+    split_mode: str,
+    author_col: str,
 ) -> Tuple[Optional[Pipeline], Optional[Dict[str, Any]], List[Dict[str, Any]]]:
-    data = frame[[TEXT_COL, target]].dropna().copy()
+    cols = [TEXT_COL, target]
+    if author_col in frame.columns:
+        cols.append(author_col)
+    data = frame[cols].dropna(subset=[TEXT_COL, target]).copy()
     if binary:
         y = pd.to_numeric(data[target], errors="coerce")
         data = data[y.isin([0, 1])].copy()
@@ -565,16 +627,11 @@ def train_target(
         select_data = data
         select_y = y
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        select_data[TEXT_COL],
-        select_y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=select_y,
-    )
+    X_train, X_test, y_train, y_test, split_info = split_train_test(select_data, select_y, split_mode, author_col)
 
     log(f"[target] {target}")
     log(f"[target] full={len(data):,} select={len(select_data):,} train={len(X_train):,} test={len(X_test):,}")
+    log(f"[target] split={split_info}")
     log(f"[target] class counts:\n{vc.to_string()}")
 
     rows: List[Dict[str, Any]] = []
@@ -603,6 +660,7 @@ def train_target(
                 "n_select": int(len(select_data)),
                 "n_train": int(len(X_train)),
                 "n_test": int(len(X_test)),
+                **split_info,
                 "classes": [str(cls) for cls in sorted(pd.unique(select_y).tolist())],
                 "elapsed_min": float(elapsed),
                 **metrics,
@@ -613,8 +671,8 @@ def train_target(
                 f"accuracy={metrics['accuracy']:.4f} macro_f1={metrics['macro_f1']:.4f} "
                 f"balanced={metrics['balanced_accuracy']:.4f} elapsed={elapsed:.1f} min"
             )
-            if float(metrics[SELECTION_METRIC]) > best_score:
-                best_score = float(metrics[SELECTION_METRIC])
+            if float(metrics[selection_metric]) > best_score:
+                best_score = float(metrics[selection_metric])
                 best_model = model
                 best_summary = row
         except Exception as exc:
@@ -634,7 +692,7 @@ def train_target(
 
     best_summary = {
         **best_summary,
-        "selected_metric": SELECTION_METRIC,
+        "selected_metric": selection_metric,
         "refit_on_full_target_rows": bool(full_refit),
     }
     return best_model, best_summary, rows
@@ -671,7 +729,10 @@ def export_pipeline_to_js(model: Pipeline, max_terms_per_component: Optional[int
         if not isinstance(transformer, TfidfVectorizer):
             raise TypeError(f"Unsupported transformer for JS export: {name} {type(transformer).__name__}")
 
-        vocab_items = sorted(transformer.vocabulary_.items(), key=lambda item: item[1])
+        vocab_items = [
+            [str(term), int(index)]
+            for term, index in sorted(transformer.vocabulary_.items(), key=lambda item: item[1])
+        ]
         if max_terms_per_component is not None:
             vocab_items = vocab_items[:max_terms_per_component]
 
@@ -765,6 +826,146 @@ def write_checkpoint(
     log(f"[checkpoint] wrote latest checkpoint after {target}: {checkpoint_path}")
 
 
+def load_committed_baseline_metrics() -> Dict[str, Dict[str, Any]]:
+    manifest_path = Path(__file__).resolve().parents[1] / "texttraits_app" / "models" / "texttraits_inference_manifest.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log(f"[warn] Could not read committed baseline manifest: {exc}")
+        return {}
+    metrics = manifest.get("metrics", {})
+    return {key: value for key, value in metrics.items() if isinstance(value, dict)}
+
+
+def summarize_decision(
+    out: Path,
+    selected: Dict[str, Dict[str, Any]],
+    rows: List[Dict[str, Any]],
+    config: Dict[str, Any],
+    js_export_errors: Dict[str, str],
+) -> None:
+    baseline = load_committed_baseline_metrics()
+    candidate_counts: Dict[str, int] = {}
+    for row in rows:
+        target = str(row.get("target", ""))
+        if target:
+            candidate_counts[target] = candidate_counts.get(target, 0) + 1
+
+    target_summaries = []
+    for target, summary in sorted(selected.items()):
+        base = baseline.get(target, {})
+        baseline_macro = base.get("macro_f1")
+        baseline_acc = base.get("accuracy")
+        macro = summary.get("macro_f1")
+        acc = summary.get("accuracy")
+        delta_macro = float(macro) - float(baseline_macro) if macro is not None and baseline_macro is not None else None
+        delta_acc = float(acc) - float(baseline_acc) if acc is not None and baseline_acc is not None else None
+        target_summaries.append(
+            {
+                "target": target,
+                "candidate": summary.get("candidate"),
+                "selected_metric": summary.get("selected_metric"),
+                "split_mode": summary.get("split_mode"),
+                "n_full": summary.get("n_full"),
+                "n_select": summary.get("n_select"),
+                "n_test": summary.get("n_test"),
+                "n_train_authors": summary.get("n_train_authors"),
+                "n_test_authors": summary.get("n_test_authors"),
+                "accuracy": acc,
+                "macro_f1": macro,
+                "balanced_accuracy": summary.get("balanced_accuracy"),
+                "baseline_accuracy": baseline_acc,
+                "baseline_macro_f1": baseline_macro,
+                "delta_accuracy": delta_acc,
+                "delta_macro_f1": delta_macro,
+                "candidate_count": candidate_counts.get(target, 0),
+                "js_export_ok": target not in js_export_errors,
+                "js_export_error": js_export_errors.get(target),
+            }
+        )
+
+    honest_split = all(item.get("split_mode") == "author" for item in target_summaries)
+    comparable = [item for item in target_summaries if item.get("delta_macro_f1") is not None]
+    improved = [item for item in comparable if float(item["delta_macro_f1"]) > 0.01]
+    regressed = [item for item in comparable if float(item["delta_macro_f1"]) < -0.01]
+    deployable_targets = [
+        item["target"]
+        for item in target_summaries
+        if item.get("js_export_ok") and item.get("macro_f1") is not None and float(item["macro_f1"]) >= 0.50
+    ]
+
+    decision = {
+        "summary": {
+            "honest_author_split": honest_split,
+            "selection_metric": config.get("selection_metric"),
+            "candidate_profile": config.get("candidate_profile"),
+            "full_refit": config.get("full_refit"),
+            "targets_trained": len(target_summaries),
+            "targets_with_js_export": len([item for item in target_summaries if item.get("js_export_ok")]),
+            "targets_comparable_to_committed_baseline": len(comparable),
+            "targets_improved_vs_committed_baseline_macro_f1": [item["target"] for item in improved],
+            "targets_regressed_vs_committed_baseline_macro_f1": [item["target"] for item in regressed],
+            "targets_initially_deployable_by_macro_f1_050": deployable_targets,
+        },
+        "targets": target_summaries,
+        "notes": [
+            "Author-held-out validation is the main guard against PANDORA row-level leakage.",
+            "Macro F1 is preferred over accuracy for model selection because several labels are imbalanced.",
+            "JS export is useful for future static/browser-extension inference only when the target exports without error.",
+            "Treat sensitive-attribute outputs as language signals associated with training labels, not facts about a person.",
+        ],
+    }
+    (out / "texttraits_model_decision_summary.json").write_text(json.dumps(decision, indent=2), encoding="utf-8")
+
+    lines = [
+        "# TextTraits Full-PANDORA Model Decision Summary",
+        "",
+        f"- Selection metric: `{config.get('selection_metric')}`",
+        f"- Validation split: `{config.get('split_mode')}`",
+        f"- Candidate profile: `{config.get('candidate_profile')}`",
+        f"- Full refit after selection: `{config.get('full_refit')}`",
+        f"- Targets trained: `{len(target_summaries)}`",
+        f"- JS-exportable targets: `{decision['summary']['targets_with_js_export']}`",
+        f"- Comparable targets vs committed baseline: `{len(comparable)}`",
+        "",
+        "## Target Results",
+        "",
+        "| target | candidate | split | n_test | macro_f1 | balanced_acc | baseline_macro_f1 | delta_macro_f1 | js_export |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for item in target_summaries:
+        def fmt(value: Any) -> str:
+            return "" if value is None else f"{float(value):.4f}" if isinstance(value, (float, int, np.floating)) else str(value)
+
+        lines.append(
+            "| {target} | {candidate} | {split_mode} | {n_test} | {macro_f1} | {balanced_accuracy} | {baseline_macro_f1} | {delta_macro_f1} | {js_export_ok} |".format(
+                target=item["target"],
+                candidate=item.get("candidate") or "",
+                split_mode=item.get("split_mode") or "",
+                n_test=item.get("n_test") or "",
+                macro_f1=fmt(item.get("macro_f1")),
+                balanced_accuracy=fmt(item.get("balanced_accuracy")),
+                baseline_macro_f1=fmt(item.get("baseline_macro_f1")),
+                delta_macro_f1=fmt(item.get("delta_macro_f1")),
+                js_export_ok="yes" if item.get("js_export_ok") else "no",
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Interpretation",
+            "",
+            "- Prefer deployment only for targets with honest author-held-out results, acceptable macro F1, and working JS export.",
+            "- If a target regresses or remains near baseline, keep it as a low-confidence educational signal or hide it behind an uncertainty state.",
+            "- Use the row-level CSV and confidence/margin diagnostics before turning any target into a prominent product claim.",
+        ]
+    )
+    (out / "texttraits_model_decision_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    log(f"[decision] wrote {out / 'texttraits_model_decision_summary.md'}")
+
+
 def export_artifacts(
     out_dir: str,
     pandora_path: str,
@@ -815,10 +1016,12 @@ def export_artifacts(
         "label_notes": LABEL_NOTES,
         "targets": {},
     }
+    js_export_errors: Dict[str, str] = {}
     for target, model in models.items():
         try:
             js_bundle["targets"][target] = export_pipeline_to_js(model)
         except Exception as exc:
+            js_export_errors[target] = repr(exc)
             js_bundle["targets"][target] = {"error": repr(exc)}
 
     with gzip.open(js_path, "wt", encoding="utf-8") as f:
@@ -837,6 +1040,7 @@ def export_artifacts(
         "config": config,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    summarize_decision(out, selected, rows, config, js_export_errors)
 
     print("\n[done] Exported:")
     print(f"  Python bundle: {model_path}")
@@ -857,6 +1061,19 @@ def parse_args() -> argparse.Namespace:
         default=500_000,
         help="Stratified rows per target used to choose model family. Use 0 to select on all labeled rows.",
     )
+    parser.add_argument(
+        "--selection-metric",
+        choices=["accuracy", "macro_f1", "balanced_accuracy"],
+        default=SELECTION_METRIC,
+        help="Metric used to choose the deployable candidate for each target.",
+    )
+    parser.add_argument(
+        "--split-mode",
+        choices=["author", "row"],
+        default="author",
+        help="Validation split. Use author for honest PANDORA profile benchmarking; row is faster but leakier.",
+    )
+    parser.add_argument("--author-col", default=AUTHOR_COL, help="Author column used for author-held-out validation.")
     parser.add_argument(
         "--candidate-profile",
         choices=["fast", "balanced", "heavy"],
@@ -918,8 +1135,10 @@ def main() -> None:
         "test_size": TEST_SIZE,
         "min_text_chars": MIN_TEXT_CHARS,
         "min_class_count": MIN_CLASS_COUNT,
-        "selection_metric": SELECTION_METRIC,
+        "selection_metric": args.selection_metric,
         "selection_sample": selection_sample,
+        "split_mode": args.split_mode,
+        "author_col": args.author_col,
         "candidate_profile": args.candidate_profile,
         "heartbeat_seconds": args.heartbeat_seconds,
         "full_refit": full_refit,
@@ -936,6 +1155,9 @@ def main() -> None:
             full_refit,
             args.candidate_profile,
             args.heartbeat_seconds,
+            args.selection_metric,
+            args.split_mode,
+            args.author_col,
         )
         metric_rows.extend(rows)
         if model is not None and summary is not None:
@@ -952,6 +1174,9 @@ def main() -> None:
             full_refit,
             args.candidate_profile,
             args.heartbeat_seconds,
+            args.selection_metric,
+            args.split_mode,
+            args.author_col,
         )
         metric_rows.extend(rows)
         if model is not None and summary is not None:

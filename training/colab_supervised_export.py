@@ -194,6 +194,12 @@ def trainer_command(args: argparse.Namespace) -> List[str]:
         args.out_dir,
         "--selection-sample",
         str(args.selection_sample),
+        "--selection-metric",
+        args.selection_metric,
+        "--split-mode",
+        args.split_mode,
+        "--author-col",
+        args.author_col,
         "--candidate-profile",
         args.candidate_profile,
         "--heartbeat-seconds",
@@ -361,6 +367,19 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     run_parser.add_argument("--profiles", default=HARD_PROFILES_PATH, help="Path to author_profiles.csv.")
     run_parser.add_argument("--max-rows", type=int, default=None, help="Optional debug row cap. Omit for full data.")
     run_parser.add_argument("--selection-sample", type=int, default=500_000, help="Rows per target for model selection.")
+    run_parser.add_argument(
+        "--selection-metric",
+        choices=["accuracy", "macro_f1", "balanced_accuracy"],
+        default="macro_f1",
+        help="Metric used by the trainer to choose each target model.",
+    )
+    run_parser.add_argument(
+        "--split-mode",
+        choices=["author", "row"],
+        default="author",
+        help="Validation split for model selection. Author split is the honest PANDORA benchmark.",
+    )
+    run_parser.add_argument("--author-col", default="author", help="Author column for author-held-out splitting.")
     run_parser.add_argument("--candidate-profile", choices=["fast", "balanced", "heavy"], default="balanced")
     run_parser.add_argument("--heartbeat-seconds", type=int, default=60)
     run_parser.add_argument("--no-full-refit", action="store_true", help="Skip final all-row refit for debugging.")

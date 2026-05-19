@@ -63,6 +63,31 @@ Monitor an existing supervised run without loading PANDORA:
 
 For pasteable clone/update cells, see `training/COLAB_ONE_SHOT.md`.
 
+## Set-And-Forget Decision Run
+
+For the run that should answer whether the new model is actually better, use:
+
+```text
+training/colab_set_and_forget_decision_run.ipynb
+```
+
+This notebook writes timestamped outputs under:
+
+```text
+/content/drive/MyDrive/Anay Agarwalla/Models/texttraits_decision_exports/
+```
+
+and maintains:
+
+```text
+/content/drive/MyDrive/Anay Agarwalla/Models/texttraits_decision_exports/LATEST_RUN.json
+```
+
+The default full run uses author-held-out validation, macro-F1 model selection,
+the heavy candidate profile, checkpointing, a final full refit, a JS linear
+weight export, and a model decision summary. See
+`training/COLAB_MODEL_DECISION_RUN.md`.
+
 ## PyCharm Colab Setup
 
 PyCharm 2025.3.2+ can connect a local notebook to a Google Colab server. For
