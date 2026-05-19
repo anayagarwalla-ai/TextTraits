@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 
 
@@ -38,6 +40,13 @@ def main() -> int:
         missing.append(CANONICAL_MANIFEST)
     if args.export and not EXPORT_MODEL.exists():
         missing.append(EXPORT_MODEL)
+    if CANONICAL_MODEL.exists() and CANONICAL_MANIFEST.exists():
+        manifest = json.loads(CANONICAL_MANIFEST.read_text(encoding="utf-8"))
+        expected = manifest.get("runtime_model_sha256")
+        actual = hashlib.sha256(CANONICAL_MODEL.read_bytes()).hexdigest()
+        if expected and actual != expected:
+            print(f"\nModel checksum mismatch:\n- expected {expected}\n- actual   {actual}")
+            return 1
 
     if missing:
         print("\nMissing required files:")

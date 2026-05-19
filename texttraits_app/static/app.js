@@ -1,4 +1,12 @@
 const config = window.TEXTTRAITS_CONFIG || {};
+const apiClient = window.TextTraitsApi;
+const productConfig = window.TextTraitsProduct || {};
+const textUtils = window.TextTraitsUtils || {};
+const uiHelpers = window.TextTraitsUi || {};
+const csvUtils = window.TextTraitsCsv || {};
+const enterpriseCopy = window.TextTraitsEnterpriseCopy || {};
+const {escapeHtml, words, percent, titleCase, localStats, todayKey} = textUtils;
+const {parseCsvLine, csvCell} = csvUtils;
 
 const els = {
   body: document.body,
@@ -11,7 +19,10 @@ const els = {
   personaStrip: document.querySelector("#persona-strip"),
   inputPanel: document.querySelector("#input-panel"),
   outputPanel: document.querySelector("#output-panel"),
+  accountCard: document.querySelector("#account-card"),
+  toastStack: document.querySelector("#toast-stack"),
   runtimeLabel: document.querySelector("#runtime-label"),
+  runtimeCopy: document.querySelector("#runtime-copy"),
 };
 
 const state = {
@@ -19,18 +30,24 @@ const state = {
   latestData: null,
   latestText: "",
   compareText: "",
-  activeExplorerTab: "overview",
-  activeEnterpriseTab: "campaign",
+  activeExplorerTab: "style",
+  activeEnterpriseTab: "dashboard",
   activeEnterpriseTool: "batch",
   activeChannel: "email",
   enterpriseDraftStyle: "premium",
   enterpriseContext: null,
   enterpriseDrafts: [],
   selectedVariant: "A",
+  enterpriseLandingTab: "",
   enterpriseInputsCollapsed: false,
+  enterpriseSetupOpen: false,
+  enterpriseFocusMode: false,
+  enterpriseDraftPreviewMode: false,
+  integrationSetupOpen: false,
   campaignSaved: false,
   lastGeneratedAt: "",
   lastActionNote: "",
+  lastDraftChange: "",
   recipient: {
     firstName: "Maya",
     company: "Acme Revenue",
@@ -47,10 +64,13 @@ const state = {
   selectedProspectId: 1,
   selectedInboxId: 0,
   crmConnections: {
-    HubSpot: "connected",
-    Salesforce: "needs auth",
-    Outreach: "preview only",
-    Salesloft: "preview only",
+    HubSpot: "needs credentials",
+    Salesforce: "needs credentials",
+    Outreach: "needs credentials",
+    Salesloft: "needs credentials",
+    Gmail: "needs credentials",
+    Outlook: "needs credentials",
+    "Chrome Sidebar": "packaging required",
   },
   inboxThreads: [],
   winnerSamples: [],
@@ -73,18 +93,82 @@ const state = {
     {name: "Reflective analyst", goal: "Preserve nuance while tightening", samples: 5},
   ],
   explorerHistory: [],
+  explorerJournalSearch: "",
+  explorerJournalFolder: "All",
+  explorerJournalOpen: false,
+  explorerQuickChecksOpen: false,
+  explorerStyleDetailsOpen: false,
+  explorerMessageMode: "Everyday note",
   explorerReadingName: "",
+  explorerFolder: "Daily",
+  explorerWritingGoal: "Make this clearer",
+  explorerRewriteGoal: "Make this clearer",
   explorerRewriteMode: "clearer",
   explorerSavedMessage: "",
+  explorerPromptTitle: "",
+  explorerPromptText: "",
+  explorerPromptSource: "",
+  batchMapping: {
+    first_name: "first_name",
+    company: "company",
+    role: "role",
+    industry: "industry",
+    signal: "signal",
+  },
+  exportHistory: [],
+  reviewQueue: [],
+  teamComments: [],
+  versionHistory: [],
+  feedbackMemory: {
+    better: 0,
+    tooFormal: 0,
+    tooVague: 0,
+    tooLong: 0,
+    moreLikeMe: 0,
+  },
+  onboarding: {
+    complete: false,
+    explorerGoal: "Clearer everyday writing",
+    enterpriseGoal: "Review outbound drafts",
+    teamSize: "1-5",
+  },
+  account: {
+    authenticated: false,
+    user: null,
+    workspaceName: "Local workspace",
+    syncStatus: "Local only",
+    lastSyncedAt: "",
+  },
+  accountDraft: {
+    name: "",
+    email: "",
+    verifyToken: "",
+    resetToken: "",
+  },
+  accountResetToken: "",
+  accountCodePanelOpen: false,
+  accountDeletePending: false,
+  accountAuthMode: "signin",
+  adminSettings: {
+    workspaceName: "TextTraits Team",
+    seats: 3,
+    sso: "Not configured",
+    apiKey: "Not generated",
+    retention: "90 days",
+    auditLog: "Enabled",
+  },
   tabScroll: {},
   hiddenSensitive: false,
   technicalVisible: false,
+  sampleWorkspaceLoaded: false,
+  accountModalOpen: false,
+  accountError: "",
 };
 
 const STORAGE_KEY = "texttraits.workspace.v2";
 
 const defaultCampaigns = [
-  {name: "Q3 pipeline quality", folder: "RevOps", status: "Drafts ready", updated: "Today", prospects: 42},
+  {name: "Forecast risk pilot", folder: "RevOps", status: "Drafts ready", updated: "Today", prospects: 42},
   {name: "Re-engage quiet champions", folder: "Expansion", status: "Needs proof point", updated: "Yesterday", prospects: 18},
   {name: "Event follow-up sprint", folder: "Field marketing", status: "Sequence live", updated: "May 10", prospects: 96},
   {name: "Procurement revive", folder: "Pipeline", status: "Needs review", updated: "May 8", prospects: 24},
@@ -103,12 +187,12 @@ const defaultPersonas = [
 ];
 
 const sampleCsv = `first_name,company,role,industry,signal
-Maya,Acme Revenue,VP Revenue,SaaS,"Need cleaner manager visibility before forecast review"
-Jordan,Northwind Ops,RevOps Director,SaaS,"Manual reporting takes too long and pipeline risk shows up late"
-Taylor,Bluepeak,Founder,B2B software,"Open to tools that improve handoffs without another dashboard"`;
+Maya,Acme Revenue,VP Revenue,SaaS,"Needs an earlier warning when renewal risk appears before the board forecast"
+Jordan,Northwind Ops,RevOps Director,SaaS,"Weekly deal inspection is manual and late-stage risks are hard to coach"
+Taylor,Bluepeak,Founder,B2B software,"Wants cleaner handoffs from sales calls to follow-up without adding another dashboard"`;
 
 const sampleInboxThreads = [
-  {from: "Maya at Acme", type: "objection", source: "Gmail", urgency: "High", sentiment: "Skeptical", confidence: 91, text: "We already have dashboards, but the manager visibility problem is real.", next: "Send proof-led reply with implementation angle.", why: "The reply rejects category noise but repeats the manager visibility pain."},
+  {from: "Maya at Acme", type: "objection", source: "Gmail", urgency: "High", sentiment: "Skeptical", confidence: 91, text: "We already have dashboards, but the weekly coaching gap is real.", next: "Send proof-led reply with implementation angle.", why: "The reply rejects category noise but repeats the coaching pain."},
   {from: "Jordan at Northwind", type: "interested", source: "Outlook", urgency: "High", sentiment: "Open", confidence: 88, text: "If this does not require a migration, I can look next week.", next: "Suggest focused 15-minute fit call.", why: "The buyer named a condition and offered a near-term window."},
   {from: "Taylor at Bluepeak", type: "referral", source: "LinkedIn", urgency: "Medium", sentiment: "Helpful", confidence: 84, text: "Our RevOps lead owns this now.", next: "Ask for referral intro and send two-bullet context.", why: "Ownership moved to another stakeholder, so the next step is an easy handoff."},
   {from: "Priya at Gable", type: "not-now", source: "HubSpot", urgency: "Low", sentiment: "Deferred", confidence: 80, text: "Circle back after planning. We are heads down on the board deck this month.", next: "Schedule a light follow-up tied to planning completion.", why: "Timing is the blocker, not the problem fit."},
@@ -138,13 +222,59 @@ const industryPlaybooks = [
 ];
 
 const dailyPrompts = [
-  "Write five sentences about one thing you understood better today.",
-  "Explain a decision you made today as if you were telling a friend.",
-  "Describe a problem you are working through without trying to solve it yet.",
-  "Write a short note about something that felt harder than expected.",
-  "Summarize one idea you want to remember tomorrow.",
-  "Rewrite a message you sent today so it sounds clearer and kinder.",
-  "Describe what you noticed today in plain, specific language.",
+  {
+    title: "One thing you understood better today",
+    prompt: "Write about one thing that became clearer today. Use your own words and include what changed in how you see it.",
+  },
+  {
+    title: "A decision you made today",
+    prompt: "Write about a decision you made today, why you made it, and what the next step is.",
+  },
+  {
+    title: "A problem you are working through",
+    prompt: "Write about a problem you are working through. Name what feels messy and what would make the next step smaller.",
+  },
+  {
+    title: "Something harder than expected",
+    prompt: "Write about something that felt harder than expected. Try to separate the facts from the worry around it.",
+  },
+  {
+    title: "One idea to remember tomorrow",
+    prompt: "Write down one idea you want to remember tomorrow and why it matters.",
+  },
+  {
+    title: "A message that could be clearer and kinder",
+    prompt: "Draft a message that could be clearer and kinder. Keep the boundary, remove extra frustration, and make the next step obvious.",
+  },
+  {
+    title: "Something you noticed today",
+    prompt: "Write about something you noticed today. Include what happened and what it might teach you for tomorrow.",
+  },
+];
+
+const consumerPromptLibrary = [
+  {name: "Journal", prompt: "Write six sentences about what felt most important today.", goal: "Build a daily reflection habit"},
+  {name: "Hard message", prompt: "Draft the message you are avoiding in the kindest clear version you can.", goal: "Make hard conversations easier"},
+  {name: "Work email", prompt: "Explain the decision, the reason, and the next step in one short email.", goal: "Write clearer at work"},
+  {name: "Essay", prompt: "State your main idea, then add one example that makes it easier to picture.", goal: "Make school writing stronger"},
+  {name: "Feedback", prompt: "Describe what worked, what was confusing, and one useful next step.", goal: "Give clearer feedback"},
+  {name: "Apology", prompt: "Say what happened, what you understand now, and what you will do differently.", goal: "Sound accountable"},
+];
+
+const explorerFolders = ["Daily", "Work", "School", "Personal", "Drafts"];
+const explorerGoals = ["Make this clearer", "Make this warmer", "Make this shorter", "Sound more confident", "Sound less harsh"];
+const explorerRewriteGoals = productConfig.rewriteGoals || ["Send as email", "Make it kinder", "Sound confident", "School-ready", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"];
+const primaryRewriteGoals = explorerRewriteGoals.slice(0, 4);
+const secondaryRewriteGoals = explorerRewriteGoals.slice(4);
+const messageModeOptions = [
+  {label: "Everyday note", short: "Note", source: "", rewriteGoal: "Make this clearer", hint: "A thought, journal note, or paragraph you want to improve."},
+  {label: "Text message", short: "Text", source: "text message", rewriteGoal: "Text message", hint: "A short message where tone and next step matter."},
+  {label: "Email", short: "Email", source: "email", rewriteGoal: "Send as email", hint: "A work or personal email that should be easy to answer."},
+  {label: "Reply triage", short: "Reply", source: "reply", rewriteGoal: "Make it kinder", hint: "A reply you received and want to understand before answering."},
+  {label: "Decision note", short: "Decision", source: "decision note", rewriteGoal: "Make this clearer", hint: "Messy thoughts that need context, options, recommendation, and next step."},
+  {label: "Apology", short: "Apology", source: "apology", rewriteGoal: "Apology", hint: "A repair message that should sound accountable without overexplaining."},
+  {label: "Conflict", short: "Conflict", source: "conflict", rewriteGoal: "Conflict", hint: "A hard message where you need a clear boundary and calmer wording."},
+  {label: "Essay / school", short: "School", source: "essay", rewriteGoal: "School-ready", hint: "An essay, class paragraph, or application draft."},
 ];
 
 function loadWorkspace() {
@@ -161,8 +291,24 @@ function loadWorkspace() {
     if (saved.crmConnections) state.crmConnections = {...state.crmConnections, ...saved.crmConnections};
     if (saved.sequenceSettings) state.sequenceSettings = {...state.sequenceSettings, ...saved.sequenceSettings};
     if (Array.isArray(saved.explorerHistory)) state.explorerHistory = saved.explorerHistory;
+    if (Array.isArray(saved.exportHistory)) state.exportHistory = saved.exportHistory;
+    if (Array.isArray(saved.reviewQueue)) state.reviewQueue = saved.reviewQueue;
+    if (Array.isArray(saved.teamComments)) state.teamComments = saved.teamComments;
+    if (saved.batchMapping) state.batchMapping = {...state.batchMapping, ...saved.batchMapping};
+    if (Array.isArray(saved.versionHistory)) state.versionHistory = saved.versionHistory;
+    if (saved.feedbackMemory) state.feedbackMemory = {...state.feedbackMemory, ...saved.feedbackMemory};
+    if (saved.onboarding) state.onboarding = {...state.onboarding, ...saved.onboarding};
+    if (saved.adminSettings) state.adminSettings = {...state.adminSettings, ...saved.adminSettings};
+    if (typeof saved.explorerFolder === "string") state.explorerFolder = saved.explorerFolder;
+    if (typeof saved.explorerJournalSearch === "string") state.explorerJournalSearch = saved.explorerJournalSearch;
+    if (typeof saved.explorerJournalFolder === "string") state.explorerJournalFolder = saved.explorerJournalFolder;
+    if (typeof saved.explorerWritingGoal === "string") state.explorerWritingGoal = saved.explorerWritingGoal;
+    if (typeof saved.explorerRewriteGoal === "string") state.explorerRewriteGoal = saved.explorerRewriteGoal;
+    if (typeof saved.explorerMessageMode === "string") state.explorerMessageMode = saved.explorerMessageMode;
+    if (typeof saved.explorerPromptTitle === "string") state.explorerPromptTitle = saved.explorerPromptTitle;
+    if (typeof saved.explorerPromptText === "string") state.explorerPromptText = saved.explorerPromptText;
+    if (typeof saved.explorerPromptSource === "string") state.explorerPromptSource = saved.explorerPromptSource;
     if (saved.enterpriseContext) state.enterpriseContext = saved.enterpriseContext;
-    if (typeof saved.latestText === "string") state.latestText = saved.latestText;
     if (typeof saved.mode === "string") state.mode = saved.mode;
   } catch (error) {
     console.warn("Workspace restore failed", error);
@@ -171,12 +317,19 @@ function loadWorkspace() {
   if (!state.inboxThreads.length) state.inboxThreads = [...sampleInboxThreads];
   if (!state.winnerSamples.length) state.winnerSamples = [...sampleWinnerEmails];
   if (!state.personaLibrary.length) state.personaLibrary = [...defaultPersonas];
+  normalizePreviewConnections();
 }
 
 function persistWorkspace() {
-  const payload = {
+  const payload = workspacePayload();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  queueServerSync(payload);
+}
+
+function workspacePayload() {
+  return {
     mode: state.mode,
-    latestText: state.latestText,
+    latestText: "",
     recipient: state.recipient,
     enterpriseContext: state.enterpriseContext,
     savedCampaigns: state.savedCampaigns.slice(0, 12),
@@ -188,10 +341,85 @@ function persistWorkspace() {
     outcomeStats: state.outcomeStats,
     crmConnections: state.crmConnections,
     sequenceSettings: state.sequenceSettings,
+    enterpriseDraftPreviewMode: state.enterpriseDraftPreviewMode,
     explorerHistory: state.explorerHistory.slice(0, 20),
+    explorerFolder: state.explorerFolder,
+    explorerJournalSearch: state.explorerJournalSearch,
+    explorerJournalFolder: state.explorerJournalFolder,
+    explorerWritingGoal: state.explorerWritingGoal,
+    explorerRewriteGoal: state.explorerRewriteGoal,
+    explorerMessageMode: state.explorerMessageMode,
+    explorerPromptTitle: state.explorerPromptTitle,
+    explorerPromptText: state.explorerPromptText,
+    explorerPromptSource: state.explorerPromptSource,
+    batchMapping: state.batchMapping,
+    exportHistory: state.exportHistory.slice(0, 30),
+    reviewQueue: state.reviewQueue.slice(0, 50),
+    teamComments: state.teamComments.slice(0, 25),
+    versionHistory: state.versionHistory.slice(0, 80),
+    feedbackMemory: state.feedbackMemory,
+    onboarding: state.onboarding,
+    adminSettings: state.adminSettings,
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
+
+function applyWorkspacePayload(payload = {}) {
+  const currentMode = state.mode;
+  Object.entries(payload).forEach(([key, value]) => {
+    if (key === "account") return;
+    if (key in state) state[key] = value;
+  });
+  state.mode = payload.mode || currentMode || state.mode;
+  if (!state.savedCampaigns.length) state.savedCampaigns = [...defaultCampaigns];
+  if (!state.inboxThreads.length) state.inboxThreads = [...sampleInboxThreads];
+  if (!state.winnerSamples.length) state.winnerSamples = [...sampleWinnerEmails];
+  if (!state.personaLibrary.length) state.personaLibrary = [...defaultPersonas];
+  normalizePreviewConnections();
+}
+
+function normalizePreviewConnections() {
+  if (config.app?.integrations_live) return;
+  Object.keys(state.crmConnections).forEach((name) => {
+    if (state.crmConnections[name] === "connected" || state.crmConnections[name] === "exported") {
+      state.crmConnections[name] = name === "Chrome Sidebar" ? "packaging required" : "needs credentials";
+    }
+  });
+}
+
+let workspaceSyncTimer = null;
+function queueServerSync(payload = workspacePayload()) {
+  if (!state.account.authenticated) return;
+  state.account.syncStatus = "Saving...";
+  renderAccountCard();
+  clearTimeout(workspaceSyncTimer);
+  workspaceSyncTimer = setTimeout(() => syncWorkspace(payload), 450);
+}
+
+async function syncWorkspace(payload = workspacePayload()) {
+  if (!state.account.authenticated) return;
+  try {
+    const data = await apiClient.saveWorkspace(state.account.workspaceName, payload);
+    state.account.workspaceName = data.workspace?.name || state.account.workspaceName;
+    state.account.lastSyncedAt = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    state.account.syncStatus = `Synced ${state.account.lastSyncedAt}`;
+  } catch (error) {
+    state.account.syncStatus = "Sync paused";
+  }
+  renderAccountCard();
+}
+
+function trackEvent(eventType, payload = {}) {
+  apiClient.event(eventType, {mode: state.mode, ...payload}).catch(() => {});
+}
+
+window.addEventListener("error", (event) => {
+  apiClient.clientError?.({
+    message: event.message,
+    source: event.filename,
+    line: event.lineno,
+    column: event.colno,
+  }).catch(() => {});
+});
 
 const explorerSamples = [
   {
@@ -217,8 +445,8 @@ const enterpriseSamples = [
     tag: "reply",
     source: "Reply",
     note: "Use when a prospect has already pushed back or named a buying condition.",
-    text: "Appreciate the note. We are not evaluating new platforms this quarter unless they can show a direct connection to pipeline quality and manager visibility. The team already has enough dashboards, so the only useful conversation would be around cleaner handoffs, faster coaching moments, and fewer surprises in forecast reviews.",
-    context: {stage: "Evaluating", source: "Reply", pain: "pipeline quality and manager visibility", trigger: "forecast review cleanup"},
+    text: "Appreciate the note. We are not evaluating new platforms this quarter unless they can show a direct connection to renewal risk and the weekly coaching moments managers keep missing. The team already has enough dashboards, so the only useful conversation would be around cleaner handoffs, faster account reviews, and fewer surprises before board forecast.",
+    context: {stage: "Evaluating", source: "Reply", pain: "renewal risk and missed coaching moments", trigger: "board forecast cleanup"},
   },
   {
     label: "LinkedIn bio",
@@ -233,8 +461,8 @@ const enterpriseSamples = [
     tag: "email",
     source: "Email",
     note: "Use when a buyer has explained what would make a meeting worthwhile.",
-    text: "The main issue is not activity volume. We need cleaner signal on which accounts are actually moving, where managers should intervene, and how to spot risk before it shows up in the forecast meeting. If your product helps with that without forcing a heavy migration, I am open to seeing a focused walkthrough.",
-    context: {stage: "Evaluating", source: "Previous email", pain: "account movement and forecast risk", trigger: "focused walkthrough request"},
+    text: "The main issue is not activity volume. We need a cleaner way to see which accounts are actually moving, where managers should intervene, and how to spot renewal risk before it becomes a forecast problem. If your product helps with that without forcing a heavy migration, I am open to seeing a focused walkthrough.",
+    context: {stage: "Evaluating", source: "Previous email", pain: "late renewal risk and coaching gaps", trigger: "focused walkthrough request"},
   },
   {
     label: "Website copy",
@@ -247,14 +475,14 @@ const enterpriseSamples = [
 ];
 
 const campaignCards = [
-  ["Q3 pipeline quality", "RevOps", "Executive", "42 accounts", "Drafts ready"],
+  ["Forecast risk pilot", "RevOps", "Executive", "42 accounts", "Drafts ready"],
   ["Re-engage quiet champions", "Expansion", "Friendly", "18 contacts", "Needs proof point"],
   ["Event follow-up sprint", "Field marketing", "Concise", "96 leads", "Sequence live"],
 ];
 
 const tiers = [
   ["Free Explorer", "Single-sample analysis, style map, and technical readout."],
-  ["Enterprise Preview", "Campaign briefs, variants, exports, and team workflow placeholders."],
+  ["Enterprise Workspace", "Campaign briefs, variants, exports, and team review screens."],
   ["Enterprise Team", "Coming soon: SSO, admin settings, API keys, usage analytics, and approvals."],
 ];
 
@@ -267,54 +495,117 @@ const buyingStages = ["Unaware", "Problem-aware", "Evaluating", "Procurement", "
 const sources = ["Reply", "LinkedIn bio", "Transcript", "Website copy", "Previous email"];
 const regions = ["North America", "EMEA", "APAC", "LATAM", "Global"];
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function words(text) {
-  return text.match(/[A-Za-z0-9']+/g) || [];
-}
-
-function percent(value) {
-  return `${Math.round(Number(value || 0) * 100)}%`;
-}
-
-function titleCase(value) {
-  return String(value || "")
-    .split(/[\s_-]+/)
-    .map((part) => part ? part[0].toUpperCase() + part.slice(1) : "")
-    .join(" ");
-}
-
-function localStats(text) {
-  const wordList = words(text);
-  const punctuation = (text.match(/[^\w\s]/g) || []).length;
-  const characters = text.length;
-  const sentences = text.split(/[.!?]+/).filter((part) => part.trim()).length || 1;
-  const avgSentence = wordList.length ? wordList.length / sentences : 0;
-  return {
-    words: wordList.length,
-    characters,
-    sentences,
-    reading_level: avgSentence < 12 ? "Plain" : avgSentence < 20 ? "Moderate" : "Dense",
-    punctuation_density: characters ? punctuation / characters : 0,
-  };
-}
-
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function dailyPrompt() {
   const start = new Date(new Date().getFullYear(), 0, 0);
   const diff = new Date() - start;
   const day = Math.floor(diff / 86400000);
   return dailyPrompts[day % dailyPrompts.length];
+}
+
+function dailyPromptTitle() {
+  return dailyPrompt().title || dailyPrompt();
+}
+
+function dailyPromptInstruction() {
+  const prompt = dailyPrompt();
+  return prompt.prompt || `Write your own response to this prompt: ${dailyPromptTitle()}.`;
+}
+
+function activeExplorerPrompt() {
+  if (!state.explorerPromptTitle || !state.explorerPromptText) return null;
+  return {
+    title: state.explorerPromptTitle,
+    text: state.explorerPromptText,
+    source: state.explorerPromptSource || "Prompt",
+  };
+}
+
+function explorerPlaceholder() {
+  const prompt = activeExplorerPrompt();
+  const mode = currentMessageMode();
+  if (!prompt) return `${mode.hint} Paste your own words here.`;
+  return `Write your own response to: ${prompt.title}. Nothing will be filled in for you.`;
+}
+
+function explorerPromptGuidance() {
+  const prompt = activeExplorerPrompt();
+  if (!prompt) return "";
+  return `
+    <aside class="selected-prompt" aria-label="Selected writing prompt">
+      <span class="label">${escapeHtml(prompt.source)}</span>
+      <strong>${escapeHtml(prompt.title)}</strong>
+      <p>${escapeHtml(prompt.text)}</p>
+      <button class="quiet-button" type="button" data-clear-explorer-prompt>Clear prompt</button>
+    </aside>
+  `;
+}
+
+function selectExplorerPrompt({title, text, source = "Prompt"}) {
+  state.explorerPromptTitle = title;
+  state.explorerPromptText = text;
+  state.explorerPromptSource = source;
+  if (!state.explorerReadingName) state.explorerReadingName = title;
+  state.latestData = null;
+  persistWorkspace();
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector("#explorer-text")?.focus();
+    uiHelpers.announce?.(els.announcer, `${title} selected. Write your own response in the writing sample box.`);
+  });
+}
+
+function currentMessageMode() {
+  return messageModeOptions.find((item) => item.label === state.explorerMessageMode) || messageModeOptions[0];
+}
+
+function messageModeSource(mode = currentMessageMode(), text = state.latestText) {
+  if (!mode?.source) return "";
+  if (mode.source === "reply" && !looksLikeReply(text)) return "reply";
+  return mode.source;
+}
+
+function messageModeHint() {
+  const mode = currentMessageMode();
+  return mode?.hint || "Paste your own writing and choose one useful next step.";
+}
+
+function sourceDisplayLabel(sourceType, fallback = currentMessageMode().label) {
+  if (sourceType === "reply") return "Reply triage";
+  if (sourceType === "decision note") return "Decision note";
+  if (sourceType === "text message") return "Text message";
+  if (sourceType === "email") return "Email";
+  if (sourceType === "essay") return "Essay / school";
+  if (sourceType === "apology") return "Apology";
+  if (sourceType === "conflict") return "Conflict";
+  return fallback;
+}
+
+function setMessageMode(label) {
+  const mode = messageModeOptions.find((item) => item.label === label) || messageModeOptions[0];
+  state.explorerMessageMode = mode.label;
+  state.explorerRewriteGoal = mode.rewriteGoal || state.explorerRewriteGoal || "Make this clearer";
+  state.explorerWritingGoal = mode.label === "Apology" || mode.label === "Conflict" ? "Sound less harsh" : state.explorerWritingGoal;
+  persistWorkspace();
+}
+
+function modeFromPath(pathname = window.location.pathname) {
+  const clean = String(pathname || "").replace(/\/+$/, "");
+  if (clean.endsWith("/enterprise")) return "enterprise";
+  if (clean.endsWith("/explorer")) return "explorer";
+  return "";
+}
+
+function productPath(mode) {
+  return mode === "enterprise" ? "/enterprise" : "/explorer";
+}
+
+function updateModeRoute(mode, replace = false) {
+  if (!window.history?.pushState) return;
+  const nextPath = productPath(mode);
+  if (window.location.pathname === nextPath) return;
+  const method = replace ? "replaceState" : "pushState";
+  const query = replace ? window.location.search : "";
+  window.history[method]({mode}, "", `${nextPath}${query}`);
 }
 
 function setMode(mode) {
@@ -323,39 +614,501 @@ function setMode(mode) {
   state.latestText = "";
   state.enterpriseDrafts = [];
   state.campaignSaved = false;
-  state.activeExplorerTab = "overview";
-  state.activeEnterpriseTab = "campaign";
+  state.enterpriseSetupOpen = false;
+  state.activeExplorerTab = "style";
+  state.activeEnterpriseTab = "dashboard";
   state.activeEnterpriseTool = "batch";
   els.body.dataset.mode = mode;
   els.modeExplorer.setAttribute("aria-pressed", String(mode === "explorer"));
   els.modeEnterprise.setAttribute("aria-pressed", String(mode === "enterprise"));
+  updateModeRoute(mode);
 
   renderModeChrome();
 
   persistWorkspace();
   render();
+  uiHelpers.announce?.(els.announcer, mode === "enterprise" ? "Enterprise workspace opened." : "Explorer writing coach opened.");
+  uiHelpers.focusWithin?.(els.body, mode === "enterprise" ? "#enterprise-text, #output-panel" : "#explorer-text, #output-panel");
 }
 
 function renderModeChrome() {
   if (state.mode === "enterprise") {
-    els.heroTitle.textContent = "Enterprise outreach workspace.";
-    els.heroSubtitle.textContent = "A preview workspace for turning prospect context into drafts, review queues, exports, and reply follow-up.";
-    els.modeNote.textContent = "Enterprise Preview: CRM, inbox, and sidebar integrations show planned workflows unless marked connected.";
+    els.heroTitle.textContent = state.latestData ? "Enterprise review room" : productConfig.products?.enterprise?.headline || "Today’s outreach work, in order.";
+    els.heroSubtitle.textContent = state.latestData ? "Drafts, approvals, exports, and outcomes stay in one line of sight." : productConfig.products?.enterprise?.promise || "Import, draft, review, export, and track from one focused workspace.";
+    els.modeNote.textContent = "Enterprise keeps integrations visibly disabled until real accounts are connected.";
     els.personaStrip.setAttribute("hidden", "");
     els.personaStrip.innerHTML = "";
     return;
   }
 
-  els.heroTitle.textContent = "Write a little clearer every day.";
-  els.heroSubtitle.textContent = "A simple writing coach for understanding how your words come across and making the next draft easier to read.";
-  els.modeNote.textContent = "Explorer is for everyday writing. Enterprise opens a separate outreach workspace preview.";
-  els.personaStrip.removeAttribute("hidden");
-  els.personaStrip.setAttribute("aria-label", "Explorer habits");
-  els.personaStrip.innerHTML = `
-    <article><strong>Daily check-in</strong><span>Paste one paragraph and get one clear next edit.</span></article>
-    <article><strong>Writing journal</strong><span>Save readings and compare how your style changes over time.</span></article>
-    <article><strong>Rewrite practice</strong><span>Make a note clearer, warmer, or shorter without overthinking it.</span></article>
+  els.heroTitle.textContent = state.latestData ? "Explorer writing coach" : productConfig.products?.explorer?.headline || "One paragraph. One clearer version.";
+  els.heroSubtitle.textContent = state.latestData ? "Read it once, improve it once, save it if it helped." : productConfig.products?.explorer?.promise || "A daily writing coach for ordinary notes, emails, and hard messages.";
+  els.modeNote.textContent = "Explorer is for personal writing. Enterprise is a separate outreach workspace.";
+  els.personaStrip.setAttribute("hidden", "");
+  els.personaStrip.innerHTML = "";
+}
+
+function renderAccountCard() {
+  if (!els.accountCard) return;
+  const signedIn = state.account.authenticated && state.account.user;
+  const label = signedIn ? (state.account.user.name || "Account") : "Account";
+  const avatar = signedIn
+    ? (state.account.user.name || state.account.user.email || "U").slice(0, 1).toUpperCase()
+    : "TT";
+  const status = signedIn
+    ? `${state.account.workspaceName || "Personal workspace"} / ${state.account.syncStatus || "Synced"}`
+    : "Local workspace";
+  const errorHtml = state.accountError ? `<p class="error-text">${escapeHtml(state.accountError)}</p>` : "";
+  const deleteWarning = state.accountDeletePending
+    ? `<div class="account-warning" role="status"><strong>Delete account?</strong><span>Enter your password, then confirm. This removes synced workspace data for this account.</span></div>`
+    : "";
+
+  if (signedIn) {
+    els.accountCard.innerHTML = `
+      <button class="account-trigger" type="button" data-open-account aria-haspopup="dialog" aria-expanded="${String(state.accountModalOpen)}">
+        <span class="avatar-dot">${escapeHtml(avatar)}</span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+      <div class="account-overlay ${state.accountModalOpen ? "is-open" : ""}" ${state.accountModalOpen ? "" : "hidden"} data-account-overlay>
+        <section class="account-sheet" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          <div class="sheet-head">
+            <div>
+              <p class="label">Account</p>
+              <h2 id="account-title">${escapeHtml(label)}</h2>
+              <p class="muted">${escapeHtml(status)} / ${state.account.user.email_verified ? "Email verified" : "Email not verified"}</p>
+            </div>
+            <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
+          </div>
+          ${errorHtml}
+          ${deleteWarning}
+          <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
+          ${privacyCenterCard()}
+          <div class="account-actions sheet-actions">
+            <button class="button-secondary" type="button" data-sync-now>Sync now</button>
+            <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
+            <button class="button-secondary" type="button" data-export-account>Export data</button>
+            <button class="button-secondary danger-button" type="button" data-delete-account>${state.accountDeletePending ? "Confirm delete account" : "Delete account"}</button>
+            <button class="button-secondary" type="button" data-logout>Sign out</button>
+          </div>
+        </section>
+      </div>
+    `;
+  } else {
+    const demoButton = config.devTools ? `<button class="button-secondary" type="button" data-demo-account>Use demo sync</button>` : "";
+    const authMode = state.accountAuthMode || "signin";
+    const authTitle = authMode === "create" ? "Create account" : authMode === "reset" ? "Reset password" : "Sign in";
+    const showName = authMode === "create";
+    const showPassword = authMode !== "reset";
+    els.accountCard.innerHTML = `
+      <button class="account-trigger" type="button" data-open-account aria-haspopup="dialog" aria-expanded="${String(state.accountModalOpen)}">
+        <span class="avatar-dot">${escapeHtml(avatar)}</span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+      <div class="account-overlay ${state.accountModalOpen ? "is-open" : ""}" ${state.accountModalOpen ? "" : "hidden"} data-account-overlay>
+        <section class="account-sheet" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          <div class="sheet-head">
+            <div>
+              <p class="label">Account</p>
+              <h2 id="account-title">Save your workspace</h2>
+              <p class="muted">Sign in when you want your work to follow you across devices. Local demo data stays in this browser.</p>
+            </div>
+            <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
+          </div>
+          ${errorHtml}
+          <div class="auth-mode-tabs" role="tablist" aria-label="Account action">
+            <button class="button-secondary" type="button" data-auth-mode="signin" role="tab" aria-selected="${String(authMode === "signin")}">Sign in</button>
+            <button class="button-secondary" type="button" data-auth-mode="create" role="tab" aria-selected="${String(authMode === "create")}">Create account</button>
+            <button class="button-secondary" type="button" data-auth-mode="reset" role="tab" aria-selected="${String(authMode === "reset")}">Reset</button>
+          </div>
+          <div class="account-benefits compact-benefits" aria-label="What account sync saves">
+            <article><strong>Explorer</strong><span>Journal, streaks, recaps.</span></article>
+            <article><strong>Enterprise</strong><span>Campaigns, drafts, queues.</span></article>
+          </div>
+          <div class="auth-grid auth-grid-focused" aria-label="${escapeHtml(authTitle)} form">
+            ${showName ? `<label class="field"><span>Name</span><input id="auth-name" autocomplete="name" value="${escapeHtml(state.accountDraft.name)}" placeholder="Your name"></label>` : ""}
+            <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" value="${escapeHtml(state.accountDraft.email)}" placeholder="you@example.com"></label>
+            ${showPassword ? `<label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="${authMode === "create" ? "new-password" : "current-password"}" placeholder="${authMode === "create" ? "At least 12 characters" : "Your password"}"></label>` : ""}
+            <div class="auth-actions">
+              ${authMode === "create" ? `<button type="button" data-signup>Create account</button><button class="button-secondary" type="button" data-auth-mode="signin">Sign in instead</button>` : ""}
+              ${authMode === "signin" ? `<button type="button" data-login>Sign in</button><button class="button-secondary" type="button" data-auth-mode="create">Create account</button>` : ""}
+              ${authMode === "reset" ? `<button type="button" data-request-reset>Send reset code</button><button class="button-secondary" type="button" data-auth-mode="signin">Back to sign in</button>` : ""}
+              ${demoButton}
+              ${authMode !== "reset" ? `<button class="button-secondary quiet-button" type="button" data-auth-mode="reset">Reset password</button>` : ""}
+            </div>
+            <details class="account-code-panel" ${state.accountCodePanelOpen || state.accountResetToken ? "open" : ""}>
+              <summary>Have an email code?</summary>
+              <label class="field"><span>Verification code</span><input id="verify-token" autocomplete="one-time-code" value="${escapeHtml(state.accountDraft.verifyToken)}" placeholder="Paste verification code"></label>
+              <button class="button-secondary" type="button" data-submit-verification>Verify email</button>
+              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" value="${escapeHtml(state.accountResetToken || state.accountDraft.resetToken)}" placeholder="Paste reset code"></label>
+              <label class="field"><span>New password</span><input id="reset-new-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
+              <button class="button-secondary" type="button" data-submit-reset>Update password</button>
+            </details>
+          </div>
+          ${privacyCenterCard()}
+        </section>
+      </div>
+    `;
+  }
+  wireAccountCard();
+}
+
+function privacyCenterCard() {
+  const signedIn = state.account.authenticated && state.account.user;
+  return `
+    <details class="privacy-center-card">
+      <summary><span><strong>Privacy Center</strong><small>${signedIn ? "Cloud sync can be exported or deleted." : "Local browser storage until you sign in."}</small></span></summary>
+      <div class="privacy-center-grid">
+        <article><strong>Storage</strong><p>${signedIn ? "Workspace data syncs to your TextTraits account when available." : "This demo stores saved work in this browser only."}</p></article>
+        <article><strong>Control</strong><p>Use account export/delete for synced data. Clear browser storage to remove local demo data.</p></article>
+        <article><strong>Integrations</strong><p>CRM, email, and sidebar tools stay preview-only until credentials are connected.</p></article>
+        <article><strong>Production note</strong><p>Before a public launch, connect hosted auth, email delivery, monitoring, and a reviewed privacy policy.</p></article>
+      </div>
+    </details>
   `;
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function passwordPolicyMessage(password, email = "") {
+  const clean = String(password || "").trim();
+  if (clean.length < 12) return "Use at least 12 characters for the password.";
+  const localPart = String(email || "").split("@", 1)[0].toLowerCase();
+  if (localPart && clean.toLowerCase().includes(localPart)) return "Use a password that does not include your email name.";
+  return "";
+}
+
+function syncAccountDraftFromFields() {
+  const name = els.accountCard?.querySelector("#auth-name");
+  const email = els.accountCard?.querySelector("#auth-email");
+  const verifyToken = els.accountCard?.querySelector("#verify-token");
+  const resetToken = els.accountCard?.querySelector("#reset-token");
+  if (name) state.accountDraft.name = name.value;
+  if (email) state.accountDraft.email = email.value;
+  if (verifyToken) state.accountDraft.verifyToken = verifyToken.value;
+  if (resetToken) state.accountDraft.resetToken = resetToken.value;
+}
+
+function showAccountError(message) {
+  syncAccountDraftFromFields();
+  state.accountError = message;
+  state.accountModalOpen = true;
+  els.announcer.textContent = message;
+  renderAccountCard();
+}
+
+function scrollAccountCodePanelIntoView() {
+  requestAnimationFrame(() => {
+    const panel = els.accountCard?.querySelector(".account-code-panel");
+    if (!panel?.open) return;
+    panel.scrollIntoView({block: "nearest", behavior: "smooth"});
+  });
+}
+
+function wireAccountCard() {
+  els.accountCard?.querySelector("[data-open-account]")?.addEventListener("click", () => {
+    state.accountModalOpen = true;
+    state.accountError = "";
+    state.accountDeletePending = false;
+    state.accountAuthMode = state.accountAuthMode || "signin";
+    renderAccountCard();
+    requestAnimationFrame(() => {
+      els.accountCard.querySelector("#auth-email, [data-sync-now], [data-close-account]")?.focus?.();
+    });
+  });
+  els.accountCard?.querySelector("[data-close-account]")?.addEventListener("click", () => {
+    state.accountModalOpen = false;
+    state.accountError = "";
+    state.accountDeletePending = false;
+    state.accountCodePanelOpen = false;
+    renderAccountCard();
+  });
+  els.accountCard?.querySelector("[data-account-overlay]")?.addEventListener("click", (event) => {
+    if (event.target !== event.currentTarget) return;
+    state.accountModalOpen = false;
+    state.accountError = "";
+    state.accountDeletePending = false;
+    state.accountCodePanelOpen = false;
+    renderAccountCard();
+  });
+  els.accountCard?.querySelector("[data-sync-now]")?.addEventListener("click", () => syncWorkspace());
+  els.accountCard?.querySelectorAll("#auth-name, #auth-email, #verify-token, #reset-token").forEach((field) => {
+    field.addEventListener("input", syncAccountDraftFromFields);
+  });
+  els.accountCard?.querySelectorAll("[data-auth-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      syncAccountDraftFromFields();
+      state.accountAuthMode = button.dataset.authMode || "signin";
+      state.accountError = "";
+      renderAccountCard();
+      requestAnimationFrame(() => els.accountCard.querySelector("#auth-email, [data-close-account]")?.focus?.());
+    });
+  });
+  els.accountCard?.querySelector(".account-code-panel")?.addEventListener("toggle", (event) => {
+    state.accountCodePanelOpen = event.currentTarget.open;
+    if (state.accountCodePanelOpen) scrollAccountCodePanelIntoView();
+  });
+  els.accountCard?.querySelector("[data-open-onboarding]")?.addEventListener("click", () => {
+    state.onboarding.complete = false;
+    state.accountModalOpen = false;
+    render();
+  });
+  els.accountCard?.querySelector("[data-logout]")?.addEventListener("click", async () => {
+    try {
+      await apiClient.logout();
+      state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+      state.accountModalOpen = false;
+      state.accountDeletePending = false;
+      state.accountCodePanelOpen = false;
+      renderAccountCard();
+    } catch (error) {
+      state.accountError = error.message || "Sign out failed.";
+      renderAccountCard();
+    }
+  });
+  els.accountCard?.querySelector("[data-export-account]")?.addEventListener("click", async (event) => {
+    const password = els.accountCard.querySelector("#account-password")?.value || "";
+    if (!password) {
+      showToast(event.currentTarget, "Enter your password before exporting account data.");
+      return;
+    }
+    try {
+      const data = await apiClient.exportAccount(password);
+      downloadText("texttraits-account-export.json", JSON.stringify(data, null, 2));
+      showToast(event.currentTarget, "Account export downloaded.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Account export failed.");
+    }
+  });
+  els.accountCard?.querySelector("[data-delete-account]")?.addEventListener("click", async (event) => {
+    if (!state.accountDeletePending) {
+      state.accountDeletePending = true;
+      state.accountError = "";
+      renderAccountCard();
+      requestAnimationFrame(() => els.accountCard.querySelector("#account-password")?.focus?.());
+      return;
+    }
+    const password = els.accountCard.querySelector("#account-password")?.value || "";
+    if (!password) {
+      showToast(event.currentTarget, "Enter your password before deleting the account.");
+      return;
+    }
+    try {
+      await apiClient.deleteAccount(password);
+      state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+      state.accountModalOpen = false;
+      state.accountDeletePending = false;
+      renderAccountCard();
+      showToast(event.currentTarget, "Account deleted.");
+      render();
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Account deletion failed.");
+    }
+  });
+  els.accountCard?.querySelector("[data-signup]")?.addEventListener("click", () => authRequest("signup"));
+  els.accountCard?.querySelector("[data-login]")?.addEventListener("click", () => authRequest("login"));
+  els.accountCard?.querySelector("[data-demo-account]")?.addEventListener("click", () => authRequest("demo"));
+  els.accountCard?.querySelector("[data-request-reset]")?.addEventListener("click", async (event) => {
+    const email = els.accountCard.querySelector("#auth-email")?.value || "";
+    if (!isValidEmail(email)) {
+      showAccountError("Enter the email for your account first.");
+      return;
+    }
+    try {
+      const response = await apiClient.requestPasswordReset(email);
+      state.accountCodePanelOpen = true;
+      showToast(event.currentTarget, response.dev_reset_url ? "Reset helper created for local development." : "Check your email for a reset code.");
+      renderAccountCard();
+      scrollAccountCodePanelIntoView();
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Enter the email for your account.");
+    }
+  });
+  els.accountCard?.querySelector("[data-submit-verification]")?.addEventListener("click", async (event) => {
+    const token = els.accountCard.querySelector("#verify-token")?.value || "";
+    if (!token.trim()) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the verification code from your email.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    try {
+      const data = await apiClient.verifyEmail(token);
+      applyAuthenticatedAccount(data, "Email verified");
+      showToast(event.currentTarget, "Email verified.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Verification code expired.");
+    }
+  });
+  els.accountCard?.querySelector("[data-submit-reset]")?.addEventListener("click", async (event) => {
+    const token = els.accountCard.querySelector("#reset-token")?.value || "";
+    const password = els.accountCard.querySelector("#reset-new-password")?.value || "";
+    if (!token.trim()) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the reset code from your email.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    const policyMessage = passwordPolicyMessage(password);
+    if (policyMessage) {
+      state.accountCodePanelOpen = true;
+      showAccountError(policyMessage);
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    try {
+      const data = await apiClient.resetPassword(token, password);
+      state.accountResetToken = "";
+      applyAuthenticatedAccount(data, "Password reset");
+      showToast(event.currentTarget, "Password updated.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Reset code expired.");
+    }
+  });
+}
+
+function applyAuthenticatedAccount(data, statusText = "Signed in") {
+  state.account.authenticated = true;
+  state.account.user = data.user;
+  state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
+  state.account.syncStatus = statusText;
+  state.accountModalOpen = false;
+  state.accountError = "";
+  state.accountDeletePending = false;
+  state.accountCodePanelOpen = false;
+  state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
+  if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+  persistWorkspace();
+  renderAccountCard();
+  renderModeChrome();
+  render();
+}
+
+async function authRequest(action) {
+  const emailField = els.accountCard.querySelector("#auth-email");
+  const passwordField = els.accountCard.querySelector("#auth-password");
+  const nameField = els.accountCard.querySelector("#auth-name");
+  const payload = action === "demo"
+    ? {email: "demo@texttraits.local", password: "texttraits-demo", name: "Demo Workspace"}
+    : {email: emailField?.value || "", password: passwordField?.value || "", name: nameField?.value || ""};
+  if (action !== "demo") {
+    if (!isValidEmail(payload.email)) {
+      showAccountError("Enter a valid email address.");
+      return;
+    }
+    if (!payload.password) {
+      showAccountError("Enter your password.");
+      return;
+    }
+    if (action === "signup") {
+      const policyMessage = passwordPolicyMessage(payload.password, payload.email);
+      if (policyMessage) {
+        showAccountError(policyMessage);
+        return;
+      }
+    }
+  }
+  try {
+    let data;
+    if (action === "login") data = await apiClient.login(payload);
+    else {
+      try {
+        data = await apiClient.signup(payload);
+      } catch (error) {
+        if (action === "demo" && error.status === 409) data = await apiClient.login(payload);
+        else throw error;
+      }
+    }
+    if (!data.authenticated || !data.user) {
+      if (action === "demo") {
+        data = await apiClient.login(payload);
+        applyAuthenticatedAccount(data);
+        return;
+      }
+      els.announcer.textContent = data.message || "Check your account details.";
+      state.accountError = data.message || "Check your account details.";
+      state.accountModalOpen = true;
+      renderAccountCard();
+      return;
+    }
+    applyAuthenticatedAccount(data);
+  } catch (error) {
+    els.announcer.textContent = error.message || "Sign-in failed.";
+    state.account.syncStatus = error.message || "Sign-in failed";
+    state.accountError = error.message || "Sign-in failed.";
+    state.accountModalOpen = true;
+    renderAccountCard();
+  }
+}
+
+async function initAccount() {
+  renderAccountCard();
+  try {
+    const sessionData = await apiClient.session();
+    if (!sessionData.authenticated) return;
+    const workspaceData = await apiClient.workspace();
+    state.account.authenticated = true;
+    state.account.user = sessionData.user;
+    state.account.workspaceName = workspaceData.workspace?.name || `${sessionData.user.name}'s workspace`;
+    state.account.syncStatus = `Synced ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
+    applyWorkspacePayload(workspaceData.workspace?.data || {});
+    renderAccountCard();
+    renderModeChrome();
+    render();
+  } catch (error) {
+    state.account.syncStatus = "Local only";
+    renderAccountCard();
+  }
+}
+
+async function handleAccountLinkTokens() {
+  const params = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#\??/, ""));
+  const verifyToken = params.get("verify_token") || hashParams.get("verify_token");
+  const resetToken = params.get("reset_token") || hashParams.get("reset_token");
+  let changed = false;
+
+  if (verifyToken) {
+    try {
+      const data = await apiClient.verifyEmail(verifyToken);
+      state.account.authenticated = true;
+      state.account.user = data.user;
+      state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
+      state.account.syncStatus = "Email verified";
+      state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
+      state.accountCodePanelOpen = false;
+      if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+      renderAccountCard();
+      renderModeChrome();
+      showToast(els.accountCard, "Email verified.");
+      render();
+    } catch (error) {
+      showToast(els.accountCard, error.message || "Verification link expired.");
+    }
+    params.delete("verify_token");
+    hashParams.delete("verify_token");
+    changed = true;
+  }
+
+  if (resetToken) {
+    state.accountResetToken = resetToken;
+    state.accountCodePanelOpen = true;
+    state.accountModalOpen = true;
+    state.accountAuthMode = "reset";
+    state.accountError = "Enter a new password to finish resetting your account.";
+    renderAccountCard();
+    requestAnimationFrame(() => els.accountCard.querySelector("#reset-new-password")?.focus?.());
+    params.delete("reset_token");
+    hashParams.delete("reset_token");
+    changed = true;
+  }
+
+  if (changed && window.history?.replaceState) {
+    const query = params.toString();
+    const hash = hashParams.toString();
+    window.history.replaceState({mode: state.mode}, "", `${window.location.pathname}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`);
+  }
 }
 
 function modelReadyLabel() {
@@ -397,68 +1150,89 @@ function renderExplorerInput() {
   els.inputPanel.innerHTML = `
     <div class="panel-head">
       <div>
-        <h2>Explorer input</h2>
-        <p class="helper">Paste a note, email, comment, or reflection. Explorer will turn it into a simple style summary.</p>
+        <h2>Today’s writing</h2>
+        <p class="helper">Paste one paragraph. Get one plain summary and one useful rewrite.</p>
       </div>
       <span class="status-pill">Ready</span>
     </div>
 
-    <div class="guide-card">
-      <strong>What should I paste?</strong>
-      <p>Use natural writing from one person in one context. A paragraph from an email, journal note, essay, or comment works well.</p>
-    </div>
-
-    <div class="daily-card">
+    <section class="message-coach-strip" aria-label="Message Coach Mode">
       <div>
-        <span class="label">Today's prompt</span>
-        <strong>${escapeHtml(dailyPrompt())}</strong>
-        <p>${escapeHtml(explorerLogSummary())} ${explorerStreak() ? `${explorerStreak()}-day streak.` : "Start a streak with today's reading."}</p>
+        <span class="label">Message Coach Mode</span>
+        <strong>${escapeHtml(currentMessageMode().label)}</strong>
+        <p>${escapeHtml(messageModeHint())}</p>
       </div>
-      <button class="button-secondary" type="button" data-use-daily-prompt>Use prompt</button>
-    </div>
+      <div class="mode-chip-row">
+        ${messageModeOptions.map((mode) => `
+          <button class="mode-chip" type="button" data-message-mode="${escapeHtml(mode.label)}" aria-pressed="${String(mode.label === currentMessageMode().label)}">
+            ${escapeHtml(mode.short)}
+          </button>
+        `).join("")}
+      </div>
+    </section>
 
     <div class="field">
       <label for="explorer-text">Writing sample</label>
-      <textarea id="explorer-text" placeholder="Paste writing to analyze.">${escapeHtml(state.latestText)}</textarea>
+      ${explorerPromptGuidance()}
+      <textarea id="explorer-text" placeholder="${escapeHtml(explorerPlaceholder())}">${escapeHtml(state.latestText)}</textarea>
     </div>
 
     <div class="quality-row">
       <span id="explorer-count">0 words</span>
       <span id="explorer-quality">Add text to analyze.</span>
     </div>
-    <div class="meter"><span id="explorer-meter"></span></div>
+    <div class="meter"><progress id="explorer-meter" max="100" value="0">0%</progress></div>
 
-    <details class="advanced-card">
-      <summary>Optional tools</summary>
+    <details class="advanced-card quiet-more-drawer">
+      <summary>More</summary>
+      <p class="muted">Only use these when you want to save, name, or try an example. The main path is still write, analyze, rewrite.</p>
       <div class="field">
         <label for="reading-name">Name this sample</label>
         <input id="reading-name" value="${escapeHtml(state.explorerReadingName)}" placeholder="Daily journal, project email, class note">
       </div>
-      <div class="field">
-        <label for="rewrite-goal">Rewrite toward goal</label>
-        <input id="rewrite-goal" value="Make this clearer and easier to skim">
-      </div>
-      <div class="field">
-        <label for="compare-text">Compare two samples</label>
-        <textarea id="compare-text" class="compact-textarea" placeholder="Optional: paste a second sample for a before/after or comparison view.">${escapeHtml(state.compareText)}</textarea>
+      <div class="field-grid">
+        ${selectField("explorerFolder", "Private folder", explorerFolders, state.explorerFolder)}
+        ${selectField("explorerWritingGoal", "Writing goal", explorerGoals, state.explorerWritingGoal)}
       </div>
 
-      <div class="field-grid">
-        <label class="field"><span>Writing style only</span><select id="style-only"><option>No</option><option>Yes</option></select></label>
-        <label class="field"><span>Technical details</span><select id="technical-visible"><option value="hide">Hide</option><option value="show">Show</option></select></label>
-        <label class="field"><span>Sensitive labels</span><select id="sensitive-hidden"><option value="show">Show expanded section</option><option value="hide">Hide permanently</option></select></label>
-        <label class="field"><span>Output focus</span><select id="explorer-focus"><option>Simple summary</option><option>What stands out</option><option>Rewrite guidance</option></select></label>
-      </div>
-      <details class="history-card">
-        <summary>Writing history</summary>
-        ${explorerHistoryList()}
+      <details class="history-card sample-drawer">
+        <summary>Try an example</summary>
+        ${sampleButtons(explorerSamples, "explorer-text")}
+      </details>
+      <details class="history-card explorer-settings-drawer">
+        <summary>Journal, prompts, and advanced settings</summary>
+        <div class="field">
+          <label for="compare-text">Compare two samples</label>
+          <textarea id="compare-text" class="compact-textarea" placeholder="Optional: paste a second sample for a before/after or comparison view.">${escapeHtml(state.compareText)}</textarea>
+        </div>
+
+        <details class="history-card">
+          <summary>Writing log</summary>
+          ${explorerHistoryList()}
+        </details>
+        <details class="history-card">
+          <summary>Prompt library</summary>
+          <div class="prompt-library">
+            ${consumerPromptLibrary.map((item, index) => `
+              <button class="prompt-card" type="button" data-prompt-index="${index}">
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.goal)}</span>
+                <small>${escapeHtml(item.prompt)}</small>
+              </button>
+            `).join("")}
+          </div>
+        </details>
+        <details class="history-card">
+          <summary>Technical preferences</summary>
+          <div class="field-grid">
+            <label class="field"><span>Writing style only</span><select id="style-only"><option>No</option><option>Yes</option></select></label>
+            <label class="field"><span>Technical details</span><select id="technical-visible"><option value="hide">Hide</option><option value="show">Show</option></select></label>
+            <label class="field"><span>Sensitive labels</span><select id="sensitive-hidden"><option value="show">Show expanded section</option><option value="hide">Hide permanently</option></select></label>
+            <label class="field"><span>Output focus</span><select id="explorer-focus"><option>Simple summary</option><option>What stands out</option><option>Rewrite guidance</option></select></label>
+          </div>
+        </details>
       </details>
     </details>
-
-    <div>
-      <p class="label">Try an example</p>
-      ${sampleButtons(explorerSamples, "explorer-text")}
-    </div>
 
     <div class="action-row sticky">
       <button id="analyze-explorer" type="button">Analyze text</button>
@@ -475,7 +1249,7 @@ function renderEnterpriseInput() {
       <div class="panel-head compact-head input-mini-head">
         <div>
           <h2>${escapeHtml(ctx.project || "Outbound campaign")}</h2>
-          <p class="helper">${escapeHtml(ctx.role || "VP Revenue")} / ${escapeHtml(ctx.company || "Northstar Analytics")} / ${escapeHtml(ctx.goal || "Book call")}</p>
+          <p class="helper">${escapeHtml(ctx.role || "VP Revenue")} / ${escapeHtml(ctx.company || "TextTraits")} / ${escapeHtml(ctx.goal || "Book call")}</p>
         </div>
         <button id="edit-enterprise-inputs" class="button-secondary" type="button">Edit inputs</button>
       </div>
@@ -490,10 +1264,10 @@ function renderEnterpriseInput() {
   els.inputPanel.innerHTML = `
     <div class="panel-head enterprise-setup-head">
       <div>
-        <h2>Campaign setup</h2>
-        <p class="helper">Start with the prospect's words and a plain description of what you sell. Add advanced context only when you need it.</p>
+        <h2>Quick draft setup</h2>
+        <p class="helper">Paste the buyer's own words first. Use the rest only when it helps the draft sound more specific.</p>
       </div>
-      <span class="preview-badge">Enterprise Preview</span>
+      <span class="preview-badge">Draft setup</span>
     </div>
 
     <div class="field">
@@ -505,24 +1279,24 @@ function renderEnterpriseInput() {
       <span id="enterprise-count">0 words</span>
       <span id="enterprise-quality">Add prospect language to generate a brief.</span>
     </div>
-    <div class="meter"><span id="enterprise-meter"></span></div>
+    <div class="meter"><progress id="enterprise-meter" max="100" value="0">0%</progress></div>
 
-    <div class="guide-card primary-context compact-context">
-      <strong>Core campaign context</strong>
+    <details class="advanced-card primary-context compact-context">
+      <summary>Campaign basics</summary>
       <div class="enterprise-field-grid field-grid-spaced compact-enterprise-fields">
-        ${field("project", "Campaign name", ctx.project || "Q3 pipeline quality")}
-        ${field("offer", "What do you sell?", ctx.offer || "Revenue workflow software")}
-        ${field("role", "Who are you writing to?", ctx.role || "VP Revenue")}
-        ${selectField("goal", "Campaign goal", goals, ctx.goal)}
+        ${field("project", "Campaign name", ctx.project || "Forecast risk pilot")}
+        ${field("offer", "What do you sell?", ctx.offer || "a review workspace for outbound drafts, replies, and campaign outcomes")}
       </div>
-    </div>
+    </details>
 
     <details class="advanced-card">
       <summary>Edit setup</summary>
       <div class="enterprise-field-grid">
+        ${field("role", "Who are you writing to?", ctx.role || "VP Revenue")}
+        ${selectField("goal", "Campaign goal", goals, ctx.goal)}
         ${field("folder", "Folder", ctx.folder || "RevOps")}
-        ${field("company", "Your company", ctx.company || "Northstar Analytics")}
-        ${field("pain", "Pain hypothesis", ctx.pain || "forecast risk and manager visibility")}
+        ${field("company", "Your company", ctx.company || "TextTraits")}
+        ${field("pain", "Pain hypothesis", ctx.pain || "renewal risk and missed coaching moments")}
         ${field("proof", "Proof point", ctx.proof || "reduced manual reporting by 32%")}
         ${selectField("preset", "Output preset", presets, ctx.preset)}
         ${selectField("industry", "Industry", industries, ctx.industry)}
@@ -558,7 +1332,7 @@ function renderEnterpriseInput() {
     </details>
 
     <details class="advanced-card quiet-samples">
-      <summary>Sample prospect context</summary>
+      <summary>Load example prospect</summary>
       <p class="muted">Use a reply when you have one; use a bio, transcript, or website copy when you are starting cold.</p>
       ${sampleButtons(enterpriseSamples, "enterprise-text")}
     </details>
@@ -588,114 +1362,241 @@ function selectField(id, label, values, selected = "") {
 }
 
 function renderExplorerEmpty() {
+  const profile = explorerProfileSummary();
+  const hasJournal = state.explorerHistory.length >= 2;
+  const latest = state.explorerHistory[0];
+  const streak = explorerStreak();
+  const hasAnyHistory = state.explorerHistory.length > 0;
   els.outputPanel.innerHTML = `
-    <div class="empty-layout fade-in">
-      <div class="empty-hero">
-        <span class="status-pill">Guided onboarding</span>
-        <h2>Your writing summary will appear here.</h2>
-        <p class="muted">Explorer keeps the first read simple: how easy it is to follow, how it comes across, and one next step for improving it.</p>
-      </div>
-
-      <div class="guide-grid">
-        <article class="guide-card"><strong>Paste text</strong><p>Use one natural sample around 40+ words.</p></article>
-        <article class="guide-card"><strong>Try today's prompt</strong><p>${escapeHtml(dailyPrompt())}</p></article>
-        <article class="guide-card"><strong>Build a writing log</strong><p>${escapeHtml(explorerLogSummary())}</p></article>
-      </div>
-
-      <div class="guide-card">
-        <strong>Explorer tools</strong>
-        <div class="chip-list">
-          <span class="chip">Daily prompt</span>
-          <span class="chip">Writing log</span>
-          <span class="chip">Plain summary</span>
-          <span class="chip">Next tiny edit</span>
+    <div class="empty-layout fade-in calm-empty explorer-daily-home">
+      <section class="daily-home-card">
+        <div>
+          <span class="label">Today’s coach</span>
+          <h2>${escapeHtml(dailyPromptTitle())}</h2>
+          <p>${escapeHtml(dailyPromptInstruction())}</p>
         </div>
+        <button type="button" data-use-daily-prompt>Use prompt</button>
+      </section>
+
+      <article class="today-focus-card">
+        <div>
+          <span class="label">${hasAnyHistory ? "Welcome back" : "First step"}</span>
+          <strong>${hasAnyHistory ? "Write one paragraph for today." : "Start with any real paragraph."}</strong>
+          <p>${hasAnyHistory ? `Current streak: ${streak || 0} day${streak === 1 ? "" : "s"}. ${tomorrowTinyGoal()}` : "Explorer will show how it comes across, one practical edit, and a rewrite you can use."}</p>
+        </div>
+        <button class="button-secondary" type="button" data-open-home-journal>${hasAnyHistory ? "Open journal" : "Show progress"}</button>
+      </article>
+
+      <details class="advanced-card daily-progress-drawer" ${hasAnyHistory ? "" : ""}>
+        <summary>Journal and progress</summary>
+        <div class="daily-home-stats">
+        <article>
+          <span>Streak</span>
+          <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+          <p>${escapeHtml(streakMilestone())}</p>
+        </article>
+        <article>
+          <span>Last entry</span>
+          <strong>${latest ? escapeHtml(latest.name || "Saved reading") : "None yet"}</strong>
+          <p>${latest ? escapeHtml(latest.summary || latest.sourceExcerpt || "Ready for the next reading.") : "Paste one paragraph to begin."}</p>
+        </article>
+        <article>
+          <span>One goal</span>
+          <strong>${escapeHtml(state.explorerWritingGoal || "Make this clearer")}</strong>
+          <p>${escapeHtml(profile.ready ? todayVsLastWeek() || profile.traits.join(" / ") : profile.copy)}</p>
+        </article>
+        <article>
+          <span>Weekly preview</span>
+          <strong>${escapeHtml(state.explorerHistory.length >= 3 ? weeklyRecap() : "Build your recap")}</strong>
+          <p>${escapeHtml(state.explorerHistory.length >= 3 ? "Your weekly recap updates as you save readings." : "Save three readings to unlock trends.")}</p>
+        </article>
+        <article>
+          <span>Tomorrow</span>
+          <strong>One tiny goal</strong>
+          <p>${escapeHtml(tomorrowTinyGoal())}</p>
+        </article>
+        </div>
+
+      ${hasJournal ? `
+      <div class="daily-product-grid daily-home-focus">
+        <article class="guide-card profile-preview-card">
+          <span class="label">${escapeHtml(profile.title)}</span>
+          <strong>${escapeHtml(profile.ready ? "Profile ready" : "Keep saving readings")}</strong>
+          <p>${escapeHtml(profile.copy)}</p>
+        </article>
+        <article class="guide-card">
+          <span class="label">Weekly recap</span>
+          <strong>${escapeHtml(weeklyRecap())}</strong>
+          <p>Save a few short readings to see how your writing changes over time.</p>
+        </article>
       </div>
+      ` : `
+      <article class="guide-card one-action-card">
+        <span class="label">First step</span>
+        <strong>Write one paragraph.</strong>
+        <p>After the first read, Explorer shows how it comes across, one practical edit, and a rewrite you can use.</p>
+      </article>
+      `}
+      </details>
     </div>
   `;
+  els.outputPanel.querySelector("[data-open-home-journal]")?.addEventListener("click", () => {
+    const drawer = els.outputPanel.querySelector(".daily-progress-drawer");
+    if (!drawer) return;
+    drawer.open = true;
+    drawer.scrollIntoView({behavior: "smooth", block: "start"});
+  });
 }
 
 function renderEnterpriseEmpty() {
   els.outputPanel.innerHTML = `
-    <div class="empty-layout fade-in enterprise-empty">
-      <div class="empty-hero enterprise-home-hero">
-        <span class="preview-badge">Enterprise Preview</span>
-        <h2>Today's work</h2>
-        <p class="muted">A dashboard-first preview for the daily outreach loop: import, draft, review, export, and track.</p>
+    <div class="empty-layout fade-in enterprise-empty calm-enterprise-home">
+      <section class="enterprise-today-hero">
+        <div>
+          <span class="preview-badge">Workspace</span>
+          <h2>Today's work</h2>
+          <p>Review one buyer signal, approve the best draft, and export only when the setup is connected.</p>
+        </div>
+        <button type="button" data-focus-enterprise-input>Create campaign</button>
+      </section>
+
+      <div class="today-grid quiet-dashboard enterprise-start-grid single-start">
+        <article class="strategy-card featured start-card">
+          <span class="label">Start here</span>
+          <strong>Paste a prospect signal.</strong>
+          <p>Generate the first drafts, then move directly into the review queue. Campaign setup stays hidden until you need it.</p>
+          <button class="button-secondary" type="button" data-focus-enterprise-input>Open draft setup</button>
+        </article>
       </div>
 
-      <div class="flow-path">
-        ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+      <details class="advanced-card enterprise-sample-drawer" ${state.sampleWorkspaceLoaded ? "open" : ""}>
+        <summary>Load sample workspace</summary>
+        <div class="sample-preview-grid">
           <article>
-            <span>${index + 1}</span>
-            <strong>${escapeHtml(step)}</strong>
+            <strong>${state.sampleWorkspaceLoaded ? "Sample workspace loaded" : "Sample workspace"}</strong>
+            ${state.sampleWorkspaceLoaded ? `
+              <div class="queue-list">
+                <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
+                <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
+                <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
+              </div>
+              <div class="result-actions">
+                <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
+                <button class="button-secondary" type="button" data-load-sample-workspace>Refresh sample data</button>
+              </div>
+            ` : `
+              <p class="muted">Use this only when you want a populated demo. It is separate from the main campaign path.</p>
+              <div class="result-actions">
+                <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
+                <button class="button-secondary" type="button" data-load-sample-workspace>Load full sample data</button>
+              </div>
+            `}
           </article>
-        `).join("")}
-      </div>
-
-      <div class="today-grid quiet-dashboard">
-        <article class="strategy-card featured">
-          <strong>Start here</strong>
-          <p>Paste prospect context in the setup panel and generate drafts. Setup collapses after generation so review work becomes the center of the screen.</p>
-          <button type="button" data-focus-enterprise-input>Paste prospect context</button>
-        </article>
-        <article class="strategy-card">
-          <strong>Queue preview</strong>
-          <div class="queue-list">
-            <span>12 prospects to draft</span>
-            <span>5 replies to answer</span>
-            <span>3 campaigns needing review</span>
+          <article>
+            <strong>Preview-only setup</strong>
+            <p class="muted">CRM, inbox, Chrome sidebar, and admin tools stay marked as setup required until credentials are connected.</p>
+          </article>
+        </div>
+        <details class="preview-note nested-preview-note">
+          <summary>Workflow, preferences, and setup notes</summary>
+          <div class="flow-path enterprise-flow-drawer">
+            ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+              <article class="${index === 0 ? "is-active" : ""}">
+                <span>${index + 1}</span>
+                <strong>${escapeHtml(step)}</strong>
+              </article>
+            `).join("")}
           </div>
-        </article>
-      </div>
-
-      <details class="advanced-card preview-note">
-        <summary>Preview-only workspace concepts</summary>
-        <div class="campaign-grid">
-        ${state.savedCampaigns.map((campaign) => `
-          <article class="project-card">
-            <strong>${escapeHtml(campaign.name)}</strong>
-            <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.updated)}</span>
-            <span class="strength">${escapeHtml(campaign.status)}</span>
-          </article>
-        `).join("")}
-        </div>
-        <div class="tier-grid">
-        ${tiers.map(([name, copy]) => `<article class="guide-card"><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p></article>`).join("")}
-        </div>
-        <div class="feature-list">
-          ${[
-            "Saved campaigns",
-            "Project sidebar tree",
-            "Admin settings",
-            "API keys",
-            "Usage analytics",
-            "Approval workflow",
-            "Reusable outbound templates",
-            "Inbox and reply analysis mode",
-            "Sequence calendar with follow-up timing",
-            "Team comments and approvals",
-            "Learn from winning replies",
-            "Manager coaching dashboard",
-          ].map((item) => `<span>${escapeHtml(item)} / preview</span>`).join("")}
-        </div>
+          ${renderOnboardingCard("enterprise")}
+          <div class="feature-list">
+            ${[
+              "Saved campaigns",
+              "Project sidebar tree",
+              "Admin settings",
+              "API keys",
+              "Usage analytics",
+              "Approval workflow",
+              "Reusable outbound templates",
+              "Inbox and reply analysis mode",
+              "Sequence calendar with follow-up timing",
+              "Team comments and approvals",
+              "Learn from winning replies",
+              "Manager coaching dashboard",
+            ].map((item) => `<span>${escapeHtml(item)} / setup</span>`).join("")}
+          </div>
+        </details>
       </details>
     </div>
   `;
-  els.outputPanel.querySelector("[data-focus-enterprise-input]")?.addEventListener("click", () => {
-    document.querySelector("#enterprise-text")?.focus();
+  els.outputPanel.querySelectorAll("[data-focus-enterprise-input]").forEach((button) => button.addEventListener("click", () => {
+    state.enterpriseSetupOpen = true;
+    render();
+    requestAnimationFrame(() => document.querySelector("#enterprise-text")?.focus());
+  }));
+  els.outputPanel.querySelector("[data-load-sample-workspace]")?.addEventListener("click", (event) => {
+    state.sampleWorkspaceLoaded = true;
+    state.batchInput = sampleCsv;
+    state.batchErrors = [];
+    state.batchRows = parseCsv(sampleCsv, state.batchMapping);
+    state.batchProgress = state.batchRows.length ? 100 : 0;
+    state.inboxThreads = sampleInboxThreads.map((thread) => ({
+      ...thread,
+      reply: inboxReply(thread, enterpriseContext()),
+    }));
+    state.lastActionNote = "Sample workspace loaded for preview.";
+    persistWorkspace();
+    showToast(event.currentTarget, "Sample workspace loaded.");
+    renderEnterpriseEmpty();
+  });
+  els.outputPanel.querySelector("[data-generate-sample-drafts]")?.addEventListener("click", () => {
+    const sample = enterpriseSamples[0];
+    state.latestText = sample.text;
+    state.latestData = null;
+    state.enterpriseDrafts = [];
+    state.enterpriseContext = {...(state.enterpriseContext || {}), ...(sample.context || {})};
+    state.enterpriseSetupOpen = false;
+    state.enterpriseLandingTab = "dashboard";
+    persistWorkspace();
+    runAnalysis(sample.text);
   });
 }
 
+function renderOnboardingCard(mode) {
+  if (state.onboarding.complete) return "";
+  if (mode === "enterprise") {
+    return `
+      <details class="onboarding-card onboarding-drawer">
+        <summary><span><strong>Personalize workspace</strong><small>Optional first-run setup</small></span></summary>
+        <strong>What should this workspace help your team improve?</strong>
+        <div class="field-grid">
+          ${selectField("onboardingEnterpriseGoal", "Primary workflow", ["Review outbound drafts", "Answer replies faster", "Import and approve batches", "Track campaign outcomes"], state.onboarding.enterpriseGoal)}
+          ${selectField("onboardingTeamSize", "Team size", ["1-5", "6-25", "26-100", "100+"], state.onboarding.teamSize)}
+        </div>
+        <div class="result-actions">
+          <button type="button" data-save-onboarding="enterprise">Save workspace setup</button>
+          <button class="button-secondary" type="button" data-skip-onboarding>Skip for now</button>
+        </div>
+      </details>
+    `;
+  }
+  return `
+    <details class="onboarding-card onboarding-drawer">
+      <summary><span><strong>Personalize your coach</strong><small>Optional first-run setup</small></span></summary>
+      <strong>What are you here to improve?</strong>
+      <div class="field-grid">
+        ${selectField("onboardingExplorerGoal", "Writing goal", ["Clearer everyday writing", "Warmer messages", "Better essays", "Professional confidence", "Hard conversations"], state.onboarding.explorerGoal)}
+        ${selectField("onboardingPlan", "Coach plan", ["7-day plan", "30-day plan", "Weekly check-in"], state.onboarding.plan || "7-day plan")}
+      </div>
+      <div class="result-actions">
+        <button type="button" data-save-onboarding="explorer">Save writing setup</button>
+        <button class="button-secondary" type="button" data-skip-onboarding>Skip for now</button>
+      </div>
+    </details>
+  `;
+}
+
 async function evaluateText(text) {
-  const response = await fetch("/evaluate", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({text, model: "local"}),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "The analysis failed.");
-  return data;
+  return apiClient.evaluate({text, model: "local"});
 }
 
 function score(prediction) {
@@ -756,10 +1657,10 @@ function readingEffortCopy(stats) {
 function dimensionLabel(prediction, dimension) {
   const raw = String(prediction?.label || prediction?.raw_label || "").toLowerCase();
   const labels = {
-    energy: {extraverted: "Expressive", introverted: "Calm"},
-    information: {sensing: "Uses examples", intuitive: "Main idea first"},
-    decisions: {thinking: "Direct", feeling: "People-focused"},
-    structure: {judging: "Organized", perceiving: "Open-ended"},
+    energy: {extraverted: "Sounds energetic", introverted: "Sounds calm"},
+    information: {sensing: "You explain with examples", intuitive: "You lead with the big idea"},
+    decisions: {thinking: "You make the point directly", feeling: "You consider how it lands"},
+    structure: {judging: "It feels organized", perceiving: "It leaves room to explore"},
   };
   return labels[dimension]?.[raw] || "Mixed";
 }
@@ -806,19 +1707,78 @@ function dimensionRows(dims) {
 function plainStyleSummary(stats, dims, strongest) {
   const strongestKey = strongest?.[2] || "information";
   const strongestPrediction = strongest?.[1];
-  const strongestTitle = strongest?.[0] || "writing";
-  const strongestLabel = dimensionLabel(strongestPrediction, strongestKey).toLowerCase();
-  return `${readingEffortCopy(stats)} The strongest pattern is ${strongestTitle.toLowerCase()}: ${strongestLabel}. The best next step is to keep that strength and make the main point easy to spot.`;
+  const strongestLabel = dimensionLabel(strongestPrediction, strongestKey);
+  return `${readingEffortCopy(stats)} The clearest thing about it: ${styleSentence(strongestLabel)} Keep that strength, then make the main point easy to spot.`;
+}
+
+function humanFirstRead(stats, strongest, source = "note") {
+  const noun = source === "text message" ? "message" : source === "email" ? "email" : source === "essay" ? "paragraph" : source === "reply" ? "reply" : source === "decision note" ? "decision note" : "note";
+  const key = strongest?.[2] || "";
+  const label = dimensionLabel(strongest?.[1], key);
+  if (key === "energy" && label === "Sounds calm") {
+    return {
+      title: `This ${noun} sounds calm and careful`,
+      copy: "It gives the reader a steady feeling. Add the next step a little earlier so they know what to do with it.",
+    };
+  }
+  if (key === "energy" && label === "Sounds energetic") {
+    return {
+      title: `This ${noun} sounds lively and ready to move`,
+      copy: "The energy helps the message feel active. Cutting one extra phrase will make the point land faster.",
+    };
+  }
+  if (key === "information" && label === "You explain with examples") {
+    return {
+      title: "You make it easier to picture",
+      copy: `This ${noun} uses real details instead of staying vague. Add one sentence that says why those details matter.`,
+    };
+  }
+  if (key === "information" && label === "You lead with the big idea") {
+    return {
+      title: "You start with the big idea",
+      copy: "The direction is easy to understand. One everyday example would make it feel more concrete.",
+    };
+  }
+  if (key === "decisions" && label === "You consider how it lands") {
+    return {
+      title: `This ${noun} sounds thoughtful`,
+      copy: "It pays attention to how the reader may feel. Make the ask or takeaway a little more direct.",
+    };
+  }
+  if (key === "decisions") {
+    return {
+      title: "This gets to the point",
+      copy: "The reason behind the message is visible. Add one warmer phrase if the reader may need reassurance.",
+    };
+  }
+  if (key === "structure" && label === "It feels organized") {
+    return {
+      title: `This ${noun} feels organized`,
+      copy: "The order helps the reader follow you. The next improvement is making the main sentence stand out.",
+    };
+  }
+  return {
+    title: `This ${noun} has a steady shape`,
+    copy: `${readingEffortCopy(stats)} Pick one sentence to make simpler and the whole piece will feel easier to read.`,
+  };
+}
+
+function styleSentence(label) {
+  const clean = String(label || "Mixed").toLowerCase();
+  if (clean.startsWith("you ")) return `${clean}.`;
+  if (clean.startsWith("it ")) return `${clean}.`;
+  if (clean.startsWith("sounds ")) return `it ${clean}.`;
+  return `${clean}.`;
 }
 
 function nextWritingAction(stats, strongest) {
   const strongestKey = strongest?.[2] || "";
   const label = dimensionLabel(strongest?.[1], strongestKey);
   if (readingEffortLabel(stats) === "Needs a slower read") return "Try splitting the longest sentence into two shorter ones.";
-  if (strongestKey === "energy" && label === "Calm") return "Add one sentence that says what you want the reader to do next.";
-  if (strongestKey === "energy" && label === "Expressive") return "Keep the energy, but cut one extra phrase so the point lands faster.";
-  if (strongestKey === "information" && label === "Uses examples") return "Keep the examples and add one short sentence that explains why they matter.";
-  if (strongestKey === "information" && label === "Main idea first") return "Add one concrete example so the idea is easier to picture.";
+  if (strongestKey === "energy" && label === "Sounds calm") return "Add one sentence that says what you want the reader to do next.";
+  if (strongestKey === "energy" && label === "Sounds energetic") return "Keep the energy, but cut one extra phrase so the point lands faster.";
+  if (strongestKey === "information" && label === "You explain with examples") return "Keep the examples and add one short sentence that explains why they matter.";
+  if (strongestKey === "information" && label === "You lead with the big idea") return "Add one concrete example so the idea is easier to picture.";
   if (strongestKey === "decisions") return "Make the main takeaway visible in the first or last sentence.";
   return "Read it once out loud and mark the sentence you would keep if you could only keep one.";
 }
@@ -854,6 +1814,353 @@ function usualWritingSummary() {
   return `You usually write in a ${String(feel).toLowerCase()} style, with ${recent.length} recent samples saved.`;
 }
 
+function clarityScore(stats, strongest) {
+  const base = 72;
+  const lengthBoost = Math.min(Number(stats.words || 0), 90) / 90 * 10;
+  const sentencePenalty = readingEffortLabel(stats) === "Needs a slower read" ? -8 : readingEffortLabel(stats) === "Easy read" ? 5 : 2;
+  const strengthBoost = score(strongest?.prediction) * 10;
+  return Math.max(42, Math.min(98, Math.round(base + lengthBoost + sentencePenalty + strengthBoost)));
+}
+
+function clarityBand(scoreValue) {
+  if (scoreValue >= 86) return "Easy to follow";
+  if (scoreValue >= 72) return "Mostly clear";
+  if (scoreValue >= 58) return "Needs a little cleanup";
+  return "Hard to follow";
+}
+
+function streakCopy() {
+  const streak = explorerStreak();
+  if (!streak) return "Save today’s reading, then come back tomorrow for the next prompt.";
+  if (streak === 1) return "You wrote today. Come back tomorrow to keep the rhythm.";
+  return `${streak} days in a row. Come back tomorrow for the next small improvement.`;
+}
+
+function tomorrowTinyGoal() {
+  const history = state.explorerHistory;
+  if (!history.length) return "Write one honest paragraph and make one sentence easier to read.";
+  const last = history[0];
+  const clue = String(last.primaryClue || last.clue || "").toLowerCase();
+  if (clue.includes("organized")) return "Keep the structure, then make the first sentence warmer.";
+  if (clue.includes("examples") || clue.includes("detail")) return "Keep one concrete example and cut one extra setup line.";
+  if (clue.includes("calm")) return "Keep the calm tone and add the next step earlier.";
+  if (clue.includes("direct")) return "Keep the direct point and soften one phrase for the reader.";
+  return "Write a shorter version of one message you already need to send.";
+}
+
+function dailyCompletionMessage() {
+  const savedToday = state.explorerHistory.some((item) => item.day === todayKey());
+  if (savedToday) return "Nice, today’s note is logged. Come back tomorrow for one small writing rep.";
+  return "You have a useful read for today. Save it when you want this to count toward your streak.";
+}
+
+function milestoneCardText() {
+  const count = state.explorerHistory.length;
+  if (count >= 10) return "10 saved readings: you can now see your usual strengths and cleanup spots.";
+  if (count >= 5) return "5 saved readings: your personal writing profile is starting to feel useful.";
+  if (count >= 3) return "3 saved readings: your weekly recap is ready.";
+  return `${Math.max(1, 3 - count)} more saved reading${3 - count === 1 ? "" : "s"} unlocks a weekly recap.`;
+}
+
+function streakMilestone() {
+  const streak = explorerStreak();
+  if (!streak) return "Today can be day one.";
+  if (streak < 3) return `${3 - streak} more day${3 - streak === 1 ? "" : "s"} to a 3-day rhythm.`;
+  if (streak < 7) return `${7 - streak} more day${7 - streak === 1 ? "" : "s"} to a weekly streak.`;
+  return "Weekly rhythm unlocked. Keep it light and repeatable.";
+}
+
+function todayVsLastWeek() {
+  if (state.explorerHistory.length < 6) return "";
+  const recent = state.explorerHistory.slice(0, 3);
+  const previous = state.explorerHistory.slice(3, 6);
+  const avg = (items) => Math.round(items.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / Math.max(items.length, 1));
+  const diff = avg(recent) - avg(previous);
+  if (Math.abs(diff) < 2) return "Your clarity is holding steady compared with your previous saved samples.";
+  return diff > 0 ? `Your recent writing is ${diff} points easier to follow than the previous set.` : `Your recent writing needs ${Math.abs(diff)} points more cleanup than the previous set.`;
+}
+
+function filteredExplorerHistory() {
+  const query = state.explorerJournalSearch.trim().toLowerCase();
+  return state.explorerHistory.filter((entry) => {
+    const folder = entry.folder || "Daily";
+    const matchesFolder = state.explorerJournalFolder === "All" || folder === state.explorerJournalFolder;
+    const haystack = `${entry.name || ""} ${folder} ${entry.goal || ""} ${entry.clue || ""} ${entry.summary || ""} ${entry.sourceExcerpt || ""}`.toLowerCase();
+    return matchesFolder && (!query || haystack.includes(query));
+  });
+}
+
+function weeklyRecapCards(profile) {
+  const entries = state.explorerHistory;
+  const streak = explorerStreak();
+  const avgClarity = entries.length ? Math.round(entries.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / entries.length) : 0;
+  const avgWords = entries.length ? Math.round(entries.reduce((sum, item) => sum + Number(item.words || 0), 0) / entries.length) : 0;
+  const folderSummary = folderCounts().filter(([, count]) => count).map(([folder, count]) => `${folder}: ${count}`).join(" / ") || "No folders yet";
+  return `
+    <div class="weekly-recap-page">
+      <article>
+        <span class="label">Streak</span>
+        <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+        <p>${escapeHtml(streakCopy())}</p>
+      </article>
+      <article>
+        <span class="label">Average clarity</span>
+        <strong>${avgClarity ? clarityBand(avgClarity) : "Not enough yet"}</strong>
+        <p>${avgClarity ? `${avgClarity}/100 across ${entries.length} saved readings.` : "Save readings to build a weekly trend."}</p>
+      </article>
+      <article>
+        <span class="label">Usual length</span>
+        <strong>${avgWords ? `${avgWords} words` : "No average yet"}</strong>
+        <p>${escapeHtml(folderSummary)}</p>
+      </article>
+      <article>
+        <span class="label">${escapeHtml(profile.title)}</span>
+        <strong>${escapeHtml(profile.ready ? profile.traits[0] : "Keep saving")}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </article>
+    </div>
+  `;
+}
+
+function journalMonthLabel(entry) {
+  const date = new Date(entry.timestamp || entry.day || Date.now());
+  if (Number.isNaN(date.getTime())) return "Saved readings";
+  return date.toLocaleDateString([], {month: "long", year: "numeric"});
+}
+
+function explorerJournalEntryHtml(entry, index) {
+  return `
+    <article class="journal-entry">
+      <time>${escapeHtml(entry.date || entry.day || "Saved reading")}</time>
+      <div class="journal-entry-card">
+        <div class="section-title">
+          <div>
+            <strong>${escapeHtml(entry.name || `Reading ${index + 1}`)}</strong>
+            <span>${escapeHtml(entry.folder || "Daily")} / ${escapeHtml(entry.goal || "Make this clearer")}</span>
+          </div>
+          <em>${escapeHtml(clarityBand(entry.clarity || 70))}</em>
+        </div>
+        <p>${escapeHtml(entry.summary || entry.sourceExcerpt || entry.feel || "Saved writing sample")}</p>
+        <div class="journal-before-after">
+          <span><strong>Before</strong>${escapeHtml(entry.sourceExcerpt || "Original text saved in this browser.")}</span>
+          <span><strong>Trend</strong>${escapeHtml(index === 0 ? (todayVsLastWeek() || "Newest saved reading.") : entry.clue || "Style note")}</span>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function explorerJournalPanel() {
+  const entries = filteredExplorerHistory().slice(0, 8);
+  const total = state.explorerHistory.length;
+  if (!total) return `<p class="muted">No saved readings yet. Save a reading to start your journal.</p>`;
+  const grouped = entries.reduce((acc, entry, index) => {
+    const label = journalMonthLabel(entry);
+    if (!acc[label]) acc[label] = [];
+    acc[label].push([entry, index]);
+    return acc;
+  }, {});
+  return `
+    <div class="journal-tools">
+      <label class="field"><span>Search journal</span><input id="journal-search" value="${escapeHtml(state.explorerJournalSearch)}" placeholder="Search saved readings"></label>
+      ${selectField("journalFolder", "Folder", ["All", ...explorerFolders], state.explorerJournalFolder)}
+      <div class="journal-filter-actions">
+        <button class="button-secondary" type="button" data-apply-journal-filter>Apply</button>
+        <button class="button-secondary quiet-button" type="button" data-clear-journal-filter>Clear</button>
+      </div>
+      <span class="saved-state">${entries.length} of ${total} shown</span>
+    </div>
+    ${entries.length ? "" : `<p class="muted">No readings match this filter.</p>`}
+    <div class="journal-timeline" aria-label="Saved writing timeline">
+      ${Object.entries(grouped).map(([month, monthEntries]) => `
+        <section class="journal-month-group" aria-label="${escapeHtml(month)}">
+          <h3>${escapeHtml(month)}</h3>
+          ${monthEntries.map(([entry, index]) => explorerJournalEntryHtml(entry, index)).join("")}
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
+function weeklyRecapPanel(profile) {
+  return `
+    <div class="weekly-recap-panel">
+      <article>
+        <span class="label">This week</span>
+        <strong>${escapeHtml(weeklyRecap())}</strong>
+        <p>${escapeHtml(todayVsLastWeek() || "Save a few more readings to compare this week with previous samples.")}</p>
+      </article>
+      <article>
+        <span class="label">${escapeHtml(profile.title)}</span>
+        <strong>${escapeHtml(profile.ready ? profile.traits[0] : "Profile in progress")}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </article>
+    </div>
+  `;
+}
+
+function explorerProfileSummary() {
+  if (state.explorerHistory.length < 3) {
+    return {
+      ready: false,
+      title: "Personal style profile",
+      copy: `${Math.max(0, 3 - state.explorerHistory.length)} more saved readings unlock a more useful profile.`,
+      traits: ["Usual strengths", "Common cleanup", "Weekly trend"],
+    };
+  }
+  const recent = state.explorerHistory.slice(0, 8);
+  const avgWords = Math.round(recent.reduce((sum, item) => sum + Number(item.words || 0), 0) / recent.length);
+  const avgScore = Math.round(recent.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / recent.length);
+  const common = Object.entries(recent.reduce((acc, item) => {
+    acc[item.primaryClue || item.feel] = (acc[item.primaryClue || item.feel] || 0) + 1;
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1])[0]?.[0] || "clear and steady";
+  return {
+    ready: true,
+    title: "You usually write...",
+    copy: `Your recent samples average ${avgWords} words with a ${avgScore}/100 clarity score. The most common pattern is ${common.toLowerCase()}.`,
+    traits: [`${avgScore}/100 clarity`, `${avgWords} words`, common],
+  };
+}
+
+function looksLikeReply(text = "") {
+  const clean = String(text || "").toLowerCase();
+  return [
+    /\b(not now|unsubscribe|remove me|already have|send over|circle back)\b/,
+    /\b(next week|who owns|talk to|intro|referral|loop in)\b/,
+    /\b(sounds good|interested|no budget|not this quarter|can look|worth a call)\b/,
+  ].some((pattern) => pattern.test(clean));
+}
+
+function replyTriage(text = "") {
+  const clean = String(text || "").toLowerCase();
+  if (/\b(unsubscribe|remove me|stop emailing)\b/.test(clean)) {
+    return {
+      type: "Unsubscribe",
+      urgency: "Handle now",
+      meaning: "They are asking to stop the conversation.",
+      next: "Acknowledge it once, mark it handled, and do not keep following up.",
+      reply: "Understood. I will remove you from this sequence.",
+    };
+  }
+  if (/\b(interested|send|next week|worth|look|call|meeting|talk)\b/.test(clean)) {
+    return {
+      type: "Interested",
+      urgency: "High",
+      meaning: "They are open, but they still need a simple next step.",
+      next: "Answer the condition they named, then suggest one clear time or action.",
+      reply: "Thanks, that makes sense. The simplest next step is a short look at the exact concern you named. Would a focused 15 minutes next week work?",
+    };
+  }
+  if (/\b(already have|budget|not a priority|too busy|no need|not this quarter)\b/.test(clean)) {
+    return {
+      type: "Objection",
+      urgency: "Medium",
+      meaning: "They are pushing back on timing, category, or need.",
+      next: "Do not argue. Reflect the concern and offer a smaller, lower-pressure next step.",
+      reply: "That makes sense. I am not trying to add another thing to evaluate; the useful question is whether the specific issue you mentioned is worth a smaller fix later.",
+    };
+  }
+  if (/\b(loop|intro|talk to|owns this|right person|forward)\b/.test(clean)) {
+    return {
+      type: "Referral",
+      urgency: "Medium",
+      meaning: "They are redirecting you to someone else.",
+      next: "Make forwarding easy with two short bullets and no extra ask.",
+      reply: "Thanks, that helps. I can send two bullets you can forward, or I am happy to write the note directly to the right owner.",
+    };
+  }
+  return {
+    type: "Needs context",
+    urgency: "Low",
+    meaning: "The reply is not giving a strong yes or no yet.",
+    next: "Ask one clarifying question instead of sending a long explanation.",
+    reply: "Thanks for the context. What would be the most useful next step from here?",
+  };
+}
+
+function decisionDraft(text = "") {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const context = sentences[0] || "The decision needs a little more context.";
+  const options = (clean.match(/\b(option|either|or|instead|alternative)\b/i))
+    ? "Name the two or three choices explicitly before the recommendation."
+    : "Add the real choices so the reader can see what you considered.";
+  const recommendation = (clean.match(/\b(i think|recommend|should|best|i want)\b/i)?.[0])
+    ? "Move the recommendation into its own sentence so it is hard to miss."
+    : "Add one sentence that says which choice you recommend.";
+  const next = extractActionPhrase(clean) || "name the owner and the next step";
+  return {context, options, recommendation, next};
+}
+
+function explorerWorkflowCards(text, sourceType) {
+  const cards = [];
+  if (sourceType === "reply" || looksLikeReply(text)) {
+    const triage = replyTriage(text);
+    cards.push(`
+      <article class="strategy-card triage-card">
+        <span class="label">Reply triage</span>
+        <strong>${escapeHtml(triage.type)} / ${escapeHtml(triage.urgency)}</strong>
+        <div class="mini-grid">
+          <span><b>What they mean</b>${escapeHtml(triage.meaning)}</span>
+          <span><b>What to say next</b>${escapeHtml(triage.next)}</span>
+        </div>
+        <p class="suggested-reply">${escapeHtml(triage.reply)}</p>
+        <button class="button-secondary" type="button" data-copy-reply-triage>Copy suggested reply</button>
+      </article>
+    `);
+  }
+  if (sourceType === "decision note" || /\b(decision|option|recommend|should we|next step|tradeoff|priority)\b/i.test(text)) {
+    const draft = decisionDraft(text);
+    cards.push(`
+      <article class="strategy-card decision-card">
+        <span class="label">Decision Draft Mode</span>
+        <strong>Turn this into a clear decision note</strong>
+        <div class="mini-grid">
+          <span><b>Context</b>${escapeHtml(draft.context)}</span>
+          <span><b>Options</b>${escapeHtml(draft.options)}</span>
+          <span><b>Recommendation</b>${escapeHtml(draft.recommendation)}</span>
+          <span><b>Next step</b>${escapeHtml(draft.next)}</span>
+        </div>
+      </article>
+    `);
+  }
+  return cards.length ? `<div class="coach-insight-grid ${cards.length === 1 ? "is-single" : ""}">${cards.join("")}</div>` : "";
+}
+
+function personalStyleProfileCard(profile, currentClarity) {
+  const improvement = todayVsLastWeek() || "Save a few more entries to compare this week against your earlier writing.";
+  return `
+    <article class="strategy-card personal-profile-card">
+      <div>
+        <span class="label">Personal Style Profile</span>
+        <strong>${escapeHtml(profile.title)}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </div>
+      <div class="profile-snapshot">
+        ${profile.traits.map((traitText) => `<span>${escapeHtml(traitText)}</span>`).join("")}
+        <span>${escapeHtml(clarityBand(currentClarity))} today</span>
+      </div>
+      <p class="muted">${escapeHtml(improvement)}</p>
+    </article>
+  `;
+}
+
+function weeklyRecap() {
+  if (!state.explorerHistory.length) return "Save readings this week to get a recap.";
+  const now = new Date();
+  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  const recent = state.explorerHistory.filter((item) => new Date(item.timestamp || item.day) >= weekAgo);
+  if (!recent.length) return "No saved readings in the last 7 days yet.";
+  const avg = Math.round(recent.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / recent.length);
+  const best = [...recent].sort((a, b) => Number(b.clarity || 0) - Number(a.clarity || 0))[0];
+  return `${recent.length} readings this week. Average clarity: ${avg}/100. Clearest sample: ${best?.name || "untitled reading"}.`;
+}
+
+function folderCounts() {
+  return explorerFolders.map((folder) => [folder, state.explorerHistory.filter((item) => (item.folder || "Daily") === folder).length]);
+}
+
 function explorerHistoryList() {
   if (!state.explorerHistory.length) return `<p class="muted">No saved readings yet.</p>`;
   return `
@@ -861,7 +2168,7 @@ function explorerHistoryList() {
       ${state.explorerHistory.slice(0, 8).map((item, index) => `
         <article>
           <strong>${escapeHtml(item.name || `Reading ${state.explorerHistory.length - index}`)}</strong>
-          <span>${escapeHtml(item.date)} / ${escapeHtml(item.words)} words / ${escapeHtml(item.feel)}</span>
+          <span>${escapeHtml(item.date)} / ${escapeHtml(item.folder || "Daily")} / ${escapeHtml(item.words)} words / ${escapeHtml(item.clarity || 70)} clarity</span>
           <small>${escapeHtml(item.clue)}</small>
         </article>
       `).join("")}
@@ -883,11 +2190,19 @@ function explorerSnapshot(data, text) {
   const strongest = dimensionRows(dims).sort((a, b) => score(b.prediction) - score(a.prediction))[0];
   return {
     day: todayKey(),
+    timestamp: new Date().toISOString(),
     date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
     name: state.explorerReadingName || "",
+    folder: state.explorerFolder || "Daily",
+    goal: state.explorerWritingGoal || "Make this clearer",
+    messageMode: state.explorerMessageMode || "Everyday note",
     words: localStats(text).words,
+    sourceExcerpt: text.trim().replace(/\s+/g, " ").slice(0, 240),
     feel: readingEffortLabel(stats),
+    clarity: clarityScore(stats, strongest),
+    primaryClue: dimensionLabel(strongest?.prediction, strongest?.key),
     clue: `${strongest?.title || "Style"}: ${dimensionLabel(strongest?.prediction, strongest?.key)}`,
+    summary: plainStyleSummary(stats, dims, [strongest?.title, strongest?.prediction, strongest?.key]),
   };
 }
 
@@ -952,59 +2267,143 @@ function renderExplorerResult(data) {
   const strongest = [strongestRow?.title, strongestRow?.prediction, strongestRow?.key];
   const strongestLabel = dimensionLabel(strongest?.[1], strongest?.[2]);
   const summary = plainStyleSummary(stats, dims, strongest);
+  const mode = currentMessageMode();
+  const sourceType = messageModeSource(mode, state.latestText) || inferExplorerSource(state.latestText, "");
+  const firstRead = humanFirstRead(stats, strongest, sourceType);
   const nextAction = nextWritingAction(stats, strongest);
+  const profile = explorerProfileSummary();
+  const currentClarity = clarityScore(stats, strongestRow);
+  const rewritePreview = makeExplorerRewrite(state.latestText, state.explorerRewriteMode);
+  const workflowCards = explorerWorkflowCards(state.latestText, sourceType);
+  const latestEntry = state.explorerHistory[0];
+  const streak = explorerStreak();
   if (!["overview", "style", "rewrite", "technical"].includes(state.activeExplorerTab)) {
-    state.activeExplorerTab = "overview";
+    state.activeExplorerTab = "style";
+  }
+  if (state.activeExplorerTab === "overview" || state.activeExplorerTab === "rewrite") {
+    state.activeExplorerTab = "style";
   }
 
   els.outputPanel.innerHTML = `
     <div class="result-layout explorer-result fade-in">
       <div class="result-header">
         <div>
-          <p class="label">Explorer result</p>
-          <h2>Here is what stands out.</h2>
-          <p class="muted">${stats.words} words analyzed. Start with the plain-English read, then use the rewrite buttons if you want a cleaner version.</p>
+          <p class="label">Explorer coach</p>
+          <h2>How this comes across</h2>
+          <p class="muted">${stats.words} words analyzed. Start with the plain read, then choose one small rewrite.</p>
         </div>
         <div class="toolbar">
-          <button class="button-secondary" data-copy-summary>Copy summary</button>
-          <button class="button-secondary" data-new-sample>Try another sample</button>
+          <button class="button-secondary" data-edit-explorer-input>Edit input</button>
+          <button class="button-secondary" data-new-sample>Analyze another piece</button>
+          <button class="button-secondary" type="button" data-open-journal aria-controls="explorer-journal" aria-expanded="${String(state.explorerJournalOpen)}">Open journal</button>
         </div>
       </div>
 
-      <article class="strategy-card simple-summary primary-read">
-        <span class="label">First read</span>
-        <strong>${escapeHtml(strongestLabel)}</strong>
-        <p>${escapeHtml(summary)}</p>
-      </article>
-
-      <div class="save-reading-row">
-        <label class="field"><span>Name this reading</span><input id="result-reading-name" value="${escapeHtml(state.explorerReadingName || state.explorerHistory[0]?.name || "")}" placeholder="Daily journal, work email, class note"></label>
-        <button class="button-secondary" type="button" data-save-reading>Save this reading</button>
-        ${state.explorerSavedMessage ? `<span class="saved-state">${escapeHtml(state.explorerSavedMessage)}</span>` : ""}
+      <div class="habit-strip" aria-label="Writing journal status">
+        <article>
+          <span>Journal</span>
+          <strong>${latestEntry ? "Saved locally" : "Ready to save"}</strong>
+        </article>
+        <article>
+          <span>Streak</span>
+          <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+        </article>
+        <article>
+          <span>Folder</span>
+          <strong>${escapeHtml(latestEntry?.folder || state.explorerFolder || "Daily")}</strong>
+        </article>
+        <article>
+          <span>Next</span>
+          <strong>${state.explorerHistory.length >= 3 ? "Weekly recap" : "Come back tomorrow"}</strong>
+        </article>
       </div>
 
-      <div class="daily-insight-grid">
-        <article class="strategy-card next-edit-card">
-          <span class="label">Next tiny edit</span>
-          <strong>${escapeHtml(nextAction)}</strong>
-          <div class="quick-rewrite-actions">
-            <button class="button-secondary" type="button" data-explorer-rewrite="clearer">Make clearer</button>
-            <button class="button-secondary" type="button" data-explorer-rewrite="warmer">Make warmer</button>
-            <button class="button-secondary" type="button" data-explorer-rewrite="shorter">Make shorter</button>
+      <div class="coach-flow">
+        <article class="strategy-card coach-card primary-read">
+          <span class="label">How does this come across?</span>
+          <strong>${escapeHtml(firstRead.title)}</strong>
+          <p>${escapeHtml(firstRead.copy)}</p>
+          <div class="friendly-score">
+            <strong>${escapeHtml(clarityBand(currentClarity))}</strong>
+            <span>${stats.words} words / ${escapeHtml(sourceDisplayLabel(sourceType, mode.label))} / ${escapeHtml(streakCopy())}</span>
           </div>
-        </article>
-        <article class="strategy-card writing-log-card">
-          <span class="label">Writing log</span>
-          <strong>${escapeHtml(explorerLogSummary())} ${explorerStreak() ? `${explorerStreak()}-day streak.` : ""}</strong>
-          <p>${escapeHtml(usualWritingSummary())}</p>
-          <details>
-            <summary>Show history</summary>
-            ${explorerHistoryList()}
+          <details class="feedback-menu">
+            <summary>Feedback</summary>
+            ${feedbackButtons("Explorer reading")}
           </details>
         </article>
+        <article class="strategy-card coach-card next-edit-card">
+          <span class="label">What should I change?</span>
+          <strong>${escapeHtml(nextAction)}</strong>
+          <p>Pick one goal. The rewrite keeps your meaning and changes only the delivery.</p>
+          <div class="quick-rewrite-actions primary-rewrite-actions">
+            <button type="button" data-explorer-rewrite="clearer" aria-pressed="${String(state.explorerRewriteMode === "clearer")}">Make clearer</button>
+            <button class="button-secondary" type="button" data-explorer-rewrite="warmer" aria-pressed="${String(state.explorerRewriteMode === "warmer")}">Make warmer</button>
+            <button class="button-secondary" type="button" data-explorer-rewrite="shorter" aria-pressed="${String(state.explorerRewriteMode === "shorter")}">Make shorter</button>
+          </div>
+          <div class="rewrite-goals">
+            ${primaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
+          </div>
+          ${secondaryRewriteGoals.length ? `
+            <details class="more-rewrite-goals">
+              <summary>More goals</summary>
+              <div class="rewrite-goals">
+                ${secondaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
+              </div>
+            </details>
+          ` : ""}
+        </article>
+        <article class="strategy-card coach-card rewrite-card">
+          <span class="label">Try this rewrite</span>
+          <strong data-rewrite-title>${escapeHtml(state.explorerRewriteGoal)} version</strong>
+          <p data-rewrite-preview>${escapeHtml(rewritePreview)}</p>
+          <div class="result-actions">
+            <button type="button" data-copy-rewrite>Copy rewrite</button>
+            <button class="button-secondary" type="button" data-save-reading>Update journal</button>
+          </div>
+        </article>
       </div>
 
-      <details class="secondary-result-details quick-checks">
+      ${workflowCards}
+
+      <article class="daily-completion-card" role="status">
+        <div>
+          <span class="label">Today’s habit</span>
+          <strong>${escapeHtml(dailyCompletionMessage())}</strong>
+          <p>${escapeHtml(milestoneCardText())} Tomorrow: ${escapeHtml(tomorrowTinyGoal())}</p>
+        </div>
+        <button class="button-secondary" type="button" data-save-reading>Save today</button>
+      </article>
+
+      ${profile.ready ? personalStyleProfileCard(profile, currentClarity) : ""}
+
+      <div class="mobile-result-actions" aria-label="Explorer quick actions">
+        <button type="button" data-copy-rewrite>Copy rewrite</button>
+        <button class="button-secondary" type="button" data-save-reading>Save</button>
+        <button class="button-secondary" data-edit-explorer-input>Edit</button>
+      </div>
+
+      <details id="explorer-journal" class="secondary-result-details journal-drawer" ${state.explorerJournalOpen ? "open" : ""}>
+        <summary>Writing journal and weekly recap</summary>
+        <div class="save-reading-row">
+          <label class="field"><span>Name this reading</span><input id="result-reading-name" value="${escapeHtml(state.explorerReadingName || state.explorerHistory[0]?.name || "")}" placeholder="Daily journal, work email, class note"></label>
+          ${selectField("resultExplorerFolder", "Folder", explorerFolders, state.explorerFolder)}
+          <button class="button-secondary" type="button" data-save-reading>Update this reading</button>
+          ${state.explorerSavedMessage ? `<span class="saved-state">${escapeHtml(state.explorerSavedMessage)}</span>` : ""}
+        </div>
+        ${weeklyRecapPanel(profile)}
+        <details class="weekly-recap-drawer">
+          <summary>Open weekly writing recap</summary>
+          ${weeklyRecapCards(profile)}
+        </details>
+        ${explorerJournalPanel()}
+        <div class="result-actions">
+          <button class="button-secondary" data-copy-summary>Copy summary</button>
+          <button class="button-secondary" type="button" data-copy-explorer-report>Copy clean report</button>
+        </div>
+      </details>
+
+      <details class="secondary-result-details quick-checks" ${state.explorerQuickChecksOpen ? "open" : ""}>
         <summary>Show quick checks</summary>
         <div class="metric-grid">
           <article class="metric-card"><span class="label">Length</span><div class="value">${stats.words >= 40 ? "Enough text" : "Short sample"}</div><p>${stats.words} words analyzed.</p></article>
@@ -1013,45 +2412,149 @@ function renderExplorerResult(data) {
         </div>
       </details>
 
-      <nav class="tabs" role="tablist" aria-label="Explorer result sections">
-        ${tabButton("overview", "More", state.activeExplorerTab)}
-        ${tabButton("style", "What stands out", state.activeExplorerTab)}
-        ${tabButton("rewrite", "Rewrite", state.activeExplorerTab)}
-        ${tabButton("technical", "Details", state.activeExplorerTab)}
-      </nav>
+      <details class="secondary-result-details style-details" ${state.explorerStyleDetailsOpen ? "open" : ""}>
+        <summary>See what the app noticed</summary>
+        <nav class="tabs" role="tablist" aria-label="Explorer result sections">
+          ${tabButton("style", "What stands out", state.activeExplorerTab)}
+          ${tabButton("technical", "Technical details", state.activeExplorerTab)}
+        </nav>
 
-      <div id="panel-${state.activeExplorerTab}" class="tab-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeExplorerTab}">
-        ${renderExplorerTab(data)}
-      </div>
+        <div id="panel-${state.activeExplorerTab}" class="tab-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeExplorerTab}">
+          ${renderExplorerTab(data)}
+        </div>
+      </details>
     </div>
   `;
 
   els.outputPanel.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeExplorerTab = button.dataset.tab;
+      state.explorerStyleDetailsOpen = true;
       renderExplorerResult(data);
       els.outputPanel.querySelector(".tab-panel")?.focus?.();
     });
   });
+  const quickChecks = els.outputPanel.querySelector(".quick-checks");
+  quickChecks?.addEventListener("toggle", (event) => {
+    state.explorerQuickChecksOpen = event.currentTarget.open;
+  });
+  const styleDetails = els.outputPanel.querySelector(".style-details");
+  styleDetails?.addEventListener("toggle", (event) => {
+    state.explorerStyleDetailsOpen = event.currentTarget.open;
+  });
   bindCopy("[data-copy-summary]", `Writing style summary: ${summary}`, "Explorer summary copied.");
+  bindCopy("[data-copy-explorer-report]", explorerReportText(summary, nextAction, profile), "Clean writing report copied.");
+  bindCopy("[data-copy-reply-triage]", replyTriage(state.latestText).reply, "Suggested reply copied.");
+  els.outputPanel.querySelectorAll("[data-copy-rewrite]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      await copyTextFromButton(event.currentTarget, makeExplorerRewrite(state.latestText, state.explorerRewriteMode), "Rewrite copied.");
+    });
+  });
   const nameField = els.outputPanel.querySelector("#result-reading-name");
+  const folderField = els.outputPanel.querySelector("#field-resultExplorerFolder");
+  const journalSearch = els.outputPanel.querySelector("#journal-search");
+  const journalFolder = els.outputPanel.querySelector("#field-journalFolder");
   nameField?.addEventListener("input", () => {
     state.explorerReadingName = nameField.value;
   });
-  els.outputPanel.querySelector("[data-save-reading]")?.addEventListener("click", (event) => {
-    const name = nameField?.value.trim() || `Reading ${state.explorerHistory.length || 1}`;
-    state.explorerReadingName = name;
-    if (state.explorerHistory[0]) state.explorerHistory[0].name = name;
-    state.explorerSavedMessage = `Saved as ${name}.`;
+  journalSearch?.addEventListener("change", () => {
+    state.explorerJournalSearch = journalSearch.value;
+    state.explorerJournalOpen = true;
     persistWorkspace();
     renderExplorerResult(data);
   });
+  els.outputPanel.querySelector("[data-apply-journal-filter]")?.addEventListener("click", () => {
+    state.explorerJournalSearch = journalSearch?.value || "";
+    state.explorerJournalFolder = journalFolder?.value || state.explorerJournalFolder;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  els.outputPanel.querySelector("[data-clear-journal-filter]")?.addEventListener("click", () => {
+    state.explorerJournalSearch = "";
+    state.explorerJournalFolder = "All";
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  journalFolder?.addEventListener("change", () => {
+    state.explorerJournalFolder = journalFolder.value;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  folderField?.addEventListener("change", () => {
+    state.explorerFolder = folderField.value;
+    if (state.explorerHistory[0]) state.explorerHistory[0].folder = folderField.value;
+    persistWorkspace();
+  });
+  els.outputPanel.querySelectorAll("[data-save-reading]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const name = nameField?.value.trim() || state.explorerReadingName || `Reading ${state.explorerHistory.length || 1}`;
+      state.explorerReadingName = name;
+      if (folderField) state.explorerFolder = folderField.value;
+      if (state.explorerHistory[0]) {
+        state.explorerHistory[0].name = name;
+        state.explorerHistory[0].folder = state.explorerFolder;
+        state.explorerHistory[0].goal = state.explorerWritingGoal;
+      }
+      state.explorerSavedMessage = `Saved as ${name}.`;
+      trackEvent("explorer_save_reading", {folder: state.explorerFolder});
+      persistWorkspace();
+      renderExplorerResult(data);
+    });
+  });
   els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.activeExplorerTab = "rewrite";
+      const before = state.latestText;
+      const after = makeExplorerRewrite(state.latestText, button.dataset.explorerRewrite);
+      recordVersion("Explorer rewrite", button.textContent.trim(), before, after, `${button.textContent.trim()} generated`);
+      state.activeExplorerTab = "style";
       state.explorerRewriteMode = button.dataset.explorerRewrite;
+      persistWorkspace();
+      const title = els.outputPanel.querySelector("[data-rewrite-title]");
+      const preview = els.outputPanel.querySelector("[data-rewrite-preview]");
+      if (title) title.textContent = `${state.explorerRewriteGoal} version`;
+      if (preview) preview.textContent = after;
+      els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((item) => {
+        item.setAttribute("aria-pressed", String(item.dataset.explorerRewrite === state.explorerRewriteMode));
+      });
+      showToast(button, `${button.textContent.trim()} version ready.`);
+    });
+  });
+  els.outputPanel.querySelector("[data-open-journal]")?.addEventListener("click", () => {
+    const drawer = els.outputPanel.querySelector(".journal-drawer");
+    if (!drawer) return;
+    state.explorerJournalOpen = true;
+    drawer.open = true;
+    persistWorkspace();
+    drawer.scrollIntoView({behavior: "smooth", block: "start"});
+    drawer.querySelector("summary")?.focus?.();
+  });
+  els.outputPanel.querySelector(".journal-drawer")?.addEventListener("toggle", (event) => {
+    state.explorerJournalOpen = event.currentTarget.open;
+    persistWorkspace();
+  });
+  els.outputPanel.querySelectorAll("[data-rewrite-goal]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.explorerRewriteGoal = button.dataset.rewriteGoal;
+      state.activeExplorerTab = "style";
+      trackEvent("explorer_rewrite_goal", {goal: state.explorerRewriteGoal});
+      persistWorkspace();
       renderExplorerResult(data);
-      showToast(els.outputPanel.querySelector(`[data-explorer-rewrite="${button.dataset.explorerRewrite}"]`) || button, `${button.textContent.trim()} version ready.`);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-feedback]").forEach((button) => {
+    button.addEventListener("click", () => {
+      recordFeedback(button.dataset.feedback, button.dataset.feedbackScope || "Explorer");
+      showToast(button, "Feedback saved. Future suggestions will adapt.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
+    button.addEventListener("click", () => {
+      restoreVersion(button.dataset.restoreVersion, "Explorer rewrite");
+      showToast(button, "Version restored into this workspace.");
+      renderExplorerResult(data);
     });
   });
   els.outputPanel.querySelector("[data-new-sample]").addEventListener("click", () => {
@@ -1059,12 +2562,43 @@ function renderExplorerResult(data) {
     state.latestText = "";
     state.explorerReadingName = "";
     state.explorerSavedMessage = "";
+    state.explorerPromptTitle = "";
+    state.explorerPromptText = "";
+    state.explorerPromptSource = "";
+    state.explorerQuickChecksOpen = false;
+    state.explorerStyleDetailsOpen = false;
     render();
+  });
+  els.outputPanel.querySelector("[data-edit-explorer-input]")?.addEventListener("click", () => {
+    state.latestData = null;
+    render();
+    document.querySelector("#explorer-text")?.focus();
   });
 }
 
 function tabButton(tab, label, active) {
   return `<button type="button" role="tab" id="tab-${tab}" data-tab="${tab}" aria-selected="${String(tab === active)}" aria-controls="panel-${tab}">${label}</button>`;
+}
+
+function enterpriseTabNote(tab) {
+  const notes = {
+    dashboard: "Dashboard open. Next: review the queue, then approve or export.",
+    drafts: "Draft editor open. Pick one variant, polish it, then approve.",
+    tools: "Operations open. Work through batch, sequence, replies, libraries, or insights from one place.",
+    analytics: "Insights open. Review outcomes, exports, integrations, and coaching notes.",
+  };
+  return notes[tab] || "Workspace ready.";
+}
+
+function enterpriseToolNote(tool) {
+  const notes = {
+    batch: "Batch tool open. Paste CSV rows or load the sample before generating.",
+    sequence: "Sequence builder open. Tune timing, channels, and stop rules.",
+    inbox: "Reply queue open. Load sample replies or connect mail later.",
+    libraries: "Libraries open. Review voice, personas, templates, and approved proof.",
+    insights: "Insights open. Review outcomes, export history, integrations, and coaching notes.",
+  };
+  return notes[tool] || "Workspace tool open.";
 }
 
 function renderExplorerTab(data) {
@@ -1112,6 +2646,7 @@ function renderExplorerTab(data) {
         <article class="strategy-card"><strong>After</strong><p>${escapeHtml(makeExplorerRewrite(state.latestText, state.explorerRewriteMode))}</p></article>
       </div>
       <article class="strategy-card"><strong>Today vs previous</strong><p>${escapeHtml(explorerComparison(stats))}</p></article>
+      <article class="strategy-card"><strong>Version history</strong>${versionHistoryHtml("Explorer rewrite")}</article>
       ${state.compareText ? `<article class="strategy-card"><strong>Comparison note</strong><p>The second sample is ${localStats(state.compareText).words} words. Use this area to compare how easy each version is to follow.</p></article>` : `<article class="strategy-card"><strong>Compare two samples</strong><p>Add optional comparison text in the left panel to unlock a before/after comparison note.</p></article>`}
     `;
   }
@@ -1134,6 +2669,93 @@ function renderExplorerTab(data) {
   `;
 }
 
+function explorerReportText(summary, nextAction, profile) {
+  return [
+    "TextTraits writing report",
+    "",
+    `First read: ${summary}`,
+    `Next tiny edit: ${nextAction}`,
+    `Writing goal: ${state.explorerWritingGoal}`,
+    `Writing log: ${explorerLogSummary()}`,
+    `Profile: ${profile.copy}`,
+    `Weekly recap: ${weeklyRecap()}`,
+  ].join("\n");
+}
+
+function feedbackButtons(scope) {
+  return `
+    <div class="feedback-row" aria-label="${escapeHtml(scope)} feedback">
+      ${[
+        ["better", "Better"],
+        ["tooFormal", "Too formal"],
+        ["tooVague", "Too vague"],
+        ["tooLong", "Too long"],
+        ["moreLikeMe", "More like me"],
+      ].map(([key, label]) => `<button class="button-secondary" type="button" data-feedback="${key}" data-feedback-scope="${escapeHtml(scope)}">${escapeHtml(label)}</button>`).join("")}
+    </div>
+  `;
+}
+
+function recordFeedback(key, scope) {
+  state.feedbackMemory[key] = Number(state.feedbackMemory[key] || 0) + 1;
+  state.versionHistory = [{
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    scope,
+    title: `${titleCase(key)} feedback`,
+    before: "",
+    after: "",
+    change: `User marked ${scope} as ${titleCase(key)}.`,
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+  }, ...state.versionHistory].slice(0, 80);
+  persistWorkspace();
+}
+
+function recordVersion(scope, title, before, after, change) {
+  state.versionHistory = [{
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    scope,
+    title,
+    before,
+    after,
+    change,
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+  }, ...state.versionHistory].slice(0, 80);
+  persistWorkspace();
+}
+
+function versionHistoryHtml(scope = "") {
+  const items = state.versionHistory.filter((item) => !scope || item.scope === scope).slice(0, 8);
+  if (!items.length) return `<p class="muted">No saved versions yet. Rewrites, draft transforms, and feedback will appear here.</p>`;
+  return `
+    <div class="version-list">
+      ${items.map((item) => `
+        <article>
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.date)} / ${escapeHtml(item.change)}</span>
+          ${item.after ? `<details><summary>Restoreable version</summary><p><strong>Before:</strong> ${escapeHtml(String(item.before).slice(0, 260))}</p><p><strong>After:</strong> ${escapeHtml(String(item.after).slice(0, 260))}</p><button class="button-secondary" type="button" data-restore-version="${escapeHtml(item.id)}">Restore this version</button></details>` : ""}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function restoreVersion(id, scope) {
+  const item = state.versionHistory.find((entry) => entry.id === id);
+  if (!item?.after) return;
+  if (scope === "Enterprise draft") {
+    const draft = selectedDraft();
+    if (draft) {
+      draft.body = item.after;
+      draft.history.push(`Restored ${item.title}`);
+      state.lastActionNote = "Draft version restored.";
+    }
+  } else {
+    state.latestText = item.after;
+    state.lastActionNote = "Explorer rewrite restored.";
+  }
+  persistWorkspace();
+}
+
 function trait(name, value, label) {
   return `<div class="trait"><meter class="trait-meter" min="0" max="1" value="${Math.max(value, 0.08)}"></meter><strong>${escapeHtml(name)}</strong><span class="muted">${escapeHtml(label)}</span></div>`;
 }
@@ -1149,7 +2771,7 @@ function signalCard(row) {
         <p>${escapeHtml(dimensionCopy(row.prediction, row.key))}</p>
       </div>
       <div class="signal-meter" aria-label="${escapeHtml(row.title)} clue strength">
-        <span style="width: ${width}%"></span>
+        <progress max="100" value="${width}">${width}%</progress>
       </div>
       <span class="signal-strength">${escapeHtml(signalStrength(row.prediction))} clue</span>
     </article>
@@ -1161,9 +2783,172 @@ function makeExplorerRewrite(text, mode = "clearer") {
   if (!clean) return "";
   const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
   const first = sentences[0] || clean;
-  if (mode === "shorter") return `${first} The main point is easier to follow when the extra setup is trimmed.`;
-  if (mode === "warmer") return `${first} I would keep the main idea, then add one sentence that acknowledges the reader and makes the request feel easier to answer.`;
-  return `${first} The core point is easier to follow when the main idea appears early, the supporting detail comes next, and the final sentence says what should happen.`;
+  const modeConfig = currentMessageMode();
+  const goal = state.explorerRewriteGoal || modeConfig.rewriteGoal || "Make this clearer";
+  const source = messageModeSource(modeConfig, clean) || inferExplorerSource(clean, goal);
+  if (source === "reply") {
+    const triage = replyTriage(clean);
+    return triage.reply;
+  }
+  if (source === "decision note") {
+    const draft = decisionDraft(clean);
+    return `Context: ${draft.context}\n\nOptions: ${draft.options}\n\nRecommendation: ${draft.recommendation}\n\nNext step: ${draft.next}.`;
+  }
+  const goalNoun = `${/^[aeiou]/i.test(source) ? "an" : "a"} ${source.toLowerCase()}`;
+  const sourceLead = sourceRewriteLead(source, clean);
+  const mainPoint = sourceLead || sentences.slice(0, 2).join(" ").replace(/\s+/g, " ").trim() || first;
+  const cue = sampleSpecificCue(clean);
+  const cueLine = cue ? ` Since you mention ${cue}, keep that detail and put the ask beside it.` : "";
+  const warmerClose = `I want this to be easy to respond to, so the next step is clear.${cueLine}`;
+  const clearerClose = `The main point is simple: name what changed, why it matters, and what should happen next.${cueLine}`;
+  const shorterClose = `The shorter version keeps the point and trims the setup.${cueLine}`;
+  if (state.feedbackMemory.tooLong > state.feedbackMemory.better && mode !== "warmer") {
+    return `${first} ${shorterClose}`;
+  }
+  if (state.feedbackMemory.moreLikeMe > 1 && mode !== "shorter") {
+    return `${mainPoint} ${clearerClose}`;
+  }
+  const closeForMode = goalRewriteClose(goal, mode) || (mode === "shorter" ? shorterClose : mode === "warmer" ? warmerClose : `For ${goalNoun}, it is easier to follow when the main idea appears early and the last sentence says what should happen.`);
+  if (mode === "shorter") return `${first} ${closeForMode}${goalRewriteClose(goal, mode) ? cueLine : ""}`;
+  if (mode === "warmer") return `${mainPoint} ${closeForMode}${goalRewriteClose(goal, mode) ? cueLine : ""}`;
+  return `${mainPoint} ${closeForMode}${goalRewriteClose(goal, mode) ? cueLine : ""}`;
+}
+
+function sampleSpecificCue(text) {
+  const stop = new Set(["about", "after", "again", "because", "before", "being", "could", "every", "first", "should", "their", "there", "these", "thing", "think", "those", "through", "today", "wanted", "would", "without"]);
+  const counts = {};
+  words(text.toLowerCase()).forEach((word) => {
+    const clean = word.replace(/[^a-z0-9'-]/g, "");
+    if (clean.length < 5 || stop.has(clean)) return;
+    counts[clean] = (counts[clean] || 0) + 1;
+  });
+  const ranked = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .slice(0, 2)
+    .map(([word]) => word);
+  if (!ranked.length) return "";
+  return ranked.join(ranked.length > 1 ? " and " : "");
+}
+
+function inferExplorerSource(text, goal) {
+  const clean = `${goal} ${text}`.toLowerCase();
+  if (clean.includes("reply triage") || looksLikeReply(text)) return "reply";
+  if (clean.includes("decision note") || /\b(decision|options?|recommend|tradeoff|next step)\b/i.test(clean)) return "decision note";
+  if (clean.includes("apolog") || clean.includes("sorry")) return "apology";
+  if (clean.includes("essay") || clean.includes("paragraph") || clean.includes("thesis") || clean.includes("evidence")) return "essay";
+  if (clean.includes("feedback") || clean.includes("what worked") || clean.includes("next attempt")) return "feedback";
+  if (clean.includes("cover letter") || clean.includes("application")) return "cover letter";
+  if (clean.includes("text message") || clean.includes("texting") || clean.includes("mom") || clean.includes("friend")) return "text message";
+  if (clean.includes("email") || clean.includes("proposal") || /\b(dear|hi|hello)\s+\w+/i.test(text) || /\bthanks[, ]+(for|again|so much)\b/i.test(text)) return "email";
+  if (clean.includes("conflict") || clean.includes("hard conversation") || clean.includes("frustrat") || clean.includes("boundary")) return "conflict";
+  return goal || "writing sample";
+}
+
+function sourceRewriteLead(source, text) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const parts = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const first = parts[0] || clean;
+  const second = parts[1] || "";
+  const ask = extractActionPhrase(clean);
+  if (source === "email") {
+    const opener = emailRewriteOpener(first);
+    const next = ask || "name the owner, deadline, and next step in one place";
+    return `${opener}${second ? ` ${second}` : ""} The clearest next step is to ${next}.`;
+  }
+  if (source === "text message") return `${first} I want to say this clearly without making it feel bigger than it is. ${ask ? `The next step is to ${ask}.` : "One simple next step would help."}`;
+  if (source === "apology") return `${first} I understand why that mattered, and I will be clearer about what I do differently next.`;
+  if (source === "feedback") return `${first} What worked, what felt unclear, and the next step should each get their own sentence.`;
+  if (source === "essay") return `${first} The main idea is strongest when one concrete example appears right after the claim.`;
+  if (source === "conflict") return `${first} I want to keep this direct without raising the temperature. ${ask ? `The specific next step is to ${ask}.` : "A single next step will make it easier to answer."}`;
+  if (source === "cover letter") return `${first} The strongest fit point should connect directly to the role and one concrete result.`;
+  return "";
+}
+
+function emailRewriteOpener(sentence) {
+  const first = String(sentence || "").trim();
+  if (/^thanks\b/i.test(first)) return first;
+  if (/^quick update:/i.test(first)) return first;
+  if (/^quick update\b/i.test(first)) return first.replace(/^quick update\b[:,]?\s*/i, "Quick update: ");
+  if (/^a quick update\b/i.test(first)) return first.replace(/^a quick update\b[:,]?\s*/i, "Quick update: ");
+  if (/^i wanted to send\s+(?:a\s+)?quick update\s*(?:because|about|on)?\s*/i.test(first)) {
+    return first.replace(/^i wanted to send\s+(?:a\s+)?quick update\s*(?:because|about|on)?\s*/i, "Quick update: ");
+  }
+  if (/^i wanted to send\s+/i.test(first)) return first.replace(/^i wanted to send\s+/i, "Quick update: ");
+  return first;
+}
+
+function extractActionPhrase(text) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const patterns = [
+    /\b(?:i|we)\s+need\s+(?:is\s+)?([^.!?;]+)/i,
+    /\b(?:i|we)\s+want\s+([^.!?;]+)/i,
+    /\bnext steps?\s+(?:is|are|should be)\s+([^.!?;]+)/i,
+    /\bwould be around\s+([^.!?;]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = clean.match(pattern);
+    if (!match?.[1]) continue;
+    return match[1].replace(/\b(and|with|that)\s*$/i, "").trim().replace(/^to\s+/i, "");
+  }
+  return "";
+}
+
+function goalRewriteClose(goal, mode) {
+  const clean = String(goal || "").toLowerCase();
+  const map = {
+    email: {
+      clearer: "I would put the ask in the first or last sentence so the reader knows what to do.",
+      warmer: "I would add one line of context or appreciation before the ask so it feels easier to answer.",
+      shorter: "I would keep the decision, the reason, and the ask; everything else can be optional.",
+    },
+    kinder: {
+      clearer: "I would keep the boundary, add one sentence of care, and make the next step simple.",
+      warmer: "I would lead with what you understand, then make the ask without blame.",
+      shorter: "I would keep the kindest sentence and the clearest next step.",
+    },
+    confident: {
+      clearer: "I would state the point earlier and remove any phrase that sounds like you are apologizing for having an opinion.",
+      warmer: "I would keep the confidence while adding one respectful line for the reader.",
+      shorter: "I would make one direct sentence do the work.",
+    },
+    school: {
+      clearer: "I would name the main idea, give one example, and explain why that example matters.",
+      warmer: "I would keep the idea clear and make the transition easier to follow.",
+      shorter: "I would keep the claim and strongest evidence, then cut repeated setup.",
+    },
+    apology: {
+      clearer: "I would say what happened, what I understand now, and what I will do differently.",
+      warmer: "I would keep the accountability and add one sentence that acknowledges the other person’s experience.",
+      shorter: "I would remove the explanation that sounds defensive and keep the repair step.",
+    },
+    essay: {
+      clearer: "I would make the main idea explicit, then give one example that proves it.",
+      warmer: "I would keep the argument, but make the transition smoother so the reader can follow the turn.",
+      shorter: "I would keep the claim and strongest example, then cut repeated setup.",
+    },
+    feedback: {
+      clearer: "I would separate what worked, what was confusing, and the next useful step.",
+      warmer: "I would keep the point, but frame it as help for the next attempt.",
+      shorter: "I would keep one observation and one next step.",
+    },
+    conflict: {
+      clearer: "I would name the issue without escalating it, then ask for one concrete next step.",
+      warmer: "I would include one sentence that lowers the temperature before naming the boundary.",
+      shorter: "I would cut the extra history and keep the boundary plus the next step.",
+    },
+    cover: {
+      clearer: "I would connect the experience to the role in one direct sentence.",
+      warmer: "I would keep the confidence and add one human reason this role matters.",
+      shorter: "I would keep the strongest fit point and remove broad claims.",
+    },
+    text: {
+      clearer: "I would make the point in one sentence and make the next step easy.",
+      warmer: "I would add one softening phrase without hiding the ask.",
+      shorter: "I would keep it conversational and remove anything that sounds like a paragraph.",
+    },
+  };
+  const key = Object.keys(map).find((item) => clean.includes(item));
+  return key ? map[key][mode] : "";
 }
 
 function enterpriseContext() {
@@ -1171,10 +2956,10 @@ function enterpriseContext() {
   const get = (id) => document.querySelector(`#field-${id}`)?.value.trim() || fallback[id] || "";
   const tone = (id, value) => document.querySelector(`#tone-${id}`)?.value || fallback[id] || value;
   return {
-    project: get("project") || "Q3 pipeline quality",
+    project: get("project") || "Forecast risk pilot",
     folder: get("folder") || "RevOps",
-    company: get("company") || "Northstar Analytics",
-    offer: get("offer") || "revenue workflow software",
+    company: get("company") || "TextTraits",
+    offer: get("offer") || "a review workspace for outbound drafts, replies, and campaign outcomes",
     role: get("role") || "VP Revenue",
     goal: get("goal") || "Book call",
     preset: get("preset") || "Premium",
@@ -1184,8 +2969,8 @@ function enterpriseContext() {
     stage: get("stage") || "Evaluating",
     source: get("source") || "Reply",
     region: get("region") || "North America",
-    pain: get("pain") || "forecast risk and manager visibility",
-    trigger: get("trigger") || "pipeline inspection redesign",
+    pain: get("pain") || "renewal risk and missed coaching moments",
+    trigger: get("trigger") || "board forecast cleanup",
     icp: get("icp") || "Revenue teams with 30+ sellers",
     proof: get("proof") || "reduced manual reporting by 32%",
     caseStudy: get("caseStudy") || "Series B sales org",
@@ -1220,49 +3005,29 @@ function enterpriseProfile(data) {
 
 function enterpriseAngles(context, profile) {
   return [
-    ["Clearer account movement", 94, `Connect ${context.offer} to earlier risk spotting and fewer forecast surprises.`],
-    ["Manager coaching rhythm", 88, `Position the workflow around better intervention moments for frontline managers.`],
-    ["Low-friction implementation", 81, `Emphasize fit with existing systems and fast time to value.`],
+    ["Earlier risk visibility", 94, `Connect ${context.offer} to the buyer's need for earlier, cleaner pipeline warnings.`],
+    ["Manager coaching rhythm", 88, `Position the workflow around the exact moment managers need to intervene.`],
+    ["Low-friction implementation", 81, `Emphasize a focused pilot, not another broad reporting platform.`],
   ];
+}
+
+function compactPhrase(value, limit = 5) {
+  return enterpriseCopy.compactPhrase(value, limit);
 }
 
 function subjectLines(context) {
-  return [
-    `Cleaner signal on ${context.pain}`,
-    `Idea for ${context.trigger}`,
-    `Fewer surprises in forecast reviews`,
-    `${context.company} x {{company}}`,
-    `Manager visibility, without more dashboards`,
-  ];
+  return enterpriseCopy.subjectLines(context);
 }
 
 function ctaText(context) {
-  if (context.goal === "Book call") return "Worth a quick 15-minute fit call?";
-  if (context.goal === "Revive lead") return "Should I send a tighter version of the idea?";
-  if (context.goal === "Follow up") return "Is this still worth keeping on the radar?";
-  if (context.goal === "Expand account") return "Would it help to map this against the next team?";
-  return "Want the short event follow-up brief?";
+  return enterpriseCopy.ctaText(context);
 }
 
 function buildEmailVariant(context, profile, variant) {
-  const tonePrefix = variant === "A"
-    ? `Your note on ${context.pain} caught my attention.`
-    : variant === "B"
-      ? `It sounds like the hard part is not activity volume, but knowing where managers should focus.`
-      : `The theme I noticed is practical: fewer reporting loops, cleaner handoffs, and earlier visibility into risk.`;
-  const proof = variant === "A" ? context.proof : variant === "B" ? context.caseStudy : context.competitor;
-  const body = `${tonePrefix}
-
-For ${context.segment} teams, that usually means helping managers see risk earlier without adding another dashboard or weekly reporting loop.
-
-${context.company} helps teams use ${context.offer} to spot account movement, coach earlier, and keep forecast conversations cleaner. Relevant proof: ${proof}.
-
-${ctaText(context)}`;
-  return `Subject: ${subjectLines(context)[variant === "A" ? 0 : variant === "B" ? 1 : 2]}
-
-Hi {{first_name}},
-
-${body}`;
+  return enterpriseCopy.buildEmailVariant(context, variant, {
+    learned: winnerPatterns(),
+    feedback: state.feedbackMemory,
+  });
 }
 
 function generateDraftObjects(context, profile) {
@@ -1280,6 +3045,9 @@ function generateDraftObjects(context, profile) {
       subject: subjectLine.replace(/^Subject:\s*/, ""),
       body: body.join("\n").trim(),
       scores,
+      status: index === 0 ? "Needs review" : "Draft",
+      owner: index === 0 ? "Maya" : "Unassigned",
+      due: index === 0 ? "Today" : "This week",
       history: [`Generated ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`],
       note: key === "A" ? "Best variant: highest clarity and CTA strength." : key === "B" ? "Strong when the buyer named a pain directly." : "Useful for senior operations audiences.",
     };
@@ -1294,6 +3062,22 @@ function selectedDraft() {
   return state.enterpriseDrafts.find((draft) => draft.key === state.selectedVariant) || state.enterpriseDrafts[0];
 }
 
+function sendReadyChecklist(draft, context = enterpriseContext()) {
+  const safeDraft = draft || {subject: "", body: ""};
+  const text = draftText(safeDraft);
+  const mergeOk = validateMergeFields([safeDraft]).ok;
+  const proofNeedle = String(context.proof || "").split(/\s+/).find((word) => word.length > 4) || "";
+  const proofOk = Boolean(proofNeedle && text.toLowerCase().includes(proofNeedle.toLowerCase()));
+  const ctaOk = /\b(call|reply|send|worth|open to|would it help)\b/i.test(text);
+  const unsubscribeOk = text.includes("{{unsubscribe_link}}");
+  return [
+    {label: mergeOk ? "Merge fields valid" : "Fix merge fields", ok: mergeOk},
+    {label: proofOk ? "Proof point included" : "Add proof point", ok: proofOk},
+    {label: ctaOk ? "CTA clear" : "Clarify CTA", ok: ctaOk},
+    {label: unsubscribeOk ? "Unsubscribe token present" : "Add unsubscribe token before sending", ok: unsubscribeOk},
+  ];
+}
+
 function averageScore(draft) {
   const values = Object.values(draft.scores || {});
   if (!values.length) return 0;
@@ -1305,12 +3089,7 @@ function bestDraft() {
 }
 
 function buildSequence(context) {
-  return [
-    ["Day 1", "Initial email", `Subject: ${subjectLines(context)[0]}\n\nHi {{first_name}},\n\nYour note on ${context.pain} caught my attention. ${context.company} helps ${context.segment} teams turn that signal into a cleaner weekly rhythm.\n\n${ctaText(context)}`],
-    ["Day 3", "LinkedIn touch", `Saw your point about ${context.pain}. I had a concise idea for making that easier to see before forecast review. Worth sending over?`],
-    ["Day 6", "Proof follow-up", `One proof point that may be relevant: ${context.proof}. The pattern is usually fewer manual reporting loops and earlier manager coaching moments.`],
-    ["Day 10", "Breakup note", `Should I close the loop, or would a two-bullet summary on ${context.trigger} be useful for later?`],
-  ];
+  return enterpriseCopy.buildSequence(context);
 }
 
 function renderEnterpriseResult(data) {
@@ -1332,56 +3111,57 @@ function renderEnterpriseResult(data) {
   const csv = makeCsv(context, variants);
   const best = bestDraft();
   const active = selectedDraft();
-  const validTabs = ["campaign", "drafts", "tools", "analytics"];
+  if (state.activeEnterpriseTab === "analytics") {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "insights";
+  }
+  const validTabs = ["dashboard", "drafts", "tools"];
   if (!validTabs.includes(state.activeEnterpriseTab)) {
-    state.activeEnterpriseTool = ["batch", "sequence", "inbox", "libraries"].includes(state.activeEnterpriseTab) ? state.activeEnterpriseTab : state.activeEnterpriseTool;
-    state.activeEnterpriseTab = state.activeEnterpriseTab === "signals" || state.activeEnterpriseTab === "workspace" || state.activeEnterpriseTab === "brief" ? "campaign" : "tools";
+    state.activeEnterpriseTool = ["batch", "sequence", "inbox", "libraries", "insights"].includes(state.activeEnterpriseTab) ? state.activeEnterpriseTab : state.activeEnterpriseTool;
+    state.activeEnterpriseTab = state.activeEnterpriseTab === "signals" || state.activeEnterpriseTab === "workspace" || state.activeEnterpriseTab === "brief" || state.activeEnterpriseTab === "campaign" ? "dashboard" : "tools";
+  }
+  if (!["batch", "sequence", "inbox", "libraries", "insights"].includes(state.activeEnterpriseTool)) {
+    state.activeEnterpriseTool = "batch";
   }
 
   els.outputPanel.innerHTML = `
     <div class="result-layout fade-in">
-      <div class="campaign-summary-bar">
-        ${summaryItem("Project", context.project)}
-        ${summaryItem("Goal", context.goal)}
-        ${summaryItem("Best variant", `${best?.key || "A"} / ${averageScore(best || active)} score`)}
-        ${summaryItem("Last generated", state.lastGeneratedAt || "Just now")}
-      </div>
-
-      <div class="result-header">
-        <div>
+      <div class="enterprise-command-header">
+        <div class="enterprise-command-title">
           <p class="label">Enterprise workspace</p>
           <h2>${state.activeEnterpriseTab === "drafts" ? "Review generated drafts" : escapeHtml(context.project || `${context.role} outreach system`)}</h2>
-          <p class="muted">Review the next best draft, approve work, export clean rows, and track outcomes from one queue.</p>
-        </div>
-        <div class="header-actions">
-          <button class="button-secondary" data-toggle-inputs>${state.enterpriseInputsCollapsed ? "Edit inputs" : "Hide inputs"}</button>
-          <button data-save-campaign>${state.campaignSaved ? "Saved" : "Save campaign"}</button>
-        </div>
-      </div>
-
-      <div class="workspace-toolbar">
-        <button data-copy-email>Copy selected email</button>
-        <details class="action-menu">
-          <summary>Export / copy</summary>
-          <div>
-            <button class="button-secondary" data-export-csv>Validate and export CSV</button>
-            <button class="button-secondary" data-copy-all>Copy full brief</button>
-            <button class="button-secondary" data-copy-subjects>Copy subject lines</button>
+          <div class="command-meta">
+            <span>${escapeHtml(context.project)} / ${variants.length} drafts / ${state.lastGeneratedAt || "Just now"}</span>
+            <span class="demo-badge">Local demo / preview integrations</span>
           </div>
-        </details>
-        <button class="button-secondary" data-regenerate>Regenerate drafts</button>
+        </div>
+        <div class="command-actions">
+          ${state.activeEnterpriseTab !== "dashboard" ? `<button class="button-secondary" data-enterprise-primary-tab="dashboard">Dashboard</button>` : ""}
+          <button class="button-secondary" data-toggle-inputs>${state.enterpriseInputsCollapsed ? "Edit setup" : "Hide setup"}</button>
+          <button class="button-secondary save-campaign-button" data-save-campaign aria-label="Save campaign">${state.campaignSaved ? "Saved" : "Save"}</button>
+          <details class="action-menu">
+            <summary>More</summary>
+            <div>
+              <button class="button-secondary" data-export-csv>Export CSV</button>
+              <button class="button-secondary" data-copy-all>Copy campaign brief</button>
+              <button class="button-secondary" data-copy-subjects>Copy subject lines</button>
+              <button class="button-secondary" data-regenerate>Regenerate drafts</button>
+              <button class="button-secondary" data-open-crm-setup>CRM setup</button>
+              <button class="button-secondary" data-open-inbox-setup>Email setup</button>
+            </div>
+          </details>
+        </div>
+        <nav class="tabs workspace-tabs grouped-tabs compact-workspace-nav" role="tablist" aria-label="Enterprise workspace areas">
+          ${tabButton("dashboard", "Dashboard", state.activeEnterpriseTab)}
+          ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
+          ${tabButton("tools", "Operations", state.activeEnterpriseTab)}
+        </nav>
         <span class="next-action">${escapeHtml(state.lastActionNote || "Next: review generated drafts or import a prospect batch.")}</span>
       </div>
 
       <div class="enterprise-workspace-grid">
         ${projectSidebar(context)}
         <section class="workspace-main">
-          <nav class="tabs workspace-tabs grouped-tabs" role="tablist" aria-label="Enterprise workspace areas">
-            ${tabButton("campaign", "Campaign", state.activeEnterpriseTab)}
-            ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
-            ${tabButton("tools", "Tools", state.activeEnterpriseTab)}
-            ${tabButton("analytics", "Analytics", state.activeEnterpriseTab)}
-          </nav>
           <div id="panel-${state.activeEnterpriseTab}" class="tab-panel workspace-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeEnterpriseTab}">${renderEnterpriseTab(data, context, profile, variants, angles, sequence)}</div>
         </section>
       </div>
@@ -1392,6 +3172,7 @@ function renderEnterpriseResult(data) {
     button.addEventListener("click", () => {
       state.tabScroll[state.activeEnterpriseTab] = window.scrollY;
       state.activeEnterpriseTab = button.dataset.tab;
+      state.lastActionNote = enterpriseTabNote(state.activeEnterpriseTab);
       renderEnterpriseResult(data);
       els.outputPanel.querySelector(".tab-panel")?.focus?.();
       requestAnimationFrame(() => window.scrollTo(0, state.tabScroll[state.activeEnterpriseTab] || 0));
@@ -1401,6 +3182,43 @@ function renderEnterpriseResult(data) {
     button.addEventListener("click", () => {
       state.activeEnterpriseTool = button.dataset.tool;
       state.activeEnterpriseTab = "tools";
+      state.lastActionNote = enterpriseToolNote(state.activeEnterpriseTool);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-tool-shortcut]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeEnterpriseTool = button.dataset.toolShortcut;
+      state.activeEnterpriseTab = "tools";
+      state.lastActionNote = enterpriseToolNote(state.activeEnterpriseTool);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-tree-shortcut]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const shortcut = button.dataset.treeShortcut;
+      if (shortcut === "campaigns") {
+        state.activeEnterpriseTab = "dashboard";
+        state.lastActionNote = "Opened the campaign dashboard.";
+      } else if (shortcut === "batch" || shortcut === "inbox") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = shortcut;
+        state.lastActionNote = enterpriseToolNote(shortcut);
+      } else if (shortcut === "personas" || shortcut === "templates") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = "libraries";
+        state.lastActionNote = shortcut === "personas" ? "Opened persona and ICP libraries." : "Opened team templates and brand voice.";
+      }
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-enterprise-primary-tab]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      state.activeEnterpriseTab = event.currentTarget.dataset.enterprisePrimaryTab;
+      state.lastActionNote = enterpriseTabNote(state.activeEnterpriseTab);
       renderEnterpriseResult(data);
       els.outputPanel.querySelector(".workspace-panel")?.focus?.();
     });
@@ -1408,15 +3226,15 @@ function renderEnterpriseResult(data) {
 
   const allText = enterpriseBriefText(context, variants, angles, sequence);
   bindCopy("[data-copy-all]", allText, "Enterprise brief copied.");
-  bindCopy("[data-copy-email]", draftText(active), "Selected email copied.");
   bindCopy("[data-copy-subjects]", variants.map((draft) => draft.subject).join("\\n"), "Subject lines copied.");
   els.outputPanel.querySelector("[data-export-csv]").addEventListener("click", (event) => {
-    const validation = validateMergeFields(variants);
+    const validation = validateExportReadiness(variants, context);
     if (!validation.ok) {
       showToast(event.currentTarget, validation.message);
       return;
     }
     downloadCsv(csv);
+    recordExport("Campaign CSV", context.project, variants.length);
     showToast(event.currentTarget, "CSV exported and merge fields validated.");
   });
   els.outputPanel.querySelector("[data-regenerate]").addEventListener("click", () => {
@@ -1428,19 +3246,78 @@ function renderEnterpriseResult(data) {
     state.lastGeneratedAt = new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
     renderEnterpriseResult(data);
   });
+  els.outputPanel.querySelector("[data-open-crm-setup]")?.addEventListener("click", () => {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "insights";
+    state.integrationSetupOpen = true;
+    state.lastActionNote = enterpriseToolNote("insights");
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-open-inbox-setup]")?.addEventListener("click", () => {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "inbox";
+    state.lastActionNote = "Connect Gmail or Outlook before reply triage.";
+    renderEnterpriseResult(data);
+  });
   els.outputPanel.querySelector("[data-toggle-inputs]").addEventListener("click", () => {
     state.enterpriseInputsCollapsed = !state.enterpriseInputsCollapsed;
     render();
+  });
+  els.outputPanel.querySelector("[data-toggle-editor-focus]")?.addEventListener("click", () => {
+    state.enterpriseFocusMode = !state.enterpriseFocusMode;
+    state.lastActionNote = state.enterpriseFocusMode ? "Focused editor mode on." : "Review queue visible.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-toggle-draft-preview]")?.addEventListener("click", () => {
+    state.enterpriseDraftPreviewMode = !state.enterpriseDraftPreviewMode;
+    state.lastActionNote = state.enterpriseDraftPreviewMode ? "Resolved merge-field preview on." : "Draft editing mode on.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
   });
   els.outputPanel.querySelector("[data-save-campaign]").addEventListener("click", (event) => {
     saveCurrentCampaign(context);
     showToast(event.currentTarget, "Campaign saved to workspace.");
     renderEnterpriseResult(data);
   });
-  els.outputPanel.querySelectorAll("[data-copy-text]").forEach((button) => {
+  els.outputPanel.querySelectorAll("[data-copy-draft]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(button.dataset.copyText || "");
-      showToast(button, "Variant copied.");
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.copyDraft);
+      await copyTextFromButton(button, draft ? draftText(draft) : "", "Variant copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-copy-row]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.copyRow));
+      await copyTextFromButton(button, row ? `${row.subject}\n${row.signal}` : "", "Brief copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-row]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.reviewRow));
+      if (!row) return;
+      row.status = "Needs review";
+      row.next = "Approve or edit";
+      state.selectedProspectId = Number(row.id);
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = `${row.first_name} at ${row.company} moved into review.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".prospect-detail-card")?.setAttribute("open", "");
+      els.outputPanel.querySelector(".draft-editor")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-export-row]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.exportRow));
+      if (!row) return;
+      row.status = "Exported";
+      row.next = "Track outcome";
+      state.selectedProspectId = Number(row.id);
+      recordExport(`Batch row: ${row.company}`, context.project, 1);
+      state.lastActionNote = `${row.first_name} at ${row.company} marked exported.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
     });
   });
   els.outputPanel.querySelectorAll("[data-transform]").forEach((button) => {
@@ -1450,10 +3327,75 @@ function renderEnterpriseResult(data) {
       renderEnterpriseResult(data);
     });
   });
+  els.outputPanel.querySelectorAll("[data-feedback]").forEach((button) => {
+    button.addEventListener("click", () => {
+      recordFeedback(button.dataset.feedback, button.dataset.feedbackScope || "Enterprise");
+      state.lastActionNote = "Feedback saved. Draft guidance will adapt.";
+      updateVisibleActionNote();
+      showToast(button, "Feedback saved. Draft guidance will adapt.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
+    button.addEventListener("click", () => {
+      restoreVersion(button.dataset.restoreVersion, "Enterprise draft");
+      showToast(button, "Draft version restored.");
+      renderEnterpriseResult(data);
+    });
+  });
   els.outputPanel.querySelectorAll("[data-select-variant]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedVariant = button.dataset.selectVariant;
       state.activeEnterpriseTab = "drafts";
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedVariant = button.dataset.reviewDraft;
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = `Opened Variant ${state.selectedVariant} in the draft editor.`;
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".draft-editor")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-prospect]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedProspectId = Number(button.dataset.reviewProspect);
+      state.selectedVariant = bestDraft()?.key || state.selectedVariant;
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = "Opened the prospect detail with the recommended draft.";
+      renderEnterpriseResult(data);
+      const detail = els.outputPanel.querySelector(".prospect-detail-card");
+      if (detail) detail.open = true;
+      detail?.scrollIntoView?.({behavior: "smooth", block: "nearest"});
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-approve-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.approveDraft);
+      if (!draft) return;
+      draft.status = "Approved";
+      draft.history.push("Approved for export");
+      state.lastActionNote = `Variant ${draft.key} approved.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-export-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.exportDraft);
+      if (!draft) return;
+      const validation = validateExportReadiness([draft], context);
+      if (!validation.ok) {
+        showToast(button, validation.message);
+        return;
+      }
+      draft.status = "Exported";
+      draft.history.push("Marked exported");
+      recordExport(`Variant ${draft.key}`, context.project, 1);
+      state.outcomeStats.sent = Number(state.outcomeStats.sent || 0) + 1;
+      state.lastActionNote = `Variant ${draft.key} marked exported.`;
+      persistWorkspace();
       renderEnterpriseResult(data);
     });
   });
@@ -1516,8 +3458,20 @@ function renderEnterpriseResult(data) {
     button.addEventListener("click", () => {
       const name = button.dataset.crm;
       const current = state.crmConnections[name];
-      state.crmConnections[name] = current === "connected" ? "exported" : current === "exported" ? "preview only" : current === "preview only" ? "needs auth" : "connected";
-      state.lastActionNote = `${name} ${state.crmConnections[name]}.`;
+      if (current !== "connected") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = "insights";
+        state.integrationSetupOpen = true;
+        state.lastActionNote = `${name} setup requires real credentials and provider approval.`;
+        showToast(button, `${name} needs credentials before export.`);
+        renderEnterpriseResult(data);
+        return;
+      }
+      state.crmConnections[name] = "exported";
+      state.lastActionNote = `${name} export recorded.`;
+      if (state.account.authenticated) {
+        apiClient.saveIntegration(name, state.crmConnections[name], {workspace: state.account.workspaceName}).catch(() => {});
+      }
       persistWorkspace();
       renderEnterpriseResult(data);
     });
@@ -1527,18 +3481,46 @@ function renderEnterpriseResult(data) {
       state.outcomeStats[button.dataset.outcome] = Number(state.outcomeStats[button.dataset.outcome] || 0) + 1;
       state.lastActionNote = `${titleCase(button.dataset.outcome)} outcome recorded.`;
       persistWorkspace();
-      renderEnterpriseResult(data);
+      updateVisibleActionNote();
+      showToast(button, state.lastActionNote);
     });
   });
   els.outputPanel.querySelector("[data-load-sample-csv]")?.addEventListener("click", () => {
     state.batchInput = sampleCsv;
+    state.batchErrors = [];
+    state.batchRows = [];
+    state.batchProgress = 0;
+    state.sampleWorkspaceLoaded = true;
     state.lastActionNote = "Loaded sample CSV with prospect rows.";
     renderEnterpriseResult(data);
   });
+  const batchInput = els.outputPanel.querySelector("#batch-input");
+  batchInput?.addEventListener("input", () => {
+    state.batchInput = batchInput.value;
+    state.batchProgress = 0;
+    state.batchErrors = [];
+    state.batchRows = [];
+    persistWorkspace();
+  });
+  batchInput?.addEventListener("change", () => {
+    state.batchInput = batchInput.value;
+    renderEnterpriseResult(data);
+  });
   els.outputPanel.querySelector("[data-generate-batch]")?.addEventListener("click", () => {
-    const input = els.outputPanel.querySelector("#batch-input")?.value || sampleCsv;
+    const input = els.outputPanel.querySelector("#batch-input")?.value || "";
     state.batchInput = input;
-    state.batchRows = parseCsv(input);
+    if (!input.trim()) {
+      state.batchErrors = ["Paste CSV rows or load the sample CSV first."];
+      state.batchProgress = 0;
+      state.lastActionNote = "Batch generation needs CSV input first.";
+      renderEnterpriseResult(data);
+      return;
+    }
+    ["first_name", "company", "role", "industry", "signal"].forEach((column) => {
+      const field = els.outputPanel.querySelector(`#map-${column}`);
+      if (field) state.batchMapping[column] = field.value.trim() || column;
+    });
+    state.batchRows = parseCsv(input, state.batchMapping);
     state.batchProgress = state.batchRows.length ? 100 : 0;
     state.outcomeStats.generated += state.batchRows.length;
     state.lastActionNote = state.batchRows.length ? `${state.batchRows.length} batch briefs generated. Next: review rows.` : "Fix CSV issues before generating briefs.";
@@ -1547,6 +3529,7 @@ function renderEnterpriseResult(data) {
   });
   els.outputPanel.querySelector("[data-export-batch]")?.addEventListener("click", (event) => {
     downloadCsv(batchCsv());
+    recordExport("Batch CSV", context.project, state.batchRows.length);
     showToast(event.currentTarget, "Batch CSV exported.");
   });
   els.outputPanel.querySelector("[data-load-inbox]")?.addEventListener("click", () => {
@@ -1564,11 +3547,25 @@ function renderEnterpriseResult(data) {
     persistWorkspace();
     renderEnterpriseResult(data);
   });
+  els.outputPanel.querySelectorAll("[data-inbox-reply]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const thread = state.inboxThreads[Number(field.dataset.inboxReply)];
+      if (!thread) return;
+      thread.reply = field.value;
+      thread.status = "Edited reply";
+      persistWorkspace();
+    });
+  });
   els.outputPanel.querySelectorAll("[data-copy-inbox]").forEach((button) => {
     button.addEventListener("click", async () => {
       const thread = state.inboxThreads[Number(button.dataset.copyInbox)];
-      await navigator.clipboard.writeText(thread?.reply || thread?.next || "");
-      showToast(button, "Next response copied.");
+      const editor = button.closest("article")?.querySelector(".suggested-editor");
+      const replyText = editor?.value || thread?.reply || (thread ? inboxReply(thread, context) : "");
+      if (thread) {
+        thread.reply = replyText;
+        persistWorkspace();
+      }
+      await copyTextFromButton(button, replyText, "Next response copied.");
     });
   });
   els.outputPanel.querySelectorAll("[data-draft-inbox]").forEach((button) => {
@@ -1630,28 +3627,38 @@ function renderEnterpriseResult(data) {
 }
 
 function projectSidebar(context) {
-  const rows = [
-    ["Campaigns", `${state.savedCampaigns.length} saved`],
-    ["Batches", `${state.batchRows.length || 100} prospects`],
-    ["Replies", `${state.inboxThreads.filter((thread) => !thread.handled).length} open`],
-    ["Personas", `${state.personaLibrary.length} profiles`],
-    ["Templates", `${outboundTemplates.length} approved`],
-  ];
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  const rows = state.sampleWorkspaceLoaded
+    ? [
+      ["campaigns", "Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
+      ["batch", "Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
+      ["inbox", "Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
+      ["personas", "Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
+      ["templates", "Templates", `Sample: ${outboundTemplates.length} approved`],
+    ]
+    : [
+      ["campaigns", "Campaigns", "No saved campaigns"],
+      ["batch", "Batches", "No imported prospects"],
+      ["inbox", "Replies", "Connect inbox"],
+      ["personas", "Personas", "Create library"],
+      ["templates", "Templates", "Add templates"],
+    ];
   return `
     <aside class="project-sidebar" aria-label="Project sidebar">
       <div>
         <span class="label">Workspace</span>
         <strong>${escapeHtml(context.folder || "RevOps")}</strong>
       </div>
-      ${rows.map(([label, meta]) => `<button type="button" class="tree-row"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta)}</small></button>`).join("")}
+      ${rows.map(([key, label, meta]) => `<button type="button" class="tree-row" data-tree-shortcut="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta)}</small></button>`).join("")}
     </aside>
   `;
 }
 
 function workflowPathHtml() {
+  const labels = uiHelpers.workflowLabels?.() || productConfig.workflow || ["Import", "Draft", "Review", "Export", "Track"];
   return `
     <div class="flow-path compact-flow">
-      ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+      ${labels.map((step, index) => `
         <article class="${index === 2 ? "is-active" : ""}">
           <span>${index + 1}</span>
           <strong>${escapeHtml(step)}</strong>
@@ -1670,89 +3677,202 @@ function campaignProspects(context) {
   ];
 }
 
+function reviewQueueItems(context, variants) {
+  const variantRows = variants.map((draft, index) => ({
+    id: `draft-${draft.key}`,
+    draftKey: draft.key,
+    target: "draft",
+    title: `Variant ${draft.key}: ${draft.name}`,
+    owner: draft.owner || (index === 0 ? "Maya" : "Unassigned"),
+    status: draft.status || (index === 0 ? "Needs review" : "Draft"),
+    due: draft.due || "This week",
+    score: averageScore(draft),
+    next: index === 0 ? "Approve or edit" : "Compare",
+  }));
+  const prospectRows = campaignProspects(context).slice(0, 3).map((row, index) => ({
+    id: `prospect-${row.id || index}`,
+    prospectId: row.id || index,
+    target: "prospect",
+    title: `${row.first_name} at ${row.company}`,
+    owner: index === 0 ? "Revenue lead" : "SDR team",
+    status: row.status || "Queued",
+    due: index === 0 ? "Today" : "This week",
+    score: 92 - index * 4,
+    next: row.next || "Review",
+  }));
+  return [...variantRows, ...prospectRows];
+}
+
+function reviewQueueTable(context, variants, options = {}) {
+  const rows = reviewQueueItems(context, variants);
+  const visibleRows = options.limit ? rows.slice(0, options.limit) : rows;
+  const hiddenCount = Math.max(0, rows.length - visibleRows.length);
+  return `
+    <div class="review-table ${options.compact ? "is-compact-review" : ""}">
+      <div class="table-head review-head"><span>Item</span><span>Owner</span><span>Status</span><span>Due</span><span>Score</span><span>Next</span></div>
+      ${visibleRows.map((row) => `
+        <div class="table-row review-row">
+          <span><strong>${escapeHtml(row.title)}</strong></span>
+          <span data-label="Owner">${escapeHtml(row.owner)}</span>
+          <span data-label="Status"><em class="status-token">${escapeHtml(row.status)}</em></span>
+          <span data-label="Due">${escapeHtml(row.due)}</span>
+          <span data-label="Score">${escapeHtml(row.score)}</span>
+          <span data-label="Next">
+            <button
+              class="table-action"
+              type="button"
+              ${row.target === "draft" ? `data-review-draft="${escapeHtml(row.draftKey)}"` : `data-review-prospect="${escapeHtml(row.prospectId)}"`}
+              aria-label="${escapeHtml(`${row.next} ${row.title}`)}"
+            >${escapeHtml(row.next)}</button>
+          </span>
+        </div>
+      `).join("")}
+    </div>
+    ${hiddenCount ? `<p class="muted tiny-copy review-table-note">${hiddenCount} more items stay in the full review queue.</p>` : ""}
+  `;
+}
+
+function enterpriseTodaySummary(context, variants) {
+  const rows = reviewQueueItems(context, variants);
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  const exportsWaiting = variants.filter((draft) => !/exported|sent|replied|booked/i.test(draft.status || "")).length;
+  return `
+    <section class="enterprise-today-summary" aria-label="Today summary">
+      <article><span>Drafts due</span><strong>${rows.length}</strong><small>Review queue first</small></article>
+      <article><span>Replies open</span><strong>${openReplies || "0"}</strong><small>${openReplies ? "Triage in Operations" : "No open sample replies"}</small></article>
+      <article><span>Exports waiting</span><strong>${exportsWaiting}</strong><small>Setup required before CRM</small></article>
+      <article><span>Current step</span><strong>Review</strong><small>Import → Draft → Review → Export → Track</small></article>
+    </section>
+  `;
+}
+
+function enterpriseNextActionHero(context, variants) {
+  const draft = variants.find((item) => /needs review|draft/i.test(item.status || "")) || variants[0];
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  return `
+    <section class="enterprise-next-action-hero" aria-label="Next best Enterprise action">
+      <div>
+        <span class="label">Next best action</span>
+        <h3>Review ${draft ? `Variant ${escapeHtml(draft.key)}: ${escapeHtml(draft.name)}` : "one draft"}</h3>
+        <p>${draft ? `Score ${averageScore(draft)}. Approve it, edit the ask, or compare against the next variant before export.` : "Generate drafts, then review one at a time."}</p>
+      </div>
+      <div class="next-action-stack">
+        ${draft ? `<button type="button" data-review-draft="${escapeHtml(draft.key)}">Review this draft</button>` : `<button type="button" data-enterprise-primary-tab="drafts">Open drafts</button>`}
+        <button class="button-secondary" type="button" data-tool="inbox">${openReplies ? `${openReplies} replies open` : "Reply queue"}</button>
+      </div>
+    </section>
+  `;
+}
+
 function campaignHome(context, angles) {
   const prospects = campaignProspects(context);
-  const campaigns = filteredCampaigns();
+  const campaigns = state.sampleWorkspaceLoaded || state.campaignSaved ? filteredCampaigns() : [];
+  const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
   return `
     <div class="campaign-workspace">
-      <article class="next-step-card">
-        <div>
-          <span class="label">Next best action</span>
-          <strong>Review ${escapeHtml(prospects[0]?.first_name || "the first prospect")}'s draft</strong>
-        </div>
-        <button type="button" data-tab="drafts">Open review queue</button>
-      </article>
-
-      <section class="today-grid">
-        <article class="strategy-card featured">
-          <span class="label">Today's work</span>
-          <h3>${prospects.length} prospects ready for review</h3>
-          <p>Primary path: import prospects, generate drafts, review the queue, export/send, then track outcomes.</p>
-          ${workflowPathHtml()}
-        </article>
-        <article class="strategy-card">
-          <strong>Campaign home</strong>
-          <div class="mini-facts">
-            ${summaryItem("Status", state.campaignSaved ? "Saved workspace" : "Drafts ready")}
-            ${summaryItem("Owner", "Revenue team")}
-            ${summaryItem("Due", "This week")}
-            ${summaryItem("Next step", "Review queue")}
-          </div>
-        </article>
+      ${enterpriseNextActionHero(context, variants)}
+      ${enterpriseTodaySummary(context, variants)}
+      <section class="mobile-enterprise-path" aria-label="Mobile Enterprise path">
+        <article><span>Today</span><strong>${reviewQueueItems(context, variants).length} items</strong></article>
+        <article><span>Now</span><strong>Review one draft</strong></article>
+        <article><span>Next</span><strong>Approve or export</strong></article>
       </section>
 
-      <article class="strategy-card">
+      <article class="strategy-card review-hero-card">
         <div class="section-title">
           <div>
-            <strong>Prospect list</strong>
-            <p>Rows show draft status, reply status, and CRM readiness.</p>
+            <span class="label">Step 3 of 5</span>
+            <strong>Review queue</strong>
+            <p>Approve drafts, assign owners, track due dates, and keep export work visible.</p>
           </div>
-          <button class="button-secondary" type="button" data-tool="batch">Open batch tools</button>
+          <button type="button" data-enterprise-primary-tab="drafts">Open review queue</button>
         </div>
-        <div class="prospect-table">
-          <div class="table-head"><span><input type="checkbox" aria-label="Select all prospects"></span><span>Prospect</span><span>Score</span><span>Draft</span><span>CRM</span><span>Next</span></div>
-          ${prospects.map((row, index) => `
-            <div class="table-row">
-              <span><input type="checkbox" aria-label="Select ${escapeHtml(row.first_name)}"></span>
-              <span><strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong><small>${escapeHtml(row.role)} / ${escapeHtml(row.signal)}</small></span>
-              <span data-label="Score">${92 - index * 4}</span>
-              <span data-label="Draft">${escapeHtml(row.status || "Generated")}</span>
-              <span data-label="CRM">${index === 0 ? "Connected" : "Preview only"}</span>
-              <span data-label="Next">${escapeHtml(row.next || "Review")}</span>
-            </div>
-          `).join("")}
-        </div>
+        ${reviewQueueTable(context, variants, {limit: 4, compact: true})}
       </article>
 
-      <article class="strategy-card saved-workspaces-card">
-        <div class="section-title">
-          <div>
-            <strong>Saved workspaces</strong>
-            <p>${campaigns.length} results match your filters.</p>
-          </div>
-          <div class="workspace-controls compact-controls">
-            <label class="field"><span>Search</span><input id="workspace-search" value="${escapeHtml(state.workspaceSearch)}" placeholder="Search"></label>
-            ${selectField("workspaceStatus", "Status", ["All", ...uniqueValues(state.savedCampaigns, "status")], state.workspaceStatus)}
-          </div>
-        </div>
-        <div class="campaign-table dense-table">
-          ${campaigns.slice(0, 4).map((campaign) => `
-            <article>
-              <strong>${escapeHtml(campaign.name)}</strong>
-              <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.status)} / ${escapeHtml(campaign.prospects || 1)} prospects</span>
-              <div class="result-actions">
-                <button class="button-secondary" data-load-campaign="${escapeHtml(campaign.name)}">Load</button>
-                <button class="button-secondary" data-status-campaign="${escapeHtml(campaign.name)}">Mark reviewed</button>
-              </div>
-            </article>
-          `).join("")}
-        </div>
-      </article>
-
-      <div class="detail-grid">
-        <article class="strategy-card"><strong>Executive summary</strong><p>Lead with ${escapeHtml(angles[0][0].toLowerCase())} for ${escapeHtml(context.role)}. Anchor the message in ${escapeHtml(context.pain)} and support it with ${escapeHtml(context.proof)}.</p></article>
-        <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Likely objection</strong><p>"We already have dashboards." Answer with implementation clarity and fewer reporting loops.</p></article>
+      <div class="dashboard-coaching-row">
+        ${managerCoachingCard(context, variants)}
+        ${outcomeLearningCard()}
       </div>
+
+      <details class="secondary-workspace-section enterprise-focus-band enterprise-flow-drawer">
+        <summary>Workflow path and campaign context</summary>
+        <article class="strategy-card featured dashboard-focus-card">
+          <div class="section-title compact-dashboard-title">
+            <div>
+              <span class="label">Campaign context</span>
+              <h3>${prospects.length} prospects ready</h3>
+            </div>
+          <button class="button-secondary" type="button" data-tool="batch">Import prospects</button>
+          </div>
+          <p>Every Enterprise surface maps back to one path: Import, Draft, Review, Export, Track.</p>
+          <div class="focus-stats">
+            ${summaryItem("Status", state.campaignSaved ? "Saved" : "Drafts ready")}
+            ${summaryItem("Owner", "Revenue team")}
+            ${summaryItem("Due", "This week")}
+            ${summaryItem("Next", "Review queue")}
+          </div>
+          ${workflowPathHtml()}
+        </article>
+      </details>
+
+      <details class="secondary-workspace-section">
+        <summary>Prospects, saved workspaces, and campaign detail</summary>
+        <div class="secondary-workspace-content">
+          <article class="strategy-card">
+            <div class="section-title">
+              <div>
+                <strong>Prospect list</strong>
+                <p>Rows show draft status, reply status, and CRM readiness.</p>
+              </div>
+              <button class="button-secondary" type="button" data-tool="batch">Open batch tools</button>
+            </div>
+            <div class="prospect-table">
+              <div class="table-head"><span><input type="checkbox" aria-label="Select all prospects"></span><span>Prospect</span><span>Score</span><span>Draft</span><span>CRM</span><span>Next</span></div>
+              ${prospects.map((row, index) => `
+                <div class="table-row">
+                  <span><input type="checkbox" aria-label="Select ${escapeHtml(row.first_name)}"></span>
+                  <span><strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong><small>${escapeHtml(row.role)} / ${escapeHtml(row.signal)}</small></span>
+                  <span data-label="Score">${92 - index * 4}</span>
+                  <span data-label="Draft">${escapeHtml(row.status || "Generated")}</span>
+                  <span data-label="CRM">${index === 0 ? "Connected" : "Preview only"}</span>
+                  <span data-label="Next">${escapeHtml(row.next || "Review")}</span>
+                </div>
+              `).join("")}
+            </div>
+          </article>
+
+          <article class="strategy-card saved-workspaces-card">
+            <div class="section-title">
+              <div>
+                <strong>Saved workspaces</strong>
+                <p>${campaigns.length} results match your filters.</p>
+              </div>
+              <div class="workspace-controls compact-controls">
+                <label class="field"><span>Search</span><input id="workspace-search" value="${escapeHtml(state.workspaceSearch)}" placeholder="Search"></label>
+                ${selectField("workspaceStatus", "Status", ["All", ...uniqueValues(state.savedCampaigns, "status")], state.workspaceStatus)}
+              </div>
+            </div>
+            <div class="campaign-table dense-table">
+              ${campaigns.slice(0, 4).map((campaign) => `
+                <article>
+                  <strong>${escapeHtml(campaign.name)}</strong>
+                  <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.status)} / ${escapeHtml(campaign.prospects || 1)} prospects</span>
+                  <div class="result-actions">
+                    <button class="button-secondary" data-load-campaign="${escapeHtml(campaign.name)}">Load</button>
+                    <button class="button-secondary" data-status-campaign="${escapeHtml(campaign.name)}">Mark reviewed</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          </article>
+
+          <div class="detail-grid">
+            <article class="strategy-card"><strong>Executive summary</strong><p>Lead with ${escapeHtml(angles[0][0].toLowerCase())} for ${escapeHtml(context.role)}. Anchor the message in ${escapeHtml(context.pain)} and support it with ${escapeHtml(context.proof)}.</p></article>
+            <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Likely objection</strong><p>"We already have dashboards." Answer with implementation clarity and fewer reporting loops.</p></article>
+          </div>
+        </div>
+      </details>
     </div>
   `;
 }
@@ -1760,51 +3880,122 @@ function campaignHome(context, angles) {
 function draftsWorkspace(context, variants) {
   const best = bestDraft();
   const draft = selectedDraft();
-  const previewLines = resolveMergeFields(draftText(draft)).split("\n").filter(Boolean).slice(0, 8).join("\n\n");
+  const prospects = campaignProspects(context);
+  const selectedProspect = prospects.find((item) => item.id === state.selectedProspectId) || prospects[0];
+  const previewLines = resolveMergeFields(draftText(draft))
+    .split("\n")
+    .filter(Boolean)
+    .filter((line, index) => index !== 0 || !line.toLowerCase().startsWith("subject:"))
+    .slice(0, 8)
+    .join("\n\n");
+  const previewMode = Boolean(state.enterpriseDraftPreviewMode);
   return `
-    <div class="drafts-workspace">
+    <div class="drafts-workspace ${state.enterpriseFocusMode ? "is-focus-mode" : ""}">
       <aside class="review-queue">
         <strong>Review queue</strong>
+        <p class="muted tiny-copy">Pick a draft, polish it, then approve or export.</p>
         ${variants.map((item) => `
           <button type="button" data-select-variant="${item.key}" aria-pressed="${String(item.key === draft.key)}">
             <span>Variant ${escapeHtml(item.key)}${item.key === best?.key ? " / best" : ""}</span>
-            <small>${escapeHtml(item.name)} / ${averageScore(item)} score / Draft</small>
+            <small>${escapeHtml(item.name)} / ${averageScore(item)} score / ${escapeHtml(item.status || "Draft")}</small>
           </button>
         `).join("")}
-        <div class="send-checklist">
-          <strong>Send-ready checklist</strong>
-          ${["Merge fields valid", "Proof point included", "CTA clear", "Unsubscribe token present"].map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
-        </div>
+        <details class="prospect-detail-card">
+          <summary>Prospect detail</summary>
+          <strong>${escapeHtml(selectedProspect.first_name)} at ${escapeHtml(selectedProspect.company)}</strong>
+          <p>${escapeHtml(selectedProspect.role)} / ${escapeHtml(selectedProspect.signal)}</p>
+          <small>Priority high / due today / CRM ${state.crmConnections.HubSpot === "connected" ? "ready" : "setup required"}</small>
+        </details>
       </aside>
       <section class="email-editor focused-editor compact-draft-workspace">
         <article class="draft-focus-card">
           <div class="section-title">
             <div>
-              <span class="label">Resolved preview</span>
+              <span class="label">Email editor</span>
               <strong>Variant ${escapeHtml(draft.key)}: ${escapeHtml(draft.name)}</strong>
+              <p class="muted tiny-copy">Status: ${escapeHtml(draft.status || "Draft")} / Owner: ${escapeHtml(draft.owner || "Unassigned")} / Due: ${escapeHtml(draft.due || "This week")}</p>
             </div>
-            <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
+            <div class="editor-mode-actions">
+              <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
+              <button class="button-secondary" type="button" data-toggle-draft-preview>${previewMode ? "Edit draft" : "Preview email"}</button>
+              <button class="button-secondary" type="button" data-toggle-editor-focus>${state.enterpriseFocusMode ? "Show queue" : "Focus editor"}</button>
+            </div>
           </div>
-          <p class="draft-subject">${escapeHtml(draft.subject)}</p>
-          <pre data-resolved-preview>${escapeHtml(previewLines)}</pre>
-          <div class="score-strip comparison-score compact-score-strip">
-            ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(scoreLabel(label))}</span>`).join("")}
-          </div>
-          <div class="result-actions">
-            <button type="button" data-copy-text="${escapeHtml(draftText(draft))}">Copy draft</button>
+          ${previewMode ? `
+            <article class="resolved-card editor-preview-card">
+              <span class="label">Resolved email preview</span>
+              <strong>${escapeHtml(resolveMergeFields(draft.subject))}</strong>
+              <pre data-resolved-preview>${escapeHtml(previewLines)}</pre>
+              <small>Preview uses ${escapeHtml(state.recipient.firstName)}, ${escapeHtml(state.recipient.company)}, and ${escapeHtml(state.recipient.role)} so merge fields do not look broken before export.</small>
+            </article>
+          ` : `
+            <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
+            <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
+          `}
+          ${state.lastDraftChange ? `<div class="editor-change-note" role="status"><strong>What changed</strong><span>${escapeHtml(state.lastDraftChange)}</span></div>` : ""}
+          <details class="quality-summary">
+            <summary>Quality check: ${averageScore(draft)} overall</summary>
+            <div class="score-strip comparison-score compact-score-strip">
+              ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(scoreLabel(label))}</span>`).join("")}
+            </div>
+          </details>
+          <div class="result-actions editor-primary-actions">
+            <button type="button" data-copy-draft="${escapeHtml(draft.key)}">Copy draft</button>
+            <button class="button-secondary" type="button" data-approve-draft="${draft.key}">Approve</button>
             <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
             <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
           </div>
+          <div class="send-checklist editor-checklist">
+            <strong>Send-ready checklist</strong>
+            ${sendReadyChecklist(draft, context).map((item) => `<span class="${item.ok ? "is-ok" : "needs-work"}">${escapeHtml(item.label)}</span>`).join("")}
+          </div>
+          <details class="editor-secondary-actions">
+            <summary>More status actions</summary>
+            <div class="result-actions">
+            <button class="button-secondary" type="button" data-export-draft="${draft.key}">Mark exported</button>
+            <button class="button-secondary" type="button" data-outcome="sent">Mark sent</button>
+            <button class="button-secondary" type="button" data-outcome="replied">Mark replied</button>
+            <button class="button-secondary" type="button" data-outcome="booked">Mark booked</button>
+            </div>
+          </details>
+          <details class="feedback-menu">
+            <summary>Draft feedback</summary>
+            ${feedbackButtons("Enterprise draft")}
+          </details>
         </article>
 
+        <aside class="draft-side-panel">
+          <article class="approval-rail" aria-label="Approve and export rail">
+            <span class="label">Approve / export</span>
+            <strong>${escapeHtml(draft.status || "Draft")}</strong>
+            <p>Finish the selected draft, then choose the next status. CRM export stays setup required until connected.</p>
+            <div class="approval-actions">
+              <button type="button" data-approve-draft="${draft.key}">Approve</button>
+              <button class="button-secondary" type="button" data-export-draft="${draft.key}">Mark exported</button>
+            </div>
+            <details>
+              <summary>Version compare</summary>
+              ${versionHistoryHtml("Enterprise draft")}
+            </details>
+          </article>
+          <article class="team-comments">
+            <strong>Team comments</strong>
+            <div class="comment-list">
+              ${(state.teamComments.length ? state.teamComments : [{author: "Manager", text: "Check the proof point before export."}]).map((comment) => `<span><strong>${escapeHtml(comment.author || "Team")}</strong>${escapeHtml(comment.text || comment)}</span>`).join("")}
+            </div>
+          </article>
+          <article class="resolved-card compact-recipient-preview">
+            <strong>Recipient preview</strong>
+            <p>${escapeHtml(state.recipient.firstName)} at ${escapeHtml(state.recipient.company)} / ${escapeHtml(state.recipient.role)}</p>
+          </article>
+        </aside>
+
         <details class="history-panel editor-collapse">
-          <summary>Open full editor</summary>
+          <summary>Merge fields, rewrite tools, and history</summary>
           <div class="editor-header">
             <label class="field"><span>Variant name</span><input data-draft-field="name" data-variant="${draft.key}" value="${escapeHtml(draft.name)}"></label>
             <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
           </div>
-          <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
-          <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
           <details class="history-panel rewrite-panel">
             <summary>Rewrite tools</summary>
             <div class="editor-actions compact-actions">
@@ -1825,6 +4016,7 @@ function draftsWorkspace(context, variants) {
           <details class="history-panel">
             <summary>Draft history and version compare</summary>
             <div class="feature-list">${draft.history.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+            ${versionHistoryHtml("Enterprise draft")}
           </details>
         </details>
       </section>
@@ -1832,51 +4024,96 @@ function draftsWorkspace(context, variants) {
   `;
 }
 
-function toolsWorkspace(context, sequence) {
+function toolsWorkspace(context, sequence, angles) {
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
   const tools = [
     ["batch", "Batch"],
     ["sequence", "Sequence"],
     ["inbox", "Inbox"],
     ["libraries", "Libraries"],
+    ["insights", "Insights"],
   ];
   return `
     <div class="tools-workspace">
+      <section class="tools-command-center operation-queue-center" aria-label="Enterprise operations command center">
+        <article class="${state.activeEnterpriseTool === "batch" ? "is-active" : ""}"><span>Import queue</span><strong>${state.batchRows.length || "No"} prospects</strong><small>Paste, map, validate, review.</small><button class="table-action" type="button" data-tool-shortcut="batch">Open</button></article>
+        <article class="${state.activeEnterpriseTool === "inbox" ? "is-active" : ""}"><span>Reply queue</span><strong>${openReplies || "No"} open replies</strong><small>Draft responses and mark handled.</small><button class="table-action" type="button" data-tool-shortcut="inbox">Open</button></article>
+        <article class="${state.activeEnterpriseTool === "libraries" ? "is-active" : ""}"><span>Assets queue</span><strong>${brandVoiceProfiles.length} voice profiles</strong><small>Voice, personas, templates.</small><button class="table-action" type="button" data-tool-shortcut="libraries">Open</button></article>
+        <article class="${state.activeEnterpriseTool === "insights" ? "is-active" : ""}"><span>Setup queue</span><strong>Preview integrations</strong><small>Credentials required before export.</small><button class="table-action" type="button" data-tool-shortcut="insights">Open</button></article>
+      </section>
       <nav class="tool-switcher" aria-label="Enterprise tools">
         ${tools.map(([key, label]) => `<button type="button" data-tool="${key}" aria-pressed="${String(state.activeEnterpriseTool === key)}">${escapeHtml(label)}</button>`).join("")}
       </nav>
-      ${renderToolPanel(context, sequence)}
+      ${renderToolPanel(context, sequence, angles)}
     </div>
   `;
 }
 
-function renderToolPanel(context, sequence) {
+function renderToolPanel(context, sequence, angles) {
   if (state.activeEnterpriseTool === "sequence") return sequencePanel(context, sequence);
   if (state.activeEnterpriseTool === "inbox") return inboxPanel(context);
   if (state.activeEnterpriseTool === "libraries") return librariesPanel();
+  if (state.activeEnterpriseTool === "insights") return analyticsWorkspace(context, angles);
   return batchPanel(context);
 }
 
 function batchPanel(context) {
   const errors = state.batchErrors.length ? `<div class="error-list">${state.batchErrors.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
+  const batchValue = state.batchInput || "";
+  const canExport = state.batchRows.length > 0;
+  const hasCsv = Boolean(batchValue.trim());
+  const hasRows = state.batchRows.length > 0;
+  const activeStep = hasRows ? 4 : state.batchErrors.length ? 2 : state.batchProgress ? 3 : hasCsv ? 1 : 0;
+  const stepNames = ["Paste", "Map", "Validate", "Generate", "Review"];
+  const mappingFields = `
+    <div class="mapping-grid batch-step-panel">
+      ${["first_name", "company", "role", "industry", "signal"].map((column) => `<label class="field"><span>${escapeHtml(column)} column</span><input id="map-${column}" value="${escapeHtml(state.batchMapping[column] || column)}"></label>`).join("")}
+    </div>
+  `;
+  const csvEditor = `
+    <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(batchValue)}</textarea>
+    ${hasCsv ? mappingFields : `<article class="empty-mini batch-empty-step"><strong>Paste first, then map.</strong><p>Required columns: first_name, company, role, industry, signal.</p></article>`}
+  `;
   return `
     <div class="batch-workspace">
       <article class="strategy-card">
-        <strong>Batch CSV upload</strong>
-        <p>Paste up to 100 prospects. Required columns: first_name, company, role, industry, signal.</p>
-        <div class="mapping-grid">
-          ${["first_name", "company", "role", "industry", "signal"].map((column) => `<label class="field"><span>${escapeHtml(column)} column</span><input value="${escapeHtml(column)}"></label>`).join("")}
-        </div>
-        <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(state.batchInput || sampleCsv)}</textarea>
-        ${errors}
-        <div class="batch-progress" aria-label="Batch generation progress"><span style="width: ${state.batchProgress}%"></span></div>
-        <p class="muted">${state.batchProgress ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns before generating."}</p>
-        <div class="result-actions split-actions">
+        <div class="section-title">
+          <div>
+            <span class="label">Batch step ${activeStep + 1} of 5</span>
+            <strong>Batch CSV upload</strong>
+            <p><b>${escapeHtml(stepNames[activeStep])}.</b> Paste up to 100 prospects. Mapping appears only after CSV exists, so the workflow stays focused.</p>
+          </div>
           <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
-          <button type="button" data-generate-batch>Generate batch briefs</button>
-          <button class="button-secondary" type="button" data-export-batch>Download export CSV</button>
+        </div>
+        <div class="batch-stepper">
+          ${["Paste CSV", "Map columns", "Validate rows", "Generate briefs", "Review/export"].map((step, index) => `<span class="${index < activeStep ? "is-complete" : index === activeStep ? "is-active" : ""}">${index + 1}. ${escapeHtml(step)}</span>`).join("")}
+        </div>
+        ${hasRows ? `
+          <article class="batch-review-summary">
+            <div>
+              <strong>${state.batchRows.length} prospects ready for review</strong>
+              <p class="muted">Source CSV and mapping are tucked away so the review step stays calm.</p>
+            </div>
+            <details>
+              <summary>Edit CSV and mapping</summary>
+              ${csvEditor}
+            </details>
+          </article>
+        ` : csvEditor}
+        ${errors}
+        ${hasCsv || state.batchRows.length ? `
+          <div class="batch-progress" aria-label="Batch generation progress"><progress max="100" value="${state.batchProgress}">${state.batchProgress}%</progress></div>
+          <p class="muted">${state.batchRows.length ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns, then generate briefs."}</p>
+        ` : ""}
+        ${batchQaPanel(context)}
+        <div class="result-actions split-actions">
+          ${hasRows
+            ? `<button type="button" data-generate-batch>Regenerate briefs</button>`
+            : `<button type="button" data-generate-batch>Generate batch briefs</button>`}
+          <button class="button-secondary" type="button" data-export-batch ${canExport ? "" : "disabled"}>Download export CSV</button>
         </div>
       </article>
-      <div class="batch-table">
+      <div class="batch-table ${state.batchRows.length ? "has-rows" : ""}">
         ${batchRowsHtml(context)}
       </div>
     </div>
@@ -1912,7 +4149,7 @@ function inboxPanel(context) {
     <div class="inbox-workspace">
       <article class="strategy-card">
         <strong>Gmail / Outlook reply queue</strong>
-        <p>Connectors preview: classify hot replies, objections, referrals, not-now replies, and unsubscribe requests.</p>
+        <p>Gmail / Outlook inbox mode preview: classify hot replies, objections, referrals, not-now replies, and unsubscribe requests.</p>
         <div class="setup-steps">
           <span>1. Connect Gmail or Outlook</span>
           <span>2. Pull new replies</span>
@@ -1935,7 +4172,7 @@ function inboxPanel(context) {
             <p>${escapeHtml(thread.text)}</p>
             <small>${escapeHtml(thread.status || "Open")} / ${escapeHtml(thread.urgency || "Medium")} urgency / ${escapeHtml(thread.sentiment || "Neutral")} / ${escapeHtml(thread.confidence || 80)} confidence</small>
             <div class="suggested-reply">${escapeHtml(thread.reply || thread.next)}</div>
-            <textarea class="compact-textarea suggested-editor">${escapeHtml(thread.reply || inboxReply(thread, context))}</textarea>
+            <textarea class="compact-textarea suggested-editor" data-inbox-reply="${index}">${escapeHtml(thread.reply || inboxReply(thread, context))}</textarea>
             <p class="muted"><strong>Why:</strong> ${escapeHtml(thread.why || "The reply contains a clear next-step signal.")}</p>
             <div class="result-actions">
               <button class="button-secondary" type="button" data-draft-inbox="${index}">Draft reply</button>
@@ -1959,13 +4196,13 @@ function inboxPanel(context) {
 }
 
 function inboxReply(thread, context) {
-  const firstName = context.firstName || "{{first_name}}";
-  if (thread.type === "interested") return `Hi ${firstName}, glad the migration point is the key question. The short version: this can be evaluated without a heavy migration. Worth a focused 15-minute fit call next week?`;
-  if (thread.type === "objection") return `Hi ${firstName}, that makes sense. I am not suggesting another dashboard; the useful angle is manager visibility and cleaner handoffs before forecast review. Would a two-bullet example be useful?`;
-  if (thread.type === "referral") return `Hi ${firstName}, thanks for pointing me in the right direction. Would you be comfortable introducing me to the RevOps lead with a short note, or should I send you two bullets to forward?`;
-  if (thread.type === "not-now") return `Hi ${firstName}, understood. I will circle back after planning wraps. If helpful, I can send a short summary now so it is easy to revisit later.`;
-  if (thread.type === "unsubscribe") return `Hi ${firstName}, understood. I will remove you from this sequence.`;
-  return `Hi ${firstName}, thanks for the context. ${thread.next}`;
+  return enterpriseCopy.inboxReply(thread, {...context, firstName: inboxFirstName(thread) || context.firstName});
+}
+
+function inboxFirstName(thread) {
+  const from = String(thread?.from || "").trim();
+  if (!from) return "";
+  return from.split(/\s+at\s+|\s+-\s+|,/i)[0].split(/\s+/)[0].replace(/[^a-z'-]/gi, "");
 }
 
 function librariesPanel() {
@@ -2009,39 +4246,91 @@ function librariesPanel() {
   `;
 }
 
+function integrationSetupCards() {
+  const steps = {
+    HubSpot: ["Create OAuth app", "Add redirect URL", "Map contacts and deals"],
+    Salesforce: ["Create connected app", "Enable API scopes", "Map leads and tasks"],
+    Gmail: ["Create Google OAuth client", "Verify consent screen", "Enable draft creation"],
+    Outlook: ["Create Azure app", "Add Mail scopes", "Enable reply queue"],
+    Outreach: ["Create app", "Map prospects", "Map sequences"],
+    Salesloft: ["Create app", "Map people", "Map cadences"],
+    "Chrome Sidebar": ["Package extension", "Allow TextTraits origin", "Wire page extraction"],
+  };
+  return `
+    <div class="integration-setup-grid">
+      ${Object.entries(state.crmConnections).map(([name, status]) => `
+        <article class="integration-setup-card">
+          <div class="card-row"><strong>${escapeHtml(name)}</strong><span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</span></div>
+          <p class="tiny-copy muted">${status === "connected" ? "Connected in this workspace." : "Preview only until real credentials, scopes, and field mapping are configured."}</p>
+          <ol>${(steps[name] || ["Create app", "Add credentials", "Map fields"]).map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+          <button class="button-secondary preview-disabled-action" type="button" data-crm="${escapeHtml(name)}" ${status === "connected" ? "" : "aria-disabled=\"true\""}>${status === "connected" ? "Manage connection" : "Setup required"}</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function analyticsWorkspace(context, angles) {
+  const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
   return `
     <div class="analytics-workspace">
       <article class="strategy-card">
         <strong>Reply outcome tracking</strong>
         ${outcomeGrid()}
       </article>
-      <article class="strategy-card">
-        <strong>CRM import/export status</strong>
-        <p>Preview-only cards show future connection states, export history, and field mapping requirements.</p>
-        <div class="crm-grid">
-          ${Object.entries(state.crmConnections).map(([name, status]) => `
-            <button class="crm-card" type="button" data-crm="${escapeHtml(name)}" ${["preview only", "needs auth", "disabled"].includes(status) ? "disabled aria-disabled=\"true\"" : ""}>
-              <strong>${escapeHtml(name)}</strong>
-              <span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))} / preview only</span>
-            </button>
-          `).join("")}
+      ${outcomeLearningCard()}
+      <details class="analytics-section" open>
+        <summary>Outcomes and exports</summary>
+        <article class="strategy-card">
+          <strong>Export history</strong>
+          ${state.exportHistory.length ? `
+            <div class="export-history">
+              ${state.exportHistory.slice(0, 6).map((item) => `
+                <span><strong>${escapeHtml(item.type)}</strong>${escapeHtml(item.project)} / ${escapeHtml(item.rows)} rows / ${escapeHtml(item.date)}</span>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">No exports yet. Export a campaign or batch to start the audit trail.</p>`}
+        </article>
+      </details>
+      <details class="analytics-section" ${state.integrationSetupOpen ? "open" : ""}>
+        <summary>Integrations and admin</summary>
+        <article class="strategy-card">
+          <strong>CRM import/export status</strong>
+          <p>Integrations stay disabled until credentials, OAuth scopes, and field mappings are configured.</p>
+          ${integrationSetupCards()}
+        </article>
+        <article class="strategy-card">
+          <strong>Admin controls</strong>
+          <p>Workspace settings, seats, permissions, SSO, API keys, approved assets, and audit logs are represented here for production rollout.</p>
+          <div class="admin-grid">
+            ${summaryItem("Workspace", state.adminSettings.workspaceName)}
+            ${summaryItem("Seats", `${state.adminSettings.seats}`)}
+            ${summaryItem("SSO", state.adminSettings.sso)}
+            ${summaryItem("API key", state.adminSettings.apiKey)}
+            ${summaryItem("Retention", state.adminSettings.retention)}
+            ${summaryItem("Audit log", state.adminSettings.auditLog)}
+          </div>
+        </article>
+      </details>
+      <details class="analytics-section">
+        <summary>Coaching and message quality</summary>
+        <div class="detail-grid">
+          <article class="strategy-card"><strong>Message angles ranked by fit</strong>${angles.map(([name, fit, copy]) => `<div class="metric-card"><span class="strength">${fit}% strength</span><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p><p><strong>Why this angle:</strong> It maps directly to the prospect's stated operating concern.</p></div>`).join("")}</article>
+          <article class="strategy-card"><strong>Deliverability checks</strong>${scoreGrid([["Length", 84], ["Links", 96], ["Spam phrasing", 88], ["Personalization", 91]])}<p>Checks include length, links, spammy phrasing, personalization density, merge fields, and unsubscribe token support.</p></article>
+          <article class="strategy-card"><strong>Words to mirror</strong>${tokens(["cleaner signal", "manager visibility", "forecast risk", "operating rhythm", context.pain])}</article>
+          <article class="strategy-card"><strong>Words to avoid</strong>${tokens(["game-changing", "revolutionary", "just checking in", "circle back", "synergy"])}</article>
+          <article class="strategy-card"><strong>Team learning system</strong><p>Winner patterns now influence review guidance and future draft variants.</p><div class="feature-list">${winnerPatterns().map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></article>
+          ${managerCoachingCard(context, variants)}
         </div>
-      </article>
-      <div class="detail-grid">
-        <article class="strategy-card"><strong>Message angles ranked by fit</strong>${angles.map(([name, fit, copy]) => `<div class="metric-card"><span class="strength">${fit}% strength</span><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p><p><strong>Why this angle:</strong> It maps directly to the prospect's stated operating concern.</p></div>`).join("")}</article>
-        <article class="strategy-card"><strong>Deliverability checks</strong>${scoreGrid([["Length", 84], ["Links", 96], ["Spam phrasing", 88], ["Personalization", 91]])}<p>Checks include length, links, spammy phrasing, personalization density, merge fields, and unsubscribe token support.</p></article>
-        <article class="strategy-card"><strong>Words to mirror</strong>${tokens(["cleaner signal", "manager visibility", "forecast risk", "operating rhythm", context.pain])}</article>
-        <article class="strategy-card"><strong>Words to avoid</strong>${tokens(["game-changing", "revolutionary", "just checking in", "circle back", "synergy"])}</article>
-      </div>
+      </details>
     </div>
   `;
 }
 
 function renderEnterpriseTab(data, context, profile, variants, angles, sequence) {
-  if (state.activeEnterpriseTab === "campaign") return campaignHome(context, angles);
+  if (state.activeEnterpriseTab === "dashboard") return campaignHome(context, angles);
   if (state.activeEnterpriseTab === "drafts") return draftsWorkspace(context, variants);
-  if (state.activeEnterpriseTab === "tools") return toolsWorkspace(context, sequence);
+  if (state.activeEnterpriseTab === "tools") return toolsWorkspace(context, sequence, angles);
   if (state.activeEnterpriseTab === "analytics") return analyticsWorkspace(context, angles);
   if (state.activeEnterpriseTab === "workspace") {
     const campaigns = filteredCampaigns();
@@ -2072,7 +4361,7 @@ function renderEnterpriseTab(data, context, profile, variants, angles, sequence)
           <strong>CRM import/export</strong>
           <div class="crm-grid">
             ${Object.entries(state.crmConnections).map(([name, status]) => `
-              <button class="crm-card" type="button" data-crm="${escapeHtml(name)}" ${["preview only", "needs auth", "disabled"].includes(status) ? "disabled aria-disabled=\"true\"" : ""}>
+              <button class="crm-card" type="button" data-crm="${escapeHtml(name)}" ${["preview only", "disabled"].includes(status) ? "disabled aria-disabled=\"true\"" : ""}>
                 <strong>${escapeHtml(name)}</strong>
                 <span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</span>
               </button>
@@ -2087,54 +4376,10 @@ function renderEnterpriseTab(data, context, profile, variants, angles, sequence)
     `;
   }
   if (state.activeEnterpriseTab === "batch") {
-    return `
-      <div class="batch-workspace">
-        <article class="strategy-card">
-          <strong>Batch CSV upload</strong>
-          <p>Paste CSV rows for up to 100 prospects. TextTraits creates a brief, subject, sequence status, and export row for each prospect.</p>
-          <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(state.batchInput || sampleCsv)}</textarea>
-          <div class="result-actions">
-            <button type="button" data-load-sample-csv>Load sample CSV</button>
-            <button class="button-secondary" type="button" data-generate-batch>Generate batch briefs</button>
-            <button class="button-secondary" type="button" data-export-batch>Export batch CSV</button>
-          </div>
-        </article>
-        <div class="batch-table">
-          ${batchRowsHtml(context)}
-        </div>
-      </div>
-    `;
+    return batchPanel(context);
   }
   if (state.activeEnterpriseTab === "inbox") {
-    return `
-      <div class="inbox-workspace">
-        <article class="strategy-card">
-          <strong>Gmail / Outlook inbox mode</strong>
-          <p>Analyze replies, classify intent, and recommend the next response. This local preview uses sample threads until mail connectors are attached.</p>
-          <div class="result-actions">
-            <button type="button" data-load-inbox>Load sample replies</button>
-            <button class="button-secondary" type="button" data-generate-next-replies>Suggest next responses</button>
-          </div>
-        </article>
-        <div class="inbox-list">
-          ${state.inboxThreads.map((thread, index) => `
-            <article>
-              <span class="strength">${escapeHtml(titleCase(thread.type))}</span>
-              <strong>${escapeHtml(thread.from)}</strong>
-              <p>${escapeHtml(thread.text)}</p>
-              <div class="suggested-reply">${escapeHtml(thread.reply || thread.next)}</div>
-              <button class="button-secondary" type="button" data-copy-inbox="${index}">Copy next response</button>
-            </article>
-          `).join("")}
-        </div>
-        <article class="strategy-card">
-          <strong>Chrome sidebar preview</strong>
-          <div class="sidebar-grid">
-            ${["LinkedIn", "Gmail", "HubSpot", "Company website"].map((surface) => `<article><strong>${surface}</strong><p>Analyze visible context, pull prospect fields, and write approved copy back into the workflow.</p></article>`).join("")}
-          </div>
-        </article>
-      </div>
-    `;
+    return inboxPanel(context);
   }
   if (state.activeEnterpriseTab === "libraries") {
     return `
@@ -2300,7 +4545,7 @@ function renderEnterpriseTab(data, context, profile, variants, angles, sequence)
         <article class="strategy-card"><strong>Email quality score</strong>${scoreGrid([["Clarity", 92], ["Specificity", 87], ["CTA strength", 90], ["Skimmability", 86]])}</article>
         <article class="strategy-card"><strong>Exports and integrations</strong><div class="integration-list"><span data-status="connected">CSV connected</span><span data-status="soon">HubSpot coming soon</span><span data-status="soon">Salesforce coming soon</span><span data-status="disabled">Outreach disabled</span><span data-status="disabled">Salesloft disabled</span></div></article>
         <article class="strategy-card"><strong>Merge fields manager</strong>${tokens(["{{first_name}}", "{{company}}", "{{recent_signal}}", "{{pipeline_priority}}", "{{unsubscribe_link}}"])}</article>
-        <article class="strategy-card"><strong>Admin controls</strong><p>Approved claims, proof assets, unsubscribe tokens, API keys, seats, and prompt presets are represented in this workspace preview.</p></article>
+        <article class="strategy-card"><strong>Admin controls</strong><p>Approved claims, proof assets, unsubscribe tokens, API keys, seats, and prompt presets are represented in this workspace setup.</p></article>
       </div>
     </div>
   `;
@@ -2320,7 +4565,7 @@ function variantRow(draft, best) {
       <p class="muted">${escapeHtml(draft.note)}</p>
       <div class="result-actions">
         <button type="button" data-select-variant="${draft.key}">Open editor</button>
-        <button class="button-secondary" data-copy-text="${escapeHtml(draftText(draft))}">Copy</button>
+        <button class="button-secondary" data-copy-draft="${escapeHtml(draft.key)}">Copy</button>
       </div>
     </article>
   `;
@@ -2362,23 +4607,32 @@ function outcomeGrid() {
   `).join("")}</div>`;
 }
 
-function parseCsv(text) {
+function parseCsv(text, mapping = state.batchMapping) {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   state.batchErrors = [];
   if (lines.length < 2) {
     state.batchErrors = ["Add a header row and at least one prospect row."];
     return [];
   }
-  const headers = lines[0].split(",").map((header) => header.trim().replaceAll('"', ""));
+  const parsedHeader = parseCsvLine(lines[0]);
+  const headers = parsedHeader.cells.map((header) => header.trim().replaceAll('"', ""));
+  if (parsedHeader.malformed) state.batchErrors.push("Header row has an unclosed quote.");
   const required = ["first_name", "company", "role", "industry", "signal"];
-  const missing = required.filter((header) => !headers.includes(header));
-  if (missing.length) state.batchErrors.push(`Missing columns: ${missing.join(", ")}.`);
+  const missing = required.filter((fieldName) => !headers.includes(mapping[fieldName] || fieldName));
+  if (missing.length) state.batchErrors.push(`Missing mapped columns: ${missing.map((fieldName) => `${fieldName} -> ${mapping[fieldName] || fieldName}`).join(", ")}.`);
   const seen = new Set();
-  return lines.slice(1, 101).map((line, index) => {
-    const cells = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
-    const row = {};
+  const rows = lines.slice(1, 101).map((line, index) => {
+    const parsed = parseCsvLine(line);
+    const cells = parsed.cells;
+    if (parsed.malformed) state.batchErrors.push(`Row ${index + 2} has an unclosed quote.`);
+    if (cells.length !== headers.length) state.batchErrors.push(`Row ${index + 2} has ${cells.length} cells but the header has ${headers.length}.`);
+    const raw = {};
     headers.forEach((header, cellIndex) => {
-      row[header] = String(cells[cellIndex] || "").trim().replace(/^"|"$/g, "");
+      raw[header] = String(cells[cellIndex] || "").trim().replace(/^"|"$/g, "");
+    });
+    const row = {};
+    required.forEach((fieldName) => {
+      row[fieldName] = raw[mapping[fieldName] || fieldName] || "";
     });
     const duplicateKey = `${row.first_name || ""}-${row.company || ""}`.toLowerCase();
     if (seen.has(duplicateKey)) state.batchErrors.push(`Duplicate prospect detected: ${row.first_name || "Unknown"} at ${row.company || "Unknown company"}.`);
@@ -2393,10 +4647,69 @@ function parseCsv(text) {
       industry: row.industry || "SaaS",
       signal: row.signal || "Needs clearer pipeline signal",
       status: statuses[index % statuses.length],
-      subject: `Idea for ${row.company || "your team"}`,
+      subject: batchSubject(row),
       next: "Review draft and export to CRM",
     };
   }).filter((row) => row.company !== "Unknown company" || !missing.length);
+  return state.batchErrors.length ? [] : rows;
+}
+
+function batchSubject(row) {
+  const signal = String(row.signal || "").toLowerCase();
+  if (signal.includes("renewal")) return `Earlier renewal risk warning`;
+  if (signal.includes("inspection") || signal.includes("forecast")) return `Cleaner inspection before review`;
+  if (signal.includes("handoff")) return `Cleaner handoffs after calls`;
+  const phrase = compactPhrase(row.signal || row.company || "buyer signal", 4);
+  return `Signal: ${phrase}`;
+}
+
+function batchQaForRow(row, context = enterpriseContext(), allRows = state.batchRows) {
+  const issues = [];
+  const signalWords = words(row.signal || "").length;
+  if (signalWords < 7) issues.push("Weak personalization");
+  if (!/[0-9%]|reduced|saved|faster|pilot|case study/i.test(`${row.signal} ${context.proof}`)) issues.push("Missing proof");
+  if (/idea for|quick|checking in/i.test(row.subject || "")) issues.push("Generic subject");
+  if (!/\b(call|reply|send|review|look|meet|next)\b/i.test(row.next || "")) issues.push("Vague CTA");
+  const sameCompany = allRows.filter((item) => item.company === row.company).length;
+  if (sameCompany > 1) issues.push("Duplicate account");
+  const grade = issues.length === 0 ? "Ready" : issues.length <= 2 ? "Review" : "Fix before export";
+  return {grade, issues};
+}
+
+function batchQaSummary(context = enterpriseContext()) {
+  const rows = state.batchRows;
+  const reviews = rows.map((row) => batchQaForRow(row, context, rows));
+  const issueCounts = reviews.flatMap((item) => item.issues).reduce((acc, issue) => {
+    acc[issue] = (acc[issue] || 0) + 1;
+    return acc;
+  }, {});
+  const needsFix = reviews.filter((item) => item.grade !== "Ready").length;
+  const topIssues = Object.entries(issueCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  return {
+    ready: rows.length - needsFix,
+    needsFix,
+    topIssues,
+    recommendation: topIssues.length ? `Fix ${topIssues[0][0].toLowerCase()} before export.` : "Batch is ready for review and export.",
+  };
+}
+
+function batchQaPanel(context) {
+  if (!state.batchRows.length) return "";
+  const summary = batchQaSummary(context);
+  return `
+    <article class="batch-qa-panel">
+      <div>
+        <span class="label">Batch QA Mode</span>
+        <strong>${summary.needsFix ? `${summary.needsFix} rows need review` : "No major QA flags"}</strong>
+        <p>${escapeHtml(summary.recommendation)} QA checks weak personalization, missing proof, vague CTA, duplicate accounts, and generic subject lines.</p>
+      </div>
+      <div class="qa-list">
+        <span><b>${summary.ready}</b> ready</span>
+        <span><b>${summary.needsFix}</b> review</span>
+        ${summary.topIssues.map(([label, count]) => `<span><b>${count}</b> ${escapeHtml(label)}</span>`).join("")}
+      </div>
+    </article>
+  `;
 }
 
 function batchRowsHtml(context) {
@@ -2405,17 +4718,18 @@ function batchRowsHtml(context) {
   }
   return state.batchRows.map((row) => `
     <article>
-      <span class="strength">${escapeHtml(row.status)}</span>
+      <div class="card-row"><span class="strength">${escapeHtml(row.status)}</span><span class="qa-token">${escapeHtml(batchQaForRow(row, context).grade)}</span></div>
       <strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong>
       <p>${escapeHtml(row.role)} / ${escapeHtml(row.industry)} / ${escapeHtml(row.signal)}</p>
       <div class="row-progress">
         ${["Queued", "Generated", "Needs review", "Approved", "Exported"].map((step) => `<span class="${step === row.status ? "is-current" : ""}">${escapeHtml(step)}</span>`).join("")}
       </div>
       <div class="mini-brief">Subject: ${escapeHtml(row.subject)}<br>Angle: ${escapeHtml(context.pain || "pipeline quality")} with ${escapeHtml(context.proof || "proof point")}.</div>
+      ${batchQaForRow(row, context).issues.length ? `<small class="qa-issues">QA: ${escapeHtml(batchQaForRow(row, context).issues.join(", "))}</small>` : `<small class="qa-issues">QA: ready for review.</small>`}
       <div class="result-actions">
-        <button class="button-secondary" type="button" data-copy-text="${escapeHtml(`${row.subject}\n${row.signal}`)}">Copy brief</button>
-        <button class="button-secondary" type="button">Review</button>
-        <button class="button-secondary" type="button">Export row</button>
+        <button class="button-secondary" type="button" data-copy-row="${escapeHtml(row.id)}">Copy brief</button>
+        <button class="button-secondary" type="button" data-review-row="${escapeHtml(row.id)}">Review</button>
+        <button class="button-secondary" type="button" data-export-row="${escapeHtml(row.id)}">Export row</button>
       </div>
     </article>
   `).join("");
@@ -2424,7 +4738,7 @@ function batchRowsHtml(context) {
 function batchCsv() {
   const rows = [["first_name", "company", "role", "industry", "status", "subject", "next_step"]];
   state.batchRows.forEach((row) => rows.push([row.first_name, row.company, row.role, row.industry, row.status, row.subject, row.next]));
-  return rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
 function winnerPatterns() {
@@ -2434,6 +4748,73 @@ function winnerPatterns() {
   if (text.includes("handoff")) patterns.push("Handoff framing");
   if (text.includes("dashboard")) patterns.push("Avoid dashboard fatigue");
   return patterns;
+}
+
+function outcomeLearningSummary() {
+  const total = Math.max(1, Number(state.outcomeStats.sent || 0));
+  const replyRate = Math.round((Number(state.outcomeStats.replied || 0) / total) * 100);
+  const bookedRate = Math.round((Number(state.outcomeStats.booked || 0) / total) * 100);
+  const patterns = winnerPatterns();
+  const feedbackSignals = Object.entries(state.feedbackMemory)
+    .filter(([, value]) => Number(value || 0) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 2)
+    .map(([key]) => titleCase(key));
+  return {
+    replyRate,
+    bookedRate,
+    patterns,
+    feedbackSignals,
+    guidance: patterns.includes("Proof before product")
+      ? "Future drafts should lead with the buyer problem, then one proof point before product detail."
+      : "Future drafts should stay short, specific, and anchored to the buyer's own wording.",
+  };
+}
+
+function outcomeLearningCard() {
+  const learning = outcomeLearningSummary();
+  return `
+    <article class="strategy-card outcome-learning-card">
+      <span class="label">Outcome Learning</span>
+      <strong>Future drafts adapt to what worked</strong>
+      <p>${escapeHtml(learning.guidance)}</p>
+      <div class="qa-list">
+        <span><b>${learning.replyRate}%</b> reply rate</span>
+        <span><b>${learning.bookedRate}%</b> booked rate</span>
+        ${learning.feedbackSignals.map((item) => `<span><b>Feedback</b> ${escapeHtml(item)}</span>`).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function managerCoachingInsights(context, variants = state.enterpriseDrafts) {
+  const rows = state.batchRows.length ? state.batchRows : campaignProspects(context);
+  const qa = state.batchRows.length ? batchQaSummary(context) : {needsFix: 0, topIssues: []};
+  const weakDrafts = variants.filter((draft) => averageScore(draft) < 88).length;
+  const longDrafts = variants.filter((draft) => words(draft.body || "").length > 105).length;
+  const missingProof = variants.filter((draft) => !String(draft.body || "").toLowerCase().includes(String(context.proof || "").toLowerCase().split(" ")[0])).length;
+  const priorities = [
+    ["Weak personalization", qa.needsFix || rows.filter((row) => words(row.signal || "").length < 7).length, "Ask reps to add the buyer's own phrase before review."],
+    ["Drafts below quality bar", weakDrafts, "Open those variants first and tighten CTA or proof."],
+    ["Too long", longDrafts + Number(state.feedbackMemory.tooLong || 0), "Coach reps to keep the opener and CTA, then cut setup."],
+    ["Missing proof", missingProof, `Use ${context.proof} before export.`],
+  ].sort((a, b) => Number(b[1]) - Number(a[1]));
+  return priorities;
+}
+
+function managerCoachingCard(context, variants) {
+  const priorities = managerCoachingInsights(context, variants);
+  return `
+    <article class="strategy-card manager-coaching-card">
+      <span class="label">Manager Coaching Layer</span>
+      <strong>Where managers should intervene first</strong>
+      <div class="manager-coaching-list">
+        ${priorities.map(([label, count, guidance]) => `
+          <span><b>${escapeHtml(label)}</b><em>${escapeHtml(String(count))} flagged</em>${escapeHtml(guidance)}</span>
+        `).join("")}
+      </div>
+    </article>
+  `;
 }
 
 function tokens(items) {
@@ -2468,6 +4849,14 @@ function validateMergeFields(variants) {
   return {ok: true, message: "Merge fields validated."};
 }
 
+function validateExportReadiness(variants, context = enterpriseContext()) {
+  const merge = validateMergeFields(variants);
+  if (!merge.ok) return merge;
+  const missingToken = variants.find((draft) => !sendReadyChecklist(draft, context).find((item) => item.label.toLowerCase().includes("unsubscribe token"))?.ok);
+  if (missingToken) return {ok: false, message: `Add {{unsubscribe_link}} to Variant ${missingToken.key || ""} before export.`};
+  return {ok: true, message: "Export checks passed."};
+}
+
 function insertMergeField(field) {
   const draft = selectedDraft();
   if (!draft) return;
@@ -2481,38 +4870,57 @@ function transformDraft(action, key, context) {
   const draft = state.enterpriseDrafts.find((item) => item.key === key);
   if (!draft) return;
   state.selectedVariant = key;
+  const before = draft.body;
   const clean = draft.body.replace(/\s+/g, " ").trim();
   if (action === "shorter") {
     draft.body = clean.split(". ").slice(0, 3).join(". ").replace(/\.$/, "") + ".";
+    state.lastDraftChange = "Trimmed the setup and kept the clearest CTA.";
   } else if (action === "executive") {
     draft.body = `The business issue seems clear: ${context.pain}. ${context.company} helps ${context.segment} teams turn that into earlier visibility, cleaner manager coaching, and fewer forecast surprises.\n\n${ctaText(context)}`;
+    state.lastDraftChange = "Reframed the draft around business impact and executive-level brevity.";
   } else if (action === "casual") {
     draft.body = `I noticed your point about ${context.pain}. That is exactly where teams often want less reporting noise and a clearer view of what is moving.\n\nOpen to a quick look at how ${context.company} approaches it?`;
+    state.lastDraftChange = "Made the language more conversational and easier to reply to.";
   } else if (action === "specific") {
     draft.body = `${clean}\n\nThe specific angle I would test first: ${context.trigger} for ${context.icp}, using ${context.proof} as the proof point.`;
+    state.lastDraftChange = "Added the trigger, ICP, and proof point so the email feels less generic.";
   } else if (action === "proof") {
     draft.body = `${clean}\n\nProof point to consider: ${context.proof}.`;
+    state.lastDraftChange = "Added a concrete proof point for review before export.";
   } else if (action === "plain") {
     draft.body = clean
       .replaceAll("operating rhythm", "weekly workflow")
       .replaceAll("signal", "evidence")
       .replaceAll("leverage", "use")
       .replaceAll("motion", "process");
+    state.lastDraftChange = "Removed salesy wording and swapped in plainer language.";
   } else if (action === "compliance") {
     draft.body = `${clean}\n\nCompliance note: includes one clear business reason for contact, avoids exaggerated claims, and keeps the unsubscribe token available as {{unsubscribe_link}}.`;
+    state.lastDraftChange = "Added a compliance-safe note and unsubscribe token placeholder.";
   } else if (action === "feedback") {
     const nextKey = String.fromCharCode(65 + state.enterpriseDrafts.length);
+    const nextBody = `Based on the strongest current draft, I would test a more specific version:\n\n${clean}\n\nWould a short comparison against your current ${context.competitor} be useful?`;
     state.enterpriseDrafts.push({
       ...draft,
       key: nextKey,
       name: "Feedback variant",
       subject: `Tighter idea for ${context.pain}`,
-      body: `Based on the strongest current draft, I would test a more specific version:\n\n${clean}\n\nWould a short comparison against your current ${context.competitor} be useful?`,
+      body: nextBody,
+      scores: {...(draft.scores || {clarity: 88, specificity: 88, cta: 86, skimmability: 88})},
+      status: "Draft",
+      owner: draft.owner || "Unassigned",
+      due: draft.due || "This week",
+      note: "Generated from your feedback so the team can compare one more option.",
       history: ["Generated from feedback"],
     });
     state.selectedVariant = nextKey;
+    state.lastDraftChange = `Created Variant ${nextKey} from the current draft and team feedback.`;
+    recordVersion("Enterprise draft", "Generated next variant", before, nextBody, `Variant ${nextKey} created from feedback`);
+    persistWorkspace();
+    return;
   }
   draft.history.push(`${titleCase(action)} transform`);
+  recordVersion("Enterprise draft", `${titleCase(action)} transform`, before, draft.body, `Variant ${key} updated`);
   persistWorkspace();
 }
 
@@ -2522,6 +4930,18 @@ function saveCurrentCampaign(context) {
     folder: context.folder,
     status: "Saved workspace",
     updated: new Date().toLocaleDateString([], {month: "short", day: "numeric"}),
+    owner: "Revenue team",
+    due: "This week",
+    prospects: state.batchRows.length || 1,
+    exports: state.exportHistory.filter((item) => item.project === context.project).length,
+    drafts: state.enterpriseDrafts.map((draft) => ({
+      key: draft.key,
+      name: draft.name,
+      subject: draft.subject,
+      status: draft.status || "Draft",
+      score: averageScore(draft),
+    })),
+    lastAction: state.lastActionNote || "Ready for review",
   };
   state.savedCampaigns = [campaign, ...state.savedCampaigns.filter((item) => item.name !== campaign.name)].slice(0, 8);
   state.campaignSaved = true;
@@ -2529,12 +4949,27 @@ function saveCurrentCampaign(context) {
   persistWorkspace();
 }
 
+function recordExport(type, project, rows) {
+  state.exportHistory = [{
+    type,
+    project,
+    rows,
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+  }, ...state.exportHistory].slice(0, 30);
+}
+
+function updateVisibleActionNote() {
+  const note = els.outputPanel?.querySelector(".next-action");
+  if (note && state.lastActionNote) note.textContent = state.lastActionNote;
+}
+
 function showToast(anchor, message) {
   els.announcer.textContent = message;
+  (els.toastStack || document.body).querySelectorAll?.(".inline-toast").forEach((item) => item.remove());
   const toast = document.createElement("span");
   toast.className = "inline-toast";
   toast.textContent = message;
-  anchor.insertAdjacentElement("afterend", toast);
+  (els.toastStack || document.body).appendChild(toast);
   setTimeout(() => toast.remove(), 1800);
 }
 
@@ -2562,24 +4997,42 @@ function makeCsv(context, variants) {
   variants.forEach((draft) => {
     rows.push([draft.key, draft.name, draft.subject, draft.body, context.role, context.industry, context.goal, averageScore(draft)]);
   });
-  return rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\\n");
+  return rows.map((row) => row.map(csvCell).join(",")).join("\\n");
 }
 
 function downloadCsv(csv) {
-  const blob = new Blob([csv], {type: "text/csv"});
+  downloadText("texttraits-enterprise-campaign.csv", csv, "text/csv");
+}
+
+function downloadText(filename, text, type = "text/plain") {
+  const blob = new Blob([text], {type});
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "texttraits-enterprise-campaign.csv";
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(link.href);
 }
 
-function bindCopy(selector, text, message) {
-  const button = els.outputPanel.querySelector(selector);
-  if (!button) return;
-  button.addEventListener("click", async () => {
+async function copyTextFromButton(button, text, successMessage) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
     await navigator.clipboard.writeText(text);
-    showToast(button, message);
+    trackEvent("copy", {message: successMessage});
+    showToast(button, successMessage);
+    return true;
+  } catch (error) {
+    showToast(button, "Copy is unavailable in this browser. Select the text and copy it manually.");
+    return false;
+  }
+}
+
+function bindCopy(selector, text, message) {
+  const buttons = els.outputPanel.querySelectorAll(selector);
+  if (!buttons.length) return;
+  buttons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      await copyTextFromButton(button, text, message);
+    });
   });
 }
 
@@ -2592,6 +5045,9 @@ function wireInput() {
         state.explorerReadingName = "";
         state.explorerSavedMessage = "";
         state.latestData = null;
+        state.explorerPromptTitle = "";
+        state.explorerPromptText = "";
+        state.explorerPromptSource = "";
         persistWorkspace();
         render();
       });
@@ -2600,46 +5056,84 @@ function wireInput() {
     const input = document.querySelector("#explorer-text");
     const compare = document.querySelector("#compare-text");
     const readingName = document.querySelector("#reading-name");
-    input.addEventListener("input", () => {
+    input?.addEventListener("input", () => {
       state.latestText = input.value;
       updateInputStats("explorer", input.value);
       persistWorkspace();
     });
-    compare.addEventListener("input", () => {
+    compare?.addEventListener("input", () => {
       state.compareText = compare.value;
     });
     readingName?.addEventListener("input", () => {
       state.explorerReadingName = readingName.value;
       persistWorkspace();
     });
-    document.querySelector("[data-use-daily-prompt]")?.addEventListener("click", () => {
-      input.value = `${dailyPrompt()}\n\n`;
-      input.focus();
-      state.latestText = input.value;
-      updateInputStats("explorer", input.value);
+    document.querySelectorAll("[data-message-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const existingText = document.querySelector("#explorer-text")?.value || state.latestText;
+        state.latestText = existingText;
+        setMessageMode(button.dataset.messageMode);
+        render();
+        requestAnimationFrame(() => {
+          const nextInput = document.querySelector("#explorer-text");
+          if (nextInput) {
+            nextInput.focus();
+            nextInput.selectionStart = nextInput.selectionEnd = nextInput.value.length;
+          }
+        });
+      });
+    });
+    document.querySelector("#field-explorerFolder")?.addEventListener("change", (event) => {
+      state.explorerFolder = event.target.value;
       persistWorkspace();
     });
-    document.querySelector("#technical-visible").addEventListener("change", (event) => {
+    document.querySelector("#field-explorerWritingGoal")?.addEventListener("change", (event) => {
+      state.explorerWritingGoal = event.target.value;
+      persistWorkspace();
+    });
+    document.querySelectorAll("[data-use-daily-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.latestText = input.value;
+        selectExplorerPrompt({
+          title: dailyPromptTitle(),
+          text: dailyPromptInstruction(),
+          source: "Today's prompt",
+        });
+      });
+    });
+    document.querySelector("[data-clear-explorer-prompt]")?.addEventListener("click", () => {
+      state.latestText = input.value;
+      state.explorerPromptTitle = "";
+      state.explorerPromptText = "";
+      state.explorerPromptSource = "";
+      persistWorkspace();
+      render();
+      requestAnimationFrame(() => document.querySelector("#explorer-text")?.focus());
+    });
+    document.querySelector("#technical-visible")?.addEventListener("change", (event) => {
       state.technicalVisible = event.target.value === "show";
       if (state.technicalVisible) state.activeExplorerTab = "technical";
     });
-    document.querySelector("#sensitive-hidden").addEventListener("change", (event) => {
+    document.querySelector("#sensitive-hidden")?.addEventListener("change", (event) => {
       state.hiddenSensitive = event.target.value === "hide";
     });
-    document.querySelector("#analyze-explorer").addEventListener("click", () => runAnalysis(input.value));
-    document.querySelector("#clear-explorer").addEventListener("click", () => {
+    document.querySelector("#analyze-explorer")?.addEventListener("click", () => runAnalysis(input?.value || ""));
+    document.querySelector("#clear-explorer")?.addEventListener("click", () => {
       state.latestText = "";
       state.compareText = "";
       state.explorerReadingName = "";
       state.explorerSavedMessage = "";
       state.latestData = null;
+      state.explorerPromptTitle = "";
+      state.explorerPromptText = "";
+      state.explorerPromptSource = "";
+      persistWorkspace();
       render();
     });
-    document.querySelector("#copy-explorer-input").addEventListener("click", async () => {
-      await navigator.clipboard.writeText(input.value);
-      showToast(document.querySelector("#copy-explorer-input"), "Input copied.");
+    document.querySelector("#copy-explorer-input")?.addEventListener("click", async () => {
+      await copyTextFromButton(document.querySelector("#copy-explorer-input"), input?.value || "", "Input copied.");
     });
-    updateInputStats("explorer", input.value);
+    updateInputStats("explorer", input?.value || "");
   } else {
     if (state.latestData && state.enterpriseInputsCollapsed) {
       document.querySelector("#edit-enterprise-inputs")?.addEventListener("click", () => {
@@ -2661,6 +5155,7 @@ function wireInput() {
       state.enterpriseDrafts = [];
       state.campaignSaved = false;
       state.enterpriseInputsCollapsed = false;
+      state.enterpriseSetupOpen = false;
       persistWorkspace();
       render();
     });
@@ -2693,11 +5188,22 @@ function wireInput() {
       const samples = state.mode === "enterprise" ? enterpriseSamples : explorerSamples;
       const sample = samples[Number(button.dataset.sampleIndex)];
       const target = document.querySelector(`#${button.dataset.sampleTarget}`);
+      if (!target || !sample) return;
       target.value = sample.text;
       state.latestText = sample.text;
       state.latestData = null;
       state.enterpriseDrafts = [];
-      if (state.mode === "explorer") state.explorerReadingName = sample.label;
+      if (state.mode === "explorer") {
+        state.explorerReadingName = sample.label;
+        state.explorerPromptTitle = "";
+        state.explorerPromptText = "";
+        state.explorerPromptSource = "";
+        updateInputStats(state.mode, sample.text);
+        persistWorkspace();
+        render();
+        requestAnimationFrame(() => document.querySelector("#explorer-text")?.focus());
+        return;
+      }
       if (state.mode === "enterprise" && sample.context) {
         state.enterpriseContext = {...enterpriseContext(), ...sample.context};
         Object.entries(sample.context).forEach(([key, value]) => {
@@ -2711,6 +5217,46 @@ function wireInput() {
       persistWorkspace();
       target.focus();
     });
+  });
+
+  document.querySelectorAll("[data-prompt-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const prompt = consumerPromptLibrary[Number(button.dataset.promptIndex)];
+      const input = document.querySelector("#explorer-text");
+      if (!prompt || !input) return;
+      state.latestText = input.value;
+      state.explorerWritingGoal = prompt.goal.includes("clear") ? "Make this clearer" : prompt.goal.includes("accountable") ? "Sound less harsh" : "Make this warmer";
+      if (prompt.name === "Work email") setMessageMode("Email");
+      else if (prompt.name === "Apology") setMessageMode("Apology");
+      else if (prompt.name === "Essay") setMessageMode("Essay / school");
+      else if (prompt.name === "Hard message") setMessageMode("Conflict");
+      else setMessageMode("Everyday note");
+      selectExplorerPrompt({
+        title: prompt.name,
+        text: prompt.prompt,
+        source: "Prompt library",
+      });
+    });
+  });
+
+  document.querySelector("[data-save-onboarding]")?.addEventListener("click", (event) => {
+    const mode = event.currentTarget.dataset.saveOnboarding;
+    if (mode === "enterprise") {
+      state.onboarding.enterpriseGoal = document.querySelector("#field-onboardingEnterpriseGoal")?.value || state.onboarding.enterpriseGoal;
+      state.onboarding.teamSize = document.querySelector("#field-onboardingTeamSize")?.value || state.onboarding.teamSize;
+    } else {
+      state.onboarding.explorerGoal = document.querySelector("#field-onboardingExplorerGoal")?.value || state.onboarding.explorerGoal;
+      state.onboarding.plan = document.querySelector("#field-onboardingPlan")?.value || "7-day plan";
+      state.explorerWritingGoal = state.onboarding.explorerGoal.includes("Warmer") ? "Make this warmer" : state.onboarding.explorerGoal.includes("Hard") ? "Sound less harsh" : "Make this clearer";
+    }
+    state.onboarding.complete = true;
+    persistWorkspace();
+    render();
+  });
+  document.querySelector("[data-skip-onboarding]")?.addEventListener("click", () => {
+    state.onboarding.complete = true;
+    persistWorkspace();
+    render();
   });
 }
 
@@ -2731,27 +5277,45 @@ function updateInputStats(prefix, text) {
   const quality = document.querySelector(`#${prefix}-quality`);
   const meter = document.querySelector(`#${prefix}-meter`);
   const action = prefix === "enterprise" ? document.querySelector("#generate-enterprise") : document.querySelector("#analyze-explorer");
+  const copyInput = prefix === "explorer" ? document.querySelector("#copy-explorer-input") : null;
   if (count) count.textContent = `${stats.words} ${stats.words === 1 ? "word" : "words"}`;
-  if (quality) quality.textContent = stats.words ? (stats.words >= 40 ? "Good first-pass length." : "Short sample. Add more context for stronger output.") : (prefix === "enterprise" ? "Add prospect language to generate a brief." : "Add text to analyze.");
-  if (meter) meter.style.width = `${Math.min((stats.words / 60) * 100, 100)}%`;
+  if (quality) {
+    if (!stats.words) quality.textContent = prefix === "enterprise" ? "Add prospect language to generate a brief." : "Add text to analyze.";
+    else if (prefix === "enterprise" && stats.words > 900) quality.textContent = "Large input. Use batch tools for many prospects.";
+    else if (prefix === "explorer" && stats.words > 500) quality.textContent = "Long sample. Analyze one section at a time for cleaner coaching.";
+    else quality.textContent = stats.words >= 40 ? "Good first-pass length." : "Short sample. Add more context for stronger output.";
+  }
+  if (meter) {
+    const value = Math.min((stats.words / 60) * 100, 100);
+    meter.value = value;
+    meter.textContent = `${Math.round(value)}%`;
+  }
   if (action) action.disabled = !text.trim();
+  if (copyInput) copyInput.disabled = !text.trim();
 }
 
 async function runAnalysis(text) {
   if (!text.trim()) return;
   if (state.mode === "enterprise") {
-    state.activeEnterpriseTab = "drafts";
+    const landingTab = state.enterpriseLandingTab || "drafts";
+    state.activeEnterpriseTab = landingTab;
+    state.enterpriseLandingTab = "";
     state.activeEnterpriseTool = "batch";
     state.enterpriseContext = enterpriseContext();
     state.enterpriseDrafts = [];
     state.enterpriseInputsCollapsed = true;
+    state.enterpriseSetupOpen = false;
+    state.integrationSetupOpen = false;
     state.campaignSaved = false;
-    state.lastActionNote = "Next: review the recommended draft, then approve or export.";
+    state.lastActionNote = landingTab === "dashboard" ? "Sample workspace ready. Next: open the review queue." : "Next: review the recommended draft, then approve or export.";
   } else {
-    state.activeExplorerTab = "overview";
+    state.activeExplorerTab = "style";
     state.explorerSavedMessage = "";
+    state.explorerQuickChecksOpen = false;
+    state.explorerStyleDetailsOpen = false;
   }
-  els.outputPanel.innerHTML = `<div class="empty-hero fade-in"><span class="status-pill">Analyzing</span><h2>Building the ${state.mode === "enterprise" ? "campaign brief" : "model reading"}...</h2><p class="muted">The local model is reading the submitted language.</p></div>`;
+  els.outputPanel.innerHTML = uiHelpers.loadingCard?.(state.mode) || `<div class="empty-hero fade-in"><span class="status-pill">Working</span><h2>Reading the submitted text...</h2><p class="muted">Preparing the next view.</p></div>`;
+  uiHelpers.focusWithin?.(els.outputPanel, ".loading-card");
   try {
     const data = await evaluateText(text.trim());
     state.latestData = data;
@@ -2761,13 +5325,21 @@ async function runAnalysis(text) {
       state.explorerHistory = [explorerSnapshot(data, text), ...state.explorerHistory].slice(0, 12);
     }
     persistWorkspace();
+    renderModeChrome();
     if (state.mode === "enterprise") render();
     else renderExplorerResult(data);
+    trackEvent("analysis_completed", {words: text.trim().split(/\s+/).length});
+    uiHelpers.announce?.(els.announcer, state.mode === "enterprise" ? "Enterprise drafts are ready." : "Explorer reading is ready.");
     els.outputPanel.focus();
-    els.outputPanel.scrollIntoView({block: "start", behavior: "smooth"});
+    requestAnimationFrame(() => {
+      const top = Math.max(0, els.outputPanel.getBoundingClientRect().top + window.scrollY - 12);
+      window.scrollTo({top, behavior: "auto"});
+    });
   } catch (error) {
-    els.outputPanel.innerHTML = `<div class="empty-hero"><h2>The reading did not run.</h2><p class="muted">${escapeHtml(error.message)}</p><button class="button-secondary" id="retry-run">Retry</button></div>`;
+    els.outputPanel.innerHTML = uiHelpers.errorCard?.(escapeHtml(error.message)) || `<div class="empty-hero"><h2>The reading did not run.</h2><p class="muted">${escapeHtml(error.message)}</p><button class="button-secondary" id="retry-run">Retry</button></div>`;
     document.querySelector("#retry-run").addEventListener("click", () => runAnalysis(text));
+    uiHelpers.announce?.(els.announcer, "The reading did not run. Retry is available.");
+    uiHelpers.focusWithin?.(els.outputPanel, "#retry-run");
   }
 }
 
@@ -2785,17 +5357,89 @@ function render() {
 
 function syncBodyState() {
   els.body.classList.toggle("has-work", Boolean(state.latestText || state.latestData));
+  els.body.classList.toggle("app-compact", Boolean(state.latestText || state.latestData || state.explorerHistory.length || state.savedCampaigns.length));
+  els.body.classList.toggle("explorer-collapsed", state.mode === "explorer" && Boolean(state.latestData));
   els.body.classList.toggle("enterprise-collapsed", state.mode === "enterprise" && Boolean(state.latestData) && state.enterpriseInputsCollapsed);
+  els.body.classList.toggle("enterprise-setup-open", state.mode === "enterprise" && Boolean(state.enterpriseSetupOpen));
+}
+
+function trapAccountFocus(event) {
+  const sheet = els.accountCard?.querySelector(".account-sheet");
+  if (!sheet) return;
+  const focusable = [...sheet.querySelectorAll('a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')]
+    .filter((item) => !item.disabled && item.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 loadWorkspace();
+const routedMode = modeFromPath();
+if (routedMode) {
+  if (routedMode !== state.mode) {
+    state.latestData = null;
+    state.latestText = "";
+    state.enterpriseDrafts = [];
+    state.campaignSaved = false;
+    state.enterpriseSetupOpen = false;
+  }
+  state.mode = routedMode;
+} else {
+  updateModeRoute(state.mode, true);
+}
 els.body.dataset.mode = state.mode;
 els.modeExplorer.setAttribute("aria-pressed", String(state.mode === "explorer"));
 els.modeEnterprise.setAttribute("aria-pressed", String(state.mode === "enterprise"));
 renderModeChrome();
 els.modeExplorer.addEventListener("click", () => setMode("explorer"));
 els.modeEnterprise.addEventListener("click", () => setMode("enterprise"));
+window.addEventListener("popstate", () => {
+  const nextMode = modeFromPath() || "explorer";
+  if (nextMode === state.mode) return;
+  state.mode = nextMode;
+  state.latestData = null;
+  state.latestText = "";
+  state.enterpriseDrafts = [];
+  state.enterpriseSetupOpen = false;
+  state.activeExplorerTab = "style";
+  state.activeEnterpriseTab = "dashboard";
+  state.activeEnterpriseTool = "batch";
+  els.body.dataset.mode = state.mode;
+  els.modeExplorer.setAttribute("aria-pressed", String(state.mode === "explorer"));
+  els.modeEnterprise.setAttribute("aria-pressed", String(state.mode === "enterprise"));
+  renderModeChrome();
+  render();
+});
+document.addEventListener("keydown", (event) => {
+  if (!state.accountModalOpen) return;
+  if (event.key === "Tab") {
+    trapAccountFocus(event);
+    return;
+  }
+  if (event.key !== "Escape") return;
+  state.accountModalOpen = false;
+  state.accountError = "";
+  state.accountDeletePending = false;
+  state.accountCodePanelOpen = false;
+  renderAccountCard();
+});
 
-els.runtimeLabel.textContent = "Responsible use:";
+const isLocalRuntime = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+els.body.classList.toggle("is-local-runtime", isLocalRuntime);
+if (isLocalRuntime) {
+  els.runtimeLabel.textContent = "Local demo:";
+  if (els.runtimeCopy) els.runtimeCopy.textContent = "CRM, email, and sidebar integrations stay preview-only until credentials are connected.";
+} else {
+  els.runtimeLabel.textContent = "Deployment:";
+  if (els.runtimeCopy) els.runtimeCopy.textContent = "connected services depend on your configured credentials, database, and workspace settings.";
+}
 
 render();
+initAccount().finally(handleAccountLinkTokens);

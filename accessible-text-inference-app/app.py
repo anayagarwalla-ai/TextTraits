@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+import time
+from collections import defaultdict, deque
 
 from flask import Flask, jsonify, render_template, request
 
@@ -39,7 +40,19 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 ENABLE_DEV_TOOLS = env_flag("ENABLE_DEV_TOOLS", False)
-ALLOW_DEMO_MODE = env_flag("TEXTTRAITS_ALLOW_DEMO", True)
+PRODUCTION = os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production"
+ALLOW_STANDALONE_PRODUCTION = env_flag("TEXTTRAITS_STANDALONE_PRODUCTION_OK", False)
+ALLOW_DEMO_MODE = env_flag("TEXTTRAITS_ALLOW_DEMO", False)
+MAX_TEXT_WORDS = int(os.getenv("TEXTTRAITS_MAX_TEXT_WORDS", "1800"))
+RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
+
+if PRODUCTION and not ALLOW_STANDALONE_PRODUCTION:
+    raise RuntimeError(
+        "The legacy accessible-text-inference-app is not configured for production. "
+        "Deploy texttraits_app, or set TEXTTRAITS_STANDALONE_PRODUCTION_OK=true after a dedicated review."
+    )
+if PRODUCTION and (ENABLE_DEV_TOOLS or ALLOW_DEMO_MODE):
+    raise RuntimeError("ENABLE_DEV_TOOLS and TEXTTRAITS_ALLOW_DEMO must be false in production.")
 
 AVAILABLE_MODELS = [
     {
@@ -57,21 +70,38 @@ AVAILABLE_MODELS = [
 ]
 
 
-APP_DIR = Path(__file__).resolve().parent
-
-
 try:
     predictor = TextTraitsPredictor()
 except FileNotFoundError as error:
     predictor = DemoPredictor(error) if ALLOW_DEMO_MODE else MissingPredictor(error)
 
-app = Flask(
-    __name__,
-    template_folder=str(APP_DIR / "templates"),
-    static_folder=str(APP_DIR / "static"),
-)
-app.config["TEMPLATES_AUTO_RELOAD"] = True
+app = Flask(__name__)
+app.config["TEMPLATES_AUTO_RELOAD"] = ENABLE_DEV_TOOLS
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("TEXTTRAITS_MAX_CONTENT_LENGTH", "1000000"))
+rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    return response
+
+
+def request_allowed() -> bool:
+    key = f"{request.remote_addr or 'local'}:{request.endpoint or 'unknown'}"
+    now = time.time()
+    bucket = rate_buckets[key]
+    while bucket and now - bucket[0] > 60:
+        bucket.popleft()
+    if len(bucket) >= RATE_LIMIT_PER_MINUTE:
+        return False
+    bucket.append(now)
+    return True
 
 
 def public_model_info() -> dict:
@@ -81,31 +111,6 @@ def public_model_info() -> dict:
         "name": "Demo predictor" if getattr(predictor, "is_demo", False) else "Local inference model",
         "target_count": len(getattr(predictor, "metadata", {}).get("targets", [])),
     }
-
-
-def public_prediction_payload(predictions: dict) -> dict:
-    """Remove raw model internals from the default public API response."""
-    return scrub_public_value(predictions)
-
-
-def scrub_public_value(value):
-    if isinstance(value, dict):
-        cleaned = {}
-        for key, child in value.items():
-            if key in {"raw_label", "raw_value", "available_targets"}:
-                continue
-            if key == "cue_terms":
-                cleaned[key] = [
-                    {"term": str(item.get("term", ""))}
-                    for item in child
-                    if isinstance(item, dict) and item.get("term")
-                ][:6]
-                continue
-            cleaned[key] = scrub_public_value(child)
-        return cleaned
-    if isinstance(value, list):
-        return [scrub_public_value(item) for item in value]
-    return value
 
 
 @app.get("/")
@@ -122,14 +127,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return jsonify(
-        {
-            "ok": not isinstance(predictor, MissingPredictor),
-            "demo": bool(getattr(predictor, "is_demo", False)),
-            "model": public_model_info(),
-            "dev_tools_enabled": ENABLE_DEV_TOOLS,
-        }
-    )
+    return jsonify({"ok": not isinstance(predictor, MissingPredictor)})
 
 
 @app.get("/dev/model")
@@ -141,20 +139,23 @@ def dev_model():
 
 @app.post("/evaluate")
 def evaluate():
+    if not request_allowed():
+        return jsonify({"error": "Too many requests. Please wait a moment and try again."}), 429
     payload = request.get_json(silent=True) or {}
     text = str(payload.get("text", "")).strip()
     model_id = str(payload.get("model", "local")).strip() or "local"
     if not text:
         return jsonify({"error": "Please enter text to evaluate."}), 400
+    if len(text.split()) > MAX_TEXT_WORDS:
+        return jsonify({"error": f"Please keep samples under {MAX_TEXT_WORDS} words."}), 413
     if model_id != "local":
         return jsonify({"error": "The PANDORA cloud-trained model is not connected yet."}), 503
     try:
-        predictions = predictor.predict(text)
         return jsonify(
             {
                 "model": model_id,
                 "demo": bool(getattr(predictor, "is_demo", False)),
-                "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
+                "predictions": predictor.predict(text),
             }
         )
     except RuntimeError as error:

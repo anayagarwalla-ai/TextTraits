@@ -1,0 +1,16 @@
+.env
+.DS_Store
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.log
+texttraits_app/artifacts/*
+!texttraits_app/artifacts/README.md
+tests/__pycache__
+scripts/__pycache__
+.playwright-cli
+.playwright-mcp
+output

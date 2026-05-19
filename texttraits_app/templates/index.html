@@ -14,18 +14,21 @@
       <header class="topbar">
         <div class="brand-block">
           <p class="eyebrow">TextTraits</p>
-          <h1 id="hero-title">Write a little clearer every day.</h1>
+          <h1 id="hero-title">Write a little clearer every day</h1>
           <p id="hero-subtitle">A simple writing coach for understanding how your words come across and making the next draft easier to read.</p>
         </div>
 
         <div class="mode-card" aria-label="Workspace mode">
           <div class="mode-switch">
             <button id="mode-explorer" type="button" aria-pressed="true">Explorer</button>
-            <button id="mode-enterprise" type="button" aria-pressed="false">Enterprise Preview</button>
+            <button id="mode-enterprise" type="button" aria-pressed="false">Enterprise</button>
           </div>
-          <p id="mode-note">Explorer is for everyday writing. Enterprise opens a separate outreach workspace preview.</p>
+          <p id="mode-note">Explorer is for everyday writing. Enterprise opens a separate outreach workspace.</p>
         </div>
       </header>
+
+      <section id="account-card" class="account-card" aria-label="Account and sync"></section>
+      <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
       <section id="persona-strip" class="persona-strip" aria-label="Explorer habits">
         <article><strong>Daily check-in</strong><span>Paste one paragraph and get one clear next edit.</span></article>
@@ -39,7 +42,10 @@
       </section>
 
       <footer class="footer-note">
-        <strong id="runtime-label">Responsible use:</strong> results are estimates from text patterns, not facts about a person. They may be wrong and should not be used for hiring, admissions, policing, eligibility, finance, housing, medical, or other consequential decisions.
+        <strong id="runtime-label">Local demo:</strong>
+        <span id="runtime-copy">CRM, email, and sidebar integrations stay preview-only until credentials are connected.</span>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
       </footer>
 
       {% if dev_tools_enabled %}
@@ -53,12 +59,20 @@
       {% endif %}
     </main>
 
-    <script>
+    <script nonce="{{ csp_nonce }}">
       window.TEXTTRAITS_CONFIG = {
         devTools: {{ dev_tools_enabled|tojson }},
-        publicModel: {{ public_model_info|tojson }}
+        publicModel: {{ public_model_info|tojson }},
+        app: {{ public_app_info|tojson }},
+        csrfToken: {{ csrf_token|tojson }}
       };
     </script>
+    <script src="{{ url_for('static', filename='text_utils.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='product_config.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='api_client.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='ui_helpers.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='csv_utils.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='enterprise_copy.js') }}" defer></script>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>
 </html>

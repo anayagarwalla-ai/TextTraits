@@ -1,5 +1,6 @@
 {
   "runtime_model_path": "texttraits_app/models/texttraits_inference_bundle.joblib",
+  "runtime_model_sha256": "47adbb2a0557ec73702f236211485e4102fc8391d8f01482a6d8ff3de6f0b373",
   "source_training_artifact": "texttraits_app/artifacts/texttraits_model.joblib",
   "source_training_artifact_included": false,
   "vectorizer": "TfidfVectorizer",

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
 import warnings
 from pathlib import Path
@@ -56,6 +59,7 @@ class TextTraitsPredictor:
             raise FileNotFoundError(
                 f"Runtime model not found at {self.model_path}. Run `python extract_trained_model.py` first."
             )
+        self._verify_model_hash()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
             self.artifact = joblib.load(self.model_path)
@@ -73,6 +77,22 @@ class TextTraitsPredictor:
             "trained_at": self.artifact.get("trained_at") or self.artifact.get("created_at") or "Unknown",
             "dataset": self.artifact.get("dataset") or self.artifact.get("dataset_name") or "Unknown",
         }
+
+    def _verify_model_hash(self) -> None:
+        expected = os.getenv("TEXTTRAITS_MODEL_SHA256", "").strip()
+        manifest_path = self.model_path.with_name("texttraits_inference_manifest.json")
+        if not expected and manifest_path.exists():
+            try:
+                expected = json.loads(manifest_path.read_text(encoding="utf-8")).get("runtime_model_sha256", "")
+            except json.JSONDecodeError:
+                expected = ""
+        if not expected:
+            if os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production":
+                raise RuntimeError("Production model loading requires TEXTTRAITS_MODEL_SHA256 or a trusted manifest checksum.")
+            return
+        actual = hashlib.sha256(self.model_path.read_bytes()).hexdigest()
+        if actual.lower() != expected.lower():
+            raise RuntimeError("Runtime model checksum does not match the trusted manifest.")
 
     def _normalize_loaded_models(self) -> None:
         for model in self.models.values():
