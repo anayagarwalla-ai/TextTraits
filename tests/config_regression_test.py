@@ -32,10 +32,34 @@ def main() -> int:
     supabase_docs = (ROOT / "SUPABASE_POSTGRES_SETUP.md").read_text(encoding="utf-8")
     supabase_script = (ROOT / "scripts" / "setup_supabase_cli.sh").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    render_yaml = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    procfile = (ROOT / "Procfile").read_text(encoding="utf-8")
+    root_entrypoint = (ROOT / "app.py").read_text(encoding="utf-8")
     assert_true(supabase_ref in supabase_docs, "Supabase docs should include the project ref")
     assert_true(f"supabase link --project-ref {supabase_ref}" in supabase_docs, "Supabase docs should include the CLI link command")
     assert_true(supabase_ref in supabase_script and "supabase login" in supabase_script and "supabase init" in supabase_script, "Supabase helper should run login/init/link flow")
     assert_true(supabase_ref in env_example and "DATABASE_URL=" in env_example, ".env example should point DATABASE_URL users to the Supabase project")
+    assert_true("startCommand: gunicorn app:app" in render_yaml, "Render should use the root app:app entrypoint")
+    assert_true("env: python" in render_yaml and "buildCommand: pip install -r requirements.txt" in render_yaml, "Render blueprint should be a native Python service")
+    assert_true("gunicorn app:app" in procfile, "Procfile should match Render's app:app entrypoint")
+    assert_true("APP_DIR" in root_entrypoint and "application = app" in root_entrypoint, "Root app.py should expose app and application for WSGI hosts")
+
+    render_import = subprocess.run(
+        [sys.executable, "-c", "from app import app, application; assert app is application; print(app.name)"],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "TEXTTRAITS_ENV": "development",
+            "TEXTTRAITS_SECRET_KEY": "render-entrypoint-test-secret",
+            "TEXTTRAITS_EMAIL_PROVIDER": "console",
+            "TEXTTRAITS_DATABASE_URL": "",
+            "DATABASE_URL": "",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert_true(render_import.returncode == 0, render_import.stderr)
 
     local = run_preflight({"TEXTTRAITS_ENV": "development", "TEXTTRAITS_EMAIL_PROVIDER": ""})
     assert_true(local.returncode == 0, local.stderr)

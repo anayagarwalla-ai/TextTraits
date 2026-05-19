@@ -14,7 +14,7 @@ This is the free-only checklist for the owner of csboi/TextTraits to deploy Text
    - Deploy it as a dynamic web service, not a static site.
    - If the host detects the Dockerfile, use Docker.
    - If the host asks for a start command, use:
-     gunicorn texttraits_app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+     gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
 
 3. Create a free hosted Postgres database
    - Use a free hosted Postgres provider such as Supabase, Neon, or a free Render Postgres instance if available.
