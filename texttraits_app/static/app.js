@@ -721,10 +721,12 @@ function renderAccountCard() {
             <button class="button-secondary" type="button" data-auth-mode="create" role="tab" aria-selected="${String(authMode === "create")}">Create account</button>
             <button class="button-secondary" type="button" data-auth-mode="reset" role="tab" aria-selected="${String(authMode === "reset")}">Reset</button>
           </div>
-          <div class="account-benefits compact-benefits" aria-label="What account sync saves">
-            <article><strong>Explorer</strong><span>Journal, streaks, recaps.</span></article>
-            <article><strong>Enterprise</strong><span>Campaigns, drafts, queues.</span></article>
-          </div>
+          ${authMode === "create" ? "" : `
+            <div class="account-benefits compact-benefits" aria-label="What account sync saves">
+              <article><strong>Explorer</strong><span>Journal, streaks, recaps.</span></article>
+              <article><strong>Enterprise</strong><span>Campaigns, drafts, queues.</span></article>
+            </div>
+          `}
           <div class="auth-grid auth-grid-focused" aria-label="${escapeHtml(authTitle)} form">
             ${showName ? `<label class="field"><span>Name</span><input id="auth-name" autocomplete="name" value="${escapeHtml(state.accountDraft.name)}" placeholder="Your name"></label>` : ""}
             <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" value="${escapeHtml(state.accountDraft.email)}" placeholder="you@example.com"></label>
@@ -1386,6 +1388,17 @@ function choicePillGroup(id, label, values, selected = "") {
       </div>
     </div>
   `;
+}
+
+function rewriteTitle(goal = "") {
+  const clean = String(goal || "").trim();
+  if (!clean) return "Clearer version";
+  if (/^make this clearer$/i.test(clean)) return "Clearer version";
+  if (/^make this warmer$/i.test(clean)) return "Warmer version";
+  if (/^make this shorter$/i.test(clean)) return "Shorter version";
+  if (/^sound less harsh$/i.test(clean)) return "Less harsh version";
+  if (/^sound more confident$/i.test(clean)) return "More confident version";
+  return `${clean.replace(/^Make this /i, "").replace(/^Sound /i, "")} version`;
 }
 
 function renderExplorerEmpty() {
@@ -2382,7 +2395,7 @@ function renderExplorerResult(data) {
         </article>
         <article class="strategy-card coach-card rewrite-card">
           <span class="label">Try this rewrite</span>
-          <strong data-rewrite-title>${escapeHtml(state.explorerRewriteGoal)} version</strong>
+          <strong data-rewrite-title>${escapeHtml(rewriteTitle(state.explorerRewriteGoal))}</strong>
           <p data-rewrite-preview>${escapeHtml(rewritePreview)}</p>
           <div class="result-actions">
             <button type="button" data-copy-rewrite>Copy rewrite</button>
@@ -2541,7 +2554,7 @@ function renderExplorerResult(data) {
       persistWorkspace();
       const title = els.outputPanel.querySelector("[data-rewrite-title]");
       const preview = els.outputPanel.querySelector("[data-rewrite-preview]");
-      if (title) title.textContent = `${state.explorerRewriteGoal} version`;
+      if (title) title.textContent = rewriteTitle(state.explorerRewriteGoal);
       if (preview) preview.textContent = after;
       els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((item) => {
         item.setAttribute("aria-pressed", String(item.dataset.explorerRewrite === state.explorerRewriteMode));

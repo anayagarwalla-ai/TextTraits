@@ -20,8 +20,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --focus: 0 0 0 4px rgba(15, 118, 110, 0.2);
-  --motion-fast: 220ms cubic-bezier(.2, .8, .2, 1);
-  --motion-soft: 360ms cubic-bezier(.2, .8, .2, 1);
+  --motion-fast: 300ms cubic-bezier(.2, .8, .2, 1);
+  --motion-soft: 460ms cubic-bezier(.2, .8, .2, 1);
 }
 
 body[data-mode="enterprise"] {
@@ -78,12 +78,17 @@ button {
   color: #fff;
   font-weight: 800;
   cursor: pointer;
-  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+  transition: background var(--motion-soft), border-color var(--motion-soft), box-shadow var(--motion-soft), transform var(--motion-soft);
 }
 
 button:hover:not(:disabled) {
   background: var(--accent-strong);
   transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 180ms;
 }
 
 .button-secondary:hover:not(:disabled),
@@ -330,7 +335,7 @@ body[data-mode="enterprise"] .brand-block .eyebrow::before {
 
 .account-sheet .auth-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, auto));
+  grid-template-columns: repeat(2, minmax(0, auto));
   justify-content: start;
   gap: 12px;
 }
@@ -863,7 +868,7 @@ body[data-mode="enterprise"] .label {
 .enterprise-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 20px;
 }
 
 .field-grid-spaced {
@@ -1035,7 +1040,7 @@ input[type="range"] {
   position: sticky;
   bottom: 10px;
   z-index: 4;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.9);
@@ -1288,7 +1293,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .message-coach-strip {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   align-items: stretch;
   padding: 12px;
   border: 1px solid rgba(216, 226, 220, 0.72);
@@ -1298,8 +1303,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .message-mode-detail {
   display: grid;
-  gap: 3px;
-  padding-top: 10px;
+  gap: 6px;
+  padding-top: 12px;
   border-top: 1px solid rgba(216, 226, 220, 0.68);
 }
 
@@ -1314,7 +1319,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 2px;
 }
 
 .mode-chip {
@@ -1337,7 +1343,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .choice-field {
   align-content: start;
-  gap: 12px;
+  gap: 14px;
 }
 
 .choice-field > span {
@@ -1350,7 +1356,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .choice-pill-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 2px;
 }
 
 .choice-pill {
@@ -1489,8 +1496,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .rewrite-goals {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 14px;
+  gap: 10px;
+  margin-top: 18px;
 }
 
 .rewrite-goals button {
@@ -1505,7 +1512,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .more-rewrite-goals {
-  margin-top: 12px;
+  margin-top: 16px;
   color: var(--muted);
 }
 
@@ -1582,8 +1589,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .weekly-recap-panel article,
 .weekly-recap-page article {
   display: grid;
-  gap: 6px;
-  padding: 12px;
+  gap: 10px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: #fff;
@@ -1652,7 +1659,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .journal-entry-card .section-title span {
   display: block;
-  margin-top: 3px;
+  margin-top: 7px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
@@ -1972,7 +1979,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .prompt-library {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 14px;
+  margin-top: 18px;
 }
 
 .prompt-card {
@@ -2001,9 +2008,9 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .selected-prompt {
   display: grid;
-  gap: 8px;
-  padding: 13px;
-  border: 1px solid rgba(13, 122, 111, 0.22);
+  gap: 10px;
+  padding: 15px;
+  border: 0;
   border-radius: var(--radius-sm);
   background: rgba(239, 247, 244, 0.72);
 }
@@ -2129,8 +2136,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .quick-rewrite-actions {
   grid-template-columns: repeat(3, minmax(0, auto));
   justify-content: start;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .quick-rewrite-actions button[aria-pressed="true"] {
@@ -2551,6 +2558,78 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .editor-actions,
 .integration-list,
 .workspace-controls,
+.result-actions {
+  margin-top: 12px;
+}
+
+.rewrite-card .result-actions {
+  margin-top: 16px;
+}
+
+.explorer-settings-drawer {
+  border: 0;
+  padding: 12px 0 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.explorer-settings-drawer[open] {
+  gap: 20px;
+}
+
+.explorer-settings-drawer > summary {
+  padding: 0;
+}
+
+.explorer-settings-drawer > .field {
+  margin-top: 12px;
+}
+
+.more-rewrite-goals[open] {
+  gap: 16px;
+}
+
+.more-rewrite-goals[open] .rewrite-goals {
+  margin-top: 0;
+}
+
+.workflow-card,
+.strategy-card {
+  scroll-margin-top: 18px;
+}
+
+.start-card .label {
+  font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
+}
+
+.start-card {
+  gap: 14px;
+}
+
+.start-card strong {
+  margin-top: 0;
+}
+
+.start-card p {
+  margin-top: 2px;
+}
+
+.enterprise-start-grid.single-start {
+  gap: 18px;
+}
+
+.account-sheet .auth-grid-focused {
+  gap: 18px;
+}
+
+.account-code-panel {
+  margin-top: 4px;
+}
+
+.account-benefits.compact-benefits {
+  margin-top: -2px;
+}
+
 .result-actions {
   display: flex;
   flex-wrap: wrap;
