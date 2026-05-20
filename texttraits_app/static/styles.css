@@ -869,11 +869,11 @@ body[data-mode="enterprise"] .label {
 .enterprise-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 22px 24px;
 }
 
 .field-grid-spaced {
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .enterprise-compact-textarea {
@@ -893,7 +893,7 @@ body[data-mode="enterprise"] .label {
 .enterprise-actions {
   position: static;
   gap: 12px;
-  padding-top: 6px;
+  padding-top: 10px;
 }
 
 body[data-mode="enterprise"] .action-row.sticky {
@@ -1326,8 +1326,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 10px;
-  margin-bottom: 2px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .mode-chip {
@@ -1353,6 +1353,11 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   gap: 14px;
 }
 
+.field + .choice-field,
+.choice-field + .choice-field {
+  margin-top: 6px;
+}
+
 .choice-field > span {
   color: var(--muted);
   font-size: 11px;
@@ -1363,8 +1368,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .choice-pill-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 2px;
+  gap: 12px;
+  margin-top: 6px;
 }
 
 .choice-pill {
@@ -1503,8 +1508,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .rewrite-goals {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 12px;
+  margin-top: 20px;
 }
 
 .rewrite-goals button {
@@ -1519,7 +1524,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .more-rewrite-goals {
-  margin-top: 16px;
+  margin-top: 18px;
   color: var(--muted);
 }
 
@@ -1887,19 +1892,22 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .quiet-more-drawer[open] {
-  gap: 18px;
+  gap: 20px;
 }
 
 .quiet-more-drawer > summary {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
   font-size: 14px;
 }
 
 .quiet-more-drawer > .muted {
-  margin: 2px 0 6px;
+  margin: 4px 0 10px;
 }
 
 .explorer-settings-drawer {
-  padding-top: 14px;
+  padding-top: 18px;
   border-top: 1px solid rgba(216, 226, 220, 0.58);
   background: transparent;
 }
@@ -2597,7 +2605,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .more-rewrite-goals[open] .rewrite-goals {
-  margin-top: 0;
+  margin-top: 8px;
 }
 
 .workflow-card,
@@ -2919,8 +2927,8 @@ body.enterprise-collapsed .project-sidebar {
 }
 
 .quiet-more-drawer .field-grid {
-  gap: 18px;
-  margin-top: 4px;
+  gap: 24px 28px;
+  margin-top: 20px;
 }
 
 .enterprise-sample-drawer {
