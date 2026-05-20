@@ -745,7 +745,7 @@ body.enterprise-collapsed .input-panel {
 .input-panel {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 17px;
 }
 
 body[data-mode="enterprise"] .input-panel {
@@ -987,6 +987,10 @@ input[type="range"] {
   flex-wrap: wrap;
   gap: 10px 12px;
   align-items: center;
+}
+
+.rewrite-card .result-actions {
+  margin-top: 10px;
 }
 
 .quality-row {
@@ -1333,7 +1337,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .choice-field {
   align-content: start;
-  gap: 10px;
+  gap: 12px;
 }
 
 .choice-field > span {
@@ -1370,7 +1374,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .coach-flow {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  gap: 12px;
+  gap: 18px;
 }
 
 .coach-card {
@@ -1485,8 +1489,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .rewrite-goals {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 10px;
+  gap: 9px;
+  margin-top: 14px;
 }
 
 .rewrite-goals button {
@@ -1501,7 +1505,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .more-rewrite-goals {
-  margin-top: 8px;
+  margin-top: 12px;
   color: var(--muted);
 }
 
@@ -1868,13 +1872,31 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   background: rgba(255, 255, 255, 0.56);
 }
 
+.quiet-more-drawer[open] {
+  gap: 18px;
+}
+
 .quiet-more-drawer > summary {
   font-size: 14px;
 }
 
+.quiet-more-drawer > .muted {
+  margin: 2px 0 6px;
+}
+
 .explorer-settings-drawer {
-  border-style: dashed;
-  background: rgba(255, 255, 255, 0.5);
+  padding-top: 14px;
+  border-top: 1px solid rgba(216, 226, 220, 0.58);
+  background: transparent;
+}
+
+.explorer-settings-drawer > summary {
+  list-style: none;
+  color: var(--muted);
+}
+
+.explorer-settings-drawer > summary::-webkit-details-marker {
+  display: none;
 }
 
 .mobile-result-actions {
@@ -1950,7 +1972,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .prompt-library {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .prompt-card {
@@ -1979,8 +2001,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .selected-prompt {
   display: grid;
-  gap: 6px;
-  padding: 11px;
+  gap: 8px;
+  padding: 13px;
   border: 1px solid rgba(13, 122, 111, 0.22);
   border-radius: var(--radius-sm);
   background: rgba(239, 247, 244, 0.72);
@@ -1998,6 +2020,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .selected-prompt .quiet-button {
   width: fit-content;
+  margin-top: 4px;
   padding: 5px 0;
   border: 0;
   background: transparent;
@@ -2803,11 +2826,6 @@ body.enterprise-collapsed .project-sidebar {
 .quiet-more-drawer .field-grid {
   gap: 18px;
   margin-top: 4px;
-}
-
-.explorer-settings-drawer {
-  padding-top: 12px;
-  border-top: 1px solid rgba(216, 226, 220, 0.58);
 }
 
 .enterprise-sample-drawer {
