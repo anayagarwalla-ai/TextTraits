@@ -385,9 +385,10 @@ body[data-mode="enterprise"] .brand-block .eyebrow::before {
 }
 
 .account-sheet .quiet-button {
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
+  border: 1px solid rgba(214, 222, 234, 0.88);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--accent-strong);
+  box-shadow: 0 8px 18px rgba(31, 41, 55, 0.06);
   white-space: nowrap;
 }
 
@@ -754,7 +755,7 @@ body.enterprise-collapsed .input-panel {
 }
 
 body[data-mode="enterprise"] .input-panel {
-  gap: 11px;
+  gap: 16px;
 }
 
 body[data-mode="enterprise"] .panel,
@@ -891,7 +892,8 @@ body[data-mode="enterprise"] .label {
 
 .enterprise-actions {
   position: static;
-  padding-top: 2px;
+  gap: 12px;
+  padding-top: 6px;
 }
 
 body[data-mode="enterprise"] .action-row.sticky {
@@ -1049,7 +1051,12 @@ input[type="range"] {
 
 body[data-mode="explorer"] .action-row.sticky {
   position: static;
-  margin-top: 12px;
+  margin-top: 14px;
+  padding: 2px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .sample-grid,
@@ -1304,8 +1311,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .message-mode-detail {
   display: grid;
   gap: 6px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(216, 226, 220, 0.68);
+  padding-top: 4px;
+  border-top: 0;
 }
 
 .message-coach-strip p {
@@ -2596,6 +2603,15 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .workflow-card,
 .strategy-card {
   scroll-margin-top: 18px;
+}
+
+.workflow-card .label,
+.workflow-card strong {
+  display: block;
+}
+
+.workflow-card .label {
+  margin-bottom: 6px;
 }
 
 .start-card .label {
@@ -4315,6 +4331,13 @@ body[data-mode="enterprise"] .footer-note span {
 
 body.is-local-runtime .footer-note {
   display: block;
+  position: static;
+  justify-self: end;
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  margin-top: 2px;
+  margin-bottom: 4px;
+  z-index: auto;
 }
 
 .legal-page {
