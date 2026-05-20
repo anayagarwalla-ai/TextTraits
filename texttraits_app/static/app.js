@@ -683,7 +683,7 @@ function renderAccountCard() {
           ${errorHtml}
           ${deleteWarning}
           <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
-          ${privacyCenterCard()}
+          ${authMode === "create" ? "" : privacyCenterCard()}
           <div class="account-actions sheet-actions">
             <button class="button-secondary" type="button" data-sync-now>Sync now</button>
             <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
@@ -745,7 +745,7 @@ function renderAccountCard() {
               <button class="button-secondary" type="button" data-submit-reset>Update password</button>
             </details>
           </div>
-          ${privacyCenterCard()}
+          ${authMode === "create" ? "" : privacyCenterCard()}
         </section>
       </div>
     `;
@@ -1169,17 +1169,17 @@ function renderExplorerInput() {
     </div>
 
     <section class="message-coach-strip" aria-label="Message Coach Mode">
-      <div>
-        <span class="label">Message Coach Mode</span>
-        <strong>${escapeHtml(currentMessageMode().label)}</strong>
-        <p>${escapeHtml(messageModeHint())}</p>
-      </div>
       <div class="mode-chip-row">
         ${messageModeOptions.map((mode) => `
           <button class="mode-chip" type="button" data-message-mode="${escapeHtml(mode.label)}" aria-pressed="${String(mode.label === currentMessageMode().label)}">
             ${escapeHtml(mode.short)}
           </button>
         `).join("")}
+      </div>
+      <div class="message-mode-detail">
+        <span class="label">Message Coach Mode</span>
+        <strong>${escapeHtml(currentMessageMode().label)}</strong>
+        <p>${escapeHtml(messageModeHint())}</p>
       </div>
     </section>
 
@@ -1203,8 +1203,8 @@ function renderExplorerInput() {
         <input id="reading-name" value="${escapeHtml(state.explorerReadingName)}" placeholder="Daily journal, project email, class note">
       </div>
       <div class="field-grid">
-        ${selectField("explorerFolder", "Private folder", explorerFolders, state.explorerFolder)}
-        ${selectField("explorerWritingGoal", "Writing goal", explorerGoals, state.explorerWritingGoal)}
+        ${choicePillGroup("explorerFolder", "Private folder", explorerFolders, state.explorerFolder)}
+        ${choicePillGroup("explorerWritingGoal", "Writing goal", explorerGoals, state.explorerWritingGoal)}
       </div>
 
       <details class="history-card sample-drawer">
@@ -1370,6 +1370,21 @@ function selectField(id, label, values, selected = "") {
       <span>${escapeHtml(label)}</span>
       <select id="field-${id}">${values.map((value) => `<option ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select>
     </label>
+  `;
+}
+
+function choicePillGroup(id, label, values, selected = "") {
+  return `
+    <div class="field choice-field" role="group" aria-label="${escapeHtml(label)}">
+      <span>${escapeHtml(label)}</span>
+      <div class="choice-pill-row">
+        ${values.map((value) => `
+          <button class="choice-pill" type="button" data-choice-field="${escapeHtml(id)}" data-choice-value="${escapeHtml(value)}" aria-pressed="${String(value === selected)}">
+            ${escapeHtml(value)}
+          </button>
+        `).join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -5095,13 +5110,18 @@ function wireInput() {
         });
       });
     });
-    document.querySelector("#field-explorerFolder")?.addEventListener("change", (event) => {
-      state.explorerFolder = event.target.value;
-      persistWorkspace();
-    });
-    document.querySelector("#field-explorerWritingGoal")?.addEventListener("change", (event) => {
-      state.explorerWritingGoal = event.target.value;
-      persistWorkspace();
+    document.querySelectorAll("[data-choice-field]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.latestText = input.value;
+        if (button.dataset.choiceField === "explorerFolder") {
+          state.explorerFolder = button.dataset.choiceValue || state.explorerFolder;
+        }
+        if (button.dataset.choiceField === "explorerWritingGoal") {
+          state.explorerWritingGoal = button.dataset.choiceValue || state.explorerWritingGoal;
+        }
+        persistWorkspace();
+        render();
+      });
     });
     document.querySelectorAll("[data-use-daily-prompt]").forEach((button) => {
       button.addEventListener("click", () => {
