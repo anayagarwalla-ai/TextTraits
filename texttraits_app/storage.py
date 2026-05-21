@@ -469,6 +469,64 @@ def create_user(email: str, password: str, name: str = "") -> dict[str, Any]:
     return user
 
 
+def upsert_oauth_user(email: str, name: str = "", provider: str = "Google") -> dict[str, Any]:
+    clean_email = email.strip().lower()
+    clean_name = name.strip() or clean_email.split("@")[0].replace(".", " ").title()
+    now = utc_now()
+    password_hash = generate_password_hash(secrets.token_urlsafe(32))
+    with connect() as conn:
+        existing = execute(conn, "SELECT * FROM users WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
+        if existing is not None:
+            execute(
+                conn,
+                """
+                UPDATE users
+                SET name = COALESCE(NULLIF(name, ''), ?),
+                    email_verified_at = COALESCE(email_verified_at, ?),
+                    verification_token = NULL,
+                    last_login_at = ?
+                WHERE id = ?
+                """,
+                (clean_name, now, now, existing["id"]),
+            )
+            row = execute(conn, "SELECT * FROM users WHERE id = ?", (existing["id"],)).fetchone()
+        elif uses_postgres():
+            row = conn.execute(
+                """
+                INSERT INTO users (email, name, password_hash, email_verified_at, verification_token, created_at, last_login_at)
+                VALUES (%s, %s, %s, %s, NULL, %s, %s)
+                RETURNING id
+                """,
+                (clean_email, clean_name, password_hash, now, now, now),
+            ).fetchone()
+            user_id = int(row["id"])
+            execute(
+                conn,
+                "INSERT INTO workspaces (user_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, f"{clean_name}'s workspace", "{}", now, now),
+            )
+            row = execute(conn, "SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        else:
+            cursor = execute(
+                conn,
+                """
+                INSERT INTO users (email, name, password_hash, email_verified_at, verification_token, created_at, last_login_at)
+                VALUES (?, ?, ?, ?, NULL, ?, ?)
+                """,
+                (clean_email, clean_name, password_hash, now, now, now),
+            )
+            user_id = int(cursor.lastrowid)
+            execute(
+                conn,
+                "INSERT INTO workspaces (user_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, f"{clean_name}'s workspace", "{}", now, now),
+            )
+            row = execute(conn, "SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        execute(conn, "DELETE FROM pending_signups WHERE lower(email) = lower(?)", (clean_email,))
+        execute(conn, "INSERT INTO audit_events (user_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)", (row["id"], "oauth_login", json.dumps({"provider": provider}), now))
+    return public_user(row) or {}
+
+
 def authenticate_user(email: str, password: str) -> dict[str, Any] | None:
     row = get_user_by_email(email)
     if row is None or not check_password_hash(row["password_hash"], password):

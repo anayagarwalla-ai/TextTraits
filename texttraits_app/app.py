@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
 import time
+import urllib.request
 from html import escape as html_escape
 from collections import defaultdict, deque
 from functools import wraps
@@ -52,6 +54,7 @@ from storage import (
     contains_sensitive_key,
     scrub_payload,
     upsert_integration,
+    upsert_oauth_user,
     user_session_version,
     verify_email_token,
 )
@@ -99,6 +102,7 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
 APP_SECRET = os.getenv("TEXTTRAITS_SECRET_KEY", "dev-texttraits-change-me")
 PUBLIC_BASE_URL = os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", "http://127.0.0.1:5000")
 ALLOW_DEV_ACCOUNT_LINKS = env_flag("TEXTTRAITS_DEV_ACCOUNT_LINKS", False)
+GOOGLE_AUTH_CLIENT_ID = (os.getenv("TEXTTRAITS_GOOGLE_AUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or "").strip()
 TRUSTED_PUBLIC_HOSTS = {
     host.strip().lower()
     for host in os.getenv("TEXTTRAITS_ALLOWED_PUBLIC_HOSTS", "").split(",")
@@ -429,9 +433,34 @@ def public_app_info() -> dict:
         "sync": True,
         "auth": True,
         "integrations_live": configured_integration_count() > 0,
+        "google_auth": bool(GOOGLE_AUTH_CLIENT_ID),
+        "google_client_id": GOOGLE_AUTH_CLIENT_ID,
         "max_text_words": MAX_TEXT_WORDS,
         "privacy_url": "/privacy",
         "terms_url": "/terms",
+    }
+
+
+def verify_google_identity_token(credential: str) -> dict[str, str]:
+    if not GOOGLE_AUTH_CLIENT_ID:
+        raise ValueError("Google sign-in is not configured for this deployment.")
+    if not credential or len(credential) > 5000:
+        raise ValueError("Google sign-in did not return a valid credential.")
+    url = "https://oauth2.googleapis.com/tokeninfo?" + urlencode({"id_token": credential})
+    with urllib.request.urlopen(url, timeout=8) as response:  # nosec B310
+        profile = json.loads(response.read().decode("utf-8"))
+    if profile.get("aud") != GOOGLE_AUTH_CLIENT_ID:
+        raise ValueError("Google sign-in was issued for a different client.")
+    if profile.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise ValueError("Google sign-in issuer was not recognized.")
+    if str(profile.get("email_verified", "")).lower() != "true":
+        raise ValueError("Google account email is not verified.")
+    email = str(profile.get("email", "")).strip().lower()
+    if "@" not in email:
+        raise ValueError("Google sign-in did not include an email address.")
+    return {
+        "email": email,
+        "name": str(profile.get("name") or profile.get("given_name") or "").strip(),
     }
 
 
@@ -607,6 +636,25 @@ def api_login():
         return jsonify({"error": "Email or password did not match."}), 401
     start_user_session(user)
     log_event(user["id"], "login", {})
+    return jsonify({"authenticated": True, "user": user, "workspace": get_workspace(user["id"])})
+
+
+@app.post("/api/auth/google")
+@rate_limited(20)
+def api_google_auth():
+    payload = request.get_json(silent=True) or {}
+    credential = str(payload.get("credential", "")).strip()
+    try:
+        profile = verify_google_identity_token(credential)
+    except ValueError as error:
+        status = 409 if not GOOGLE_AUTH_CLIENT_ID else 400
+        return jsonify({"error": str(error), "configured": bool(GOOGLE_AUTH_CLIENT_ID)}), status
+    except Exception:
+        logging.exception("google_auth_failed")
+        return jsonify({"error": "Google sign-in could not be verified. Try email sign-in instead."}), 502
+    user = upsert_oauth_user(profile["email"], profile.get("name", ""), provider="Google")
+    start_user_session(user)
+    log_event(user["id"], "login_google", {})
     return jsonify({"authenticated": True, "user": user, "workspace": get_workspace(user["id"])})
 
 

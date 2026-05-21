@@ -7,6 +7,7 @@ const csvUtils = window.TextTraitsCsv || {};
 const enterpriseCopy = window.TextTraitsEnterpriseCopy || {};
 const {escapeHtml, words, percent, titleCase, localStats, todayKey} = textUtils;
 const {parseCsvLine, csvCell} = csvUtils;
+let googleIdentityScriptPromise = null;
 
 const els = {
   body: document.body,
@@ -683,7 +684,7 @@ function renderAccountCard() {
           ${errorHtml}
           ${deleteWarning}
           <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
-          ${authMode === "create" ? "" : privacyCenterCard()}
+          ${privacyCenterCard()}
           <div class="account-actions sheet-actions">
             <button class="button-secondary" type="button" data-sync-now>Sync now</button>
             <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
@@ -720,6 +721,10 @@ function renderAccountCard() {
             <button class="button-secondary" type="button" data-auth-mode="signin" role="tab" aria-selected="${String(authMode === "signin")}">Sign in</button>
             <button class="button-secondary" type="button" data-auth-mode="create" role="tab" aria-selected="${String(authMode === "create")}">Create account</button>
             <button class="button-secondary" type="button" data-auth-mode="reset" role="tab" aria-selected="${String(authMode === "reset")}">Reset</button>
+          </div>
+          <div class="auth-social-panel">
+            <button class="button-secondary google-auth-button" type="button" data-google-account>Continue with Google</button>
+            <p>${config.app?.google_auth ? "Use your verified Google email for a faster sign-in." : "Google sign-in is ready for production OAuth setup. Email sign-in works here now."}</p>
           </div>
           ${authMode === "create" ? "" : `
             <div class="account-benefits compact-benefits" aria-label="What account sync saves">
@@ -809,6 +814,69 @@ function scrollAccountCodePanelIntoView() {
   });
 }
 
+function googleClientId() {
+  return config.app?.google_client_id || "";
+}
+
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleIdentityScriptPromise) return googleIdentityScriptPromise;
+  googleIdentityScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    const nonce = document.querySelector("script[nonce]")?.nonce;
+    if (nonce) script.nonce = nonce;
+    script.addEventListener("load", resolve, {once: true});
+    script.addEventListener("error", () => reject(new Error("Google sign-in could not load. Use email sign-in for now.")), {once: true});
+    document.head.appendChild(script);
+  });
+  return googleIdentityScriptPromise;
+}
+
+async function handleGoogleCredential(response) {
+  if (!response?.credential) {
+    showAccountError("Google sign-in did not return an account. Use email sign-in for now.");
+    return;
+  }
+  try {
+    const data = await apiClient.googleLogin(response.credential);
+    applyAuthenticatedAccount(data, "Google sign-in");
+  } catch (error) {
+    showAccountError(error.message || "Google sign-in failed. Use email sign-in for now.");
+  }
+}
+
+async function startGoogleAccountAuth(button) {
+  syncAccountDraftFromFields();
+  const clientId = googleClientId();
+  if (!clientId) {
+    showAccountError("Google sign-in is not connected in this local demo yet. Use email and the 6-digit code for now.");
+    return;
+  }
+  try {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    await loadGoogleIdentityScript();
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: handleGoogleCredential,
+      cancel_on_tap_outside: false,
+    });
+    window.google.accounts.id["prompt"]((notification) => {
+      if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.()) {
+        showAccountError("Google sign-in could not open in this browser. Use email sign-in for now.");
+      }
+    });
+  } catch (error) {
+    showAccountError(error.message || "Google sign-in could not start. Use email sign-in for now.");
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
 function wireAccountCard() {
   els.accountCard?.querySelector("[data-open-account]")?.addEventListener("click", () => {
     state.accountModalOpen = true;
@@ -836,6 +904,7 @@ function wireAccountCard() {
     renderAccountCard();
   });
   els.accountCard?.querySelector("[data-sync-now]")?.addEventListener("click", () => syncWorkspace());
+  els.accountCard?.querySelector("[data-google-account]")?.addEventListener("click", (event) => startGoogleAccountAuth(event.currentTarget));
   els.accountCard?.querySelectorAll("#auth-name, #auth-email, #verify-token, #reset-token").forEach((field) => {
     field.addEventListener("input", syncAccountDraftFromFields);
   });
@@ -2138,7 +2207,7 @@ function explorerWorkflowCards(text, sourceType) {
   if (sourceType === "reply" || looksLikeReply(text)) {
     const triage = replyTriage(text);
     cards.push(`
-      <article class="strategy-card triage-card">
+      <article class="strategy-card workflow-card triage-card">
         <span class="label">Reply triage</span>
         <strong>${escapeHtml(triage.type)} / ${escapeHtml(triage.urgency)}</strong>
         <div class="mini-grid">
@@ -2153,7 +2222,7 @@ function explorerWorkflowCards(text, sourceType) {
   if (sourceType === "decision note" || /\b(decision|option|recommend|should we|next step|tradeoff|priority)\b/i.test(text)) {
     const draft = decisionDraft(text);
     cards.push(`
-      <article class="strategy-card decision-card">
+      <article class="strategy-card workflow-card decision-card">
         <span class="label">Decision Draft Mode</span>
         <strong>Turn this into a clear decision note</strong>
         <div class="mini-grid">

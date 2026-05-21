@@ -61,6 +61,10 @@
       method: "POST",
       body: JSON.stringify(payload),
     }),
+    googleLogin: (credential) => request("/api/auth/google", {
+      method: "POST",
+      body: JSON.stringify({credential}),
+    }),
     logout: () => request("/api/logout", {method: "POST"}),
     requestPasswordReset: (email) => request("/api/request-password-reset", {
       method: "POST",
