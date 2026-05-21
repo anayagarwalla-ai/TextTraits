@@ -1695,12 +1695,24 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   margin-top: 2px;
 }
 
+.explorer-settings-drawer > .field + .history-card {
+  margin-top: 22px;
+}
+
 .explorer-settings-drawer .history-card[open] + .history-card {
   margin-top: 20px;
 }
 
 .explorer-settings-drawer .history-card[open] + .history-card > summary {
   padding-top: 2px;
+}
+
+.advanced-card[open] + .advanced-card,
+.secondary-result-details[open] + .secondary-result-details,
+.quality-summary[open] + .quality-summary,
+.editor-secondary-actions[open] + .editor-secondary-actions,
+.analytics-section[open] + .analytics-section {
+  margin-top: 18px;
 }
 
 .feedback-menu[open] {
@@ -2279,6 +2291,21 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   margin-top: 0;
 }
 
+body[data-mode="enterprise"] .input-panel .sample-grid {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 12px;
+}
+
+body[data-mode="enterprise"] .input-panel .sample-card {
+  min-height: 96px;
+  padding: 12px;
+}
+
+body[data-mode="enterprise"] .input-panel .sample-card strong {
+  font-size: 13px;
+  line-height: 1.22;
+}
+
 .feedback-row {
   display: flex;
   flex-wrap: wrap;
@@ -2748,6 +2775,13 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 .workspace-controls,
 .result-actions {
   margin-top: 12px;
+}
+
+.feature-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: flex-start;
 }
 
 .rewrite-card .result-actions {
@@ -4235,6 +4269,7 @@ body[data-mode="enterprise"] .advanced-card {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.35;
 }
 
 .workspace-command,
@@ -5149,6 +5184,21 @@ details[open] > *:not(summary) {
 
   body[data-mode="enterprise"] .enterprise-today-hero .setup-open-status {
     justify-self: start;
+  }
+
+  body[data-mode="enterprise"] .sample-preview-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  body[data-mode="enterprise"] .sample-preview-grid .result-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  body[data-mode="enterprise"] .sample-preview-grid .result-actions button {
+    width: 100%;
   }
 
   body[data-mode="enterprise"] .enterprise-today-hero h2 {
