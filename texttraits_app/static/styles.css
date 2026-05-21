@@ -20,8 +20,8 @@
   --radius: 12px;
   --radius-sm: 8px;
   --focus: 0 0 0 4px rgba(15, 118, 110, 0.2);
-  --motion-fast: 340ms cubic-bezier(.2, .8, .2, 1);
-  --motion-soft: 520ms cubic-bezier(.2, .8, .2, 1);
+  --motion-fast: 420ms cubic-bezier(.2, .8, .2, 1);
+  --motion-soft: 680ms cubic-bezier(.2, .8, .2, 1);
 }
 
 body[data-mode="enterprise"] {
@@ -94,8 +94,8 @@ button:hover:not(:disabled) {
 }
 
 button:active:not(:disabled) {
-  transform: translateY(0) scale(0.99);
-  transition-duration: 240ms;
+  transform: translateY(0) scale(0.985);
+  transition-duration: 320ms;
 }
 
 .button-secondary:hover:not(:disabled),
@@ -931,7 +931,7 @@ body[data-mode="enterprise"] .interface-label {
 .enterprise-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px 24px;
+  gap: 24px 26px;
 }
 
 .field-grid-spaced {
@@ -1178,6 +1178,12 @@ body[data-mode="explorer"] .action-row.sticky {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.76);
   border-radius: var(--radius-sm);
+  transition:
+    background var(--motion-soft),
+    border-color var(--motion-soft),
+    box-shadow var(--motion-soft),
+    color var(--motion-fast),
+    transform var(--motion-soft);
 }
 
 .sample-card:hover:not(:disabled),
@@ -1397,9 +1403,9 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .message-coach-strip {
   display: grid;
-  gap: 18px;
+  gap: 22px;
   align-items: stretch;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid rgba(216, 226, 220, 0.72);
   border-radius: var(--radius);
   background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(239,247,244,0.72));
@@ -1407,8 +1413,9 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .message-mode-detail {
   display: grid;
-  gap: 8px;
-  padding-top: 4px;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 2px;
   border-top: 0;
 }
 
@@ -1424,7 +1431,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .mode-chip {
@@ -1436,6 +1443,12 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   color: var(--accent-strong);
   font-size: 14px;
   font-weight: 900;
+  transition:
+    background var(--motion-soft),
+    border-color var(--motion-soft),
+    box-shadow var(--motion-soft),
+    color var(--motion-fast),
+    transform var(--motion-soft);
 }
 
 .mode-chip[aria-pressed="true"] {
@@ -1466,12 +1479,12 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 
 .choice-field {
   align-content: start;
-  gap: 14px;
+  gap: 16px;
 }
 
 .field + .choice-field,
 .choice-field + .choice-field {
-  margin-top: 6px;
+  margin-top: 10px;
 }
 
 .choice-field > span {
@@ -1485,7 +1498,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .choice-pill {
@@ -1497,6 +1510,12 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   color: var(--accent-strong);
   font-size: 13px;
   font-weight: 900;
+  transition:
+    background var(--motion-soft),
+    border-color var(--motion-soft),
+    box-shadow var(--motion-soft),
+    color var(--motion-fast),
+    transform var(--motion-soft);
 }
 
 .choice-pill[aria-pressed="true"] {
@@ -1638,12 +1657,18 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin-top: 20px;
+  margin-top: 22px;
 }
 
 .rewrite-goals button {
   padding: 9px 13px;
   font-size: 13px;
+  transition:
+    background var(--motion-soft),
+    border-color var(--motion-soft),
+    box-shadow var(--motion-soft),
+    color var(--motion-fast),
+    transform var(--motion-soft);
 }
 
 .rewrite-goals button[aria-pressed="true"] {
@@ -2083,7 +2108,7 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .quiet-more-drawer > .muted + .field {
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 .explorer-settings-drawer {
@@ -2192,6 +2217,12 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   background: #fff;
   color: var(--ink);
   text-align: left;
+  transition:
+    background var(--motion-soft),
+    border-color var(--motion-soft),
+    box-shadow var(--motion-soft),
+    color var(--motion-fast),
+    transform var(--motion-soft);
 }
 
 .prompt-card span {
@@ -3148,30 +3179,31 @@ body.enterprise-collapsed .project-sidebar {
 
 .start-card {
   align-content: center;
-  gap: 10px;
+  gap: 14px;
 }
 
 .start-card .label {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: 0;
   font-family: inherit;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.35;
 }
 
 .start-card strong {
   display: block;
   font-size: 22px;
   line-height: 1.12;
-}
-
-.start-card p {
   margin-top: 0;
 }
 
+.start-card p {
+  margin-top: 2px;
+}
+
 .quiet-more-drawer .field-grid {
-  gap: 24px 28px;
-  margin-top: 22px;
+  gap: 28px 30px;
+  margin-top: 24px;
 }
 
 .enterprise-sample-drawer {
