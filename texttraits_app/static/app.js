@@ -1350,7 +1350,7 @@ function renderEnterpriseInput() {
         <h2>Quick draft setup</h2>
         <p class="helper">Paste the buyer's own words first. Use the rest only when it helps the draft sound more specific.</p>
       </div>
-      <span class="preview-badge">Draft setup</span>
+      <span class="interface-label">Draft setup</span>
     </div>
 
     <div class="field">
@@ -1558,15 +1558,22 @@ function renderExplorerEmpty() {
 }
 
 function renderEnterpriseEmpty() {
+  const setupOpen = Boolean(state.enterpriseSetupOpen);
+  const setupHeroAction = setupOpen
+    ? `<span class="setup-open-status" role="status">Draft setup is open</span>`
+    : `<button type="button" data-focus-enterprise-input>Create campaign</button>`;
+  const setupStartAction = setupOpen
+    ? `<span class="setup-open-status" role="status">Draft setup open</span>`
+    : `<button class="button-secondary" type="button" data-focus-enterprise-input>Open draft setup</button>`;
   els.outputPanel.innerHTML = `
     <div class="empty-layout fade-in enterprise-empty calm-enterprise-home">
       <section class="enterprise-today-hero">
         <div>
-          <span class="preview-badge">Workspace</span>
+          <span class="interface-label">Workspace</span>
           <h2>Today's work</h2>
           <p>Review one buyer signal, approve the best draft, and export only when the setup is connected.</p>
         </div>
-        <button type="button" data-focus-enterprise-input>Create campaign</button>
+        ${setupHeroAction}
       </section>
 
       <div class="today-grid quiet-dashboard enterprise-start-grid single-start">
@@ -1574,7 +1581,7 @@ function renderEnterpriseEmpty() {
           <span class="label">Start here</span>
           <strong>Paste a prospect signal.</strong>
           <p>Generate the first drafts, then move directly into the review queue. Campaign setup stays hidden until you need it.</p>
-          <button class="button-secondary" type="button" data-focus-enterprise-input>Open draft setup</button>
+          ${setupStartAction}
         </article>
       </div>
 
@@ -1639,6 +1646,7 @@ function renderEnterpriseEmpty() {
   `;
   els.outputPanel.querySelectorAll("[data-focus-enterprise-input]").forEach((button) => button.addEventListener("click", () => {
     state.enterpriseSetupOpen = true;
+    persistWorkspace();
     render();
     requestAnimationFrame(() => document.querySelector("#enterprise-text")?.focus());
   }));
@@ -3755,7 +3763,7 @@ function projectSidebar(context) {
   return `
     <aside class="project-sidebar" aria-label="Project sidebar">
       <div>
-        <span class="label">Workspace</span>
+        <span class="interface-label">Workspace</span>
         <strong>${escapeHtml(context.folder || "RevOps")}</strong>
       </div>
       ${rows.map(([key, label, meta]) => `<button type="button" class="tree-row" data-tree-shortcut="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta)}</small></button>`).join("")}
