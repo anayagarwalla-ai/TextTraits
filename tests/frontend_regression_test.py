@@ -100,6 +100,7 @@ def main() -> int:
     assert_true(".sample-card:hover:not(:disabled)" in styles_css and "grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))" in styles_css, "Example cards should stay readable in narrow columns")
     assert_true(".explorer-settings-drawer .history-card[open] + .history-card" in styles_css and "margin-top: 20px" in styles_css, "Opened prompt sections should leave breathing room before the next section")
     assert_true(".explorer-settings-drawer > .field + .history-card" in styles_css and "margin-top: 22px" in styles_css, "Writing log should not crowd the compare text box")
+    assert_true(".quiet-more-drawer > .muted + .field" in styles_css and "margin-top: 16px" in styles_css, "More drawer helper text should not crowd the sample-name field label")
     assert_true("body[data-mode=\"enterprise\"] .input-panel .sample-grid" in styles_css and "minmax(128px, 1fr)" in styles_css, "Enterprise setup sample cards should not crowd in the side panel")
     assert_true("body[data-mode=\"enterprise\"] .sample-preview-grid" in styles_css and "grid-template-columns: 1fr" in styles_css, "Enterprise sample workspace drawer should not stay cramped on mobile")
     assert_true(".quiet-more-drawer .field-grid" in styles_css and ".start-card strong" in styles_css, "Todo spacing fixes should cover More controls and enterprise start card")
