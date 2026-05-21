@@ -1695,6 +1695,14 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
   margin-top: 2px;
 }
 
+.explorer-settings-drawer .history-card[open] + .history-card {
+  margin-top: 20px;
+}
+
+.explorer-settings-drawer .history-card[open] + .history-card > summary {
+  padding-top: 2px;
+}
+
 .feedback-menu[open] {
   width: 100%;
 }
@@ -2154,8 +2162,8 @@ body[data-mode="enterprise"] .enterprise-command-header h2 {
 }
 
 .explorer-settings-drawer .prompt-library {
-  gap: 12px;
-  margin-top: 0;
+  gap: 16px;
+  margin: 0 0 8px;
 }
 
 .prompt-card {

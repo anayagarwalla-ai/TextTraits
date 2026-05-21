@@ -98,6 +98,7 @@ def main() -> int:
     assert_true("choicePillGroup" in app_js and "data-choice-field" in app_js and "explorerWritingGoal" in app_js, "Explorer writing goal should use fixed pills instead of an upward-opening select")
     assert_true(".mode-chip:hover:not(:disabled)" in styles_css and ".choice-pill:hover:not(:disabled)" in styles_css, "Chip hover states should stay readable and subtle")
     assert_true(".sample-card:hover:not(:disabled)" in styles_css and "grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))" in styles_css, "Example cards should stay readable in narrow columns")
+    assert_true(".explorer-settings-drawer .history-card[open] + .history-card" in styles_css and "margin-top: 20px" in styles_css, "Opened prompt sections should leave breathing room before the next section")
     assert_true(".quiet-more-drawer .field-grid" in styles_css and ".start-card strong" in styles_css, "Todo spacing fixes should cover More controls and enterprise start card")
     assert_true(".quiet-more-drawer[open]" in styles_css and "gap: 22px" in styles_css, "More drawer should keep visible spacing between stacked boxes")
     assert_true(".explorer-settings-drawer > summary" in styles_css and "list-style: none" in styles_css, "Journal and prompt settings should read like a flat disclosure, not an outlined card")
