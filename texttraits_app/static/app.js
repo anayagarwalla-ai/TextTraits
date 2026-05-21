@@ -279,6 +279,11 @@ const messageModeOptions = [
   {label: "Essay / school", short: "School", source: "essay", rewriteGoal: "School-ready", hint: "An essay, class paragraph, or application draft."},
 ];
 
+function withTerminalPunctuation(text = "") {
+  const clean = String(text || "").trim();
+  return clean && !/[.!?]"?$/.test(clean) ? `${clean}.` : clean;
+}
+
 function loadWorkspace() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -1461,12 +1466,19 @@ function choicePillGroup(id, label, values, selected = "") {
 
 function rewriteTitle(goal = "") {
   const clean = String(goal || "").trim();
+  const directTitles = {
+    "make this clearer": "Clearer version",
+    "make this warmer": "Warmer version",
+    "make this shorter": "Shorter version",
+    "make it kinder": "Kinder version",
+    "send as email": "Email version",
+    "sound confident": "More confident version",
+    "sound more confident": "More confident version",
+    "sound less harsh": "Less harsh version",
+  };
   if (!clean) return "Clearer version";
-  if (/^make this clearer$/i.test(clean)) return "Clearer version";
-  if (/^make this warmer$/i.test(clean)) return "Warmer version";
-  if (/^make this shorter$/i.test(clean)) return "Shorter version";
-  if (/^sound less harsh$/i.test(clean)) return "Less harsh version";
-  if (/^sound more confident$/i.test(clean)) return "More confident version";
+  if (directTitles[clean.toLowerCase()]) return directTitles[clean.toLowerCase()];
+  if (/\bversion$/i.test(clean)) return clean;
   return `${clean.replace(/^Make this /i, "").replace(/^Sound /i, "")} version`;
 }
 
@@ -2390,7 +2402,8 @@ function renderExplorerResult(data) {
   const nextAction = nextWritingAction(stats, strongest);
   const profile = explorerProfileSummary();
   const currentClarity = clarityScore(stats, strongestRow);
-  const rewritePreview = makeExplorerRewrite(state.latestText, state.explorerRewriteMode);
+  const rewritePreview = withTerminalPunctuation(makeExplorerRewrite(state.latestText, state.explorerRewriteMode));
+  const rewriteTitleText = rewriteTitle(state.explorerRewriteGoal);
   const workflowCards = explorerWorkflowCards(state.latestText, sourceType);
   const latestEntry = state.explorerHistory[0];
   const streak = explorerStreak();
@@ -2472,7 +2485,7 @@ function renderExplorerResult(data) {
         </article>
         <article class="strategy-card coach-card rewrite-card">
           <span class="label">Try this rewrite</span>
-          <strong data-rewrite-title>${escapeHtml(rewriteTitle(state.explorerRewriteGoal))}</strong>
+          <strong data-rewrite-title>${escapeHtml(rewriteTitleText)}</strong>
           <p data-rewrite-preview>${escapeHtml(rewritePreview)}</p>
           <div class="result-actions">
             <button type="button" data-copy-rewrite>Copy rewrite</button>
@@ -2624,7 +2637,7 @@ function renderExplorerResult(data) {
   els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((button) => {
     button.addEventListener("click", () => {
       const before = state.latestText;
-      const after = makeExplorerRewrite(state.latestText, button.dataset.explorerRewrite);
+      const after = withTerminalPunctuation(makeExplorerRewrite(state.latestText, button.dataset.explorerRewrite));
       recordVersion("Explorer rewrite", button.textContent.trim(), before, after, `${button.textContent.trim()} generated`);
       state.activeExplorerTab = "style";
       state.explorerRewriteMode = button.dataset.explorerRewrite;
