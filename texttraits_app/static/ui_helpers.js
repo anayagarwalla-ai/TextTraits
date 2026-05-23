@@ -1,7 +1,7 @@
 (function () {
   function loadingCard(mode) {
-    const title = mode === "enterprise" ? "Building the campaign workspace..." : "Reading your writing...";
-    const copy = mode === "enterprise" ? "Drafts, review queue, and export checks are being prepared." : "Explorer is preparing the plain read and rewrite.";
+    const title = mode === "enterprise-optimizer" ? "Scoring the existing email..." : "Reading your writing...";
+    const copy = mode === "enterprise-optimizer" ? "Send-readiness checks and local model signals are being prepared." : "TextTraits is preparing the objective readout.";
     return `
       <div class="loading-card fade-in" role="status" aria-live="polite" tabindex="-1">
         <span class="status-pill">Working</span>
@@ -20,7 +20,7 @@
     return `
       <div class="empty-hero error-card" role="alert">
         <span class="status-pill">Needs retry</span>
-        <h2>The reading did not run.</h2>
+        <h2>The analysis did not run.</h2>
         <p class="muted">${message}</p>
         <button class="button-secondary" id="retry-run" type="button">Retry</button>
       </div>
@@ -39,7 +39,7 @@
   }
 
   function workflowLabels() {
-    return window.TextTraitsProduct?.workflow || ["Import", "Draft", "Review", "Export", "Track"];
+    return ["Paste", "Score", "Review", "Export"];
   }
 
   window.TextTraitsUi = {
