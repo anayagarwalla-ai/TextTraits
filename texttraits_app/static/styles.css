@@ -4711,6 +4711,163 @@ details[open] > *:not(summary) {
   animation: softReveal var(--motion-fast) ease both;
 }
 
+body[data-mode="model-only"] .app-shell {
+  max-width: 1180px;
+}
+
+body[data-mode="model-only"] .topbar {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+}
+
+body[data-mode="model-only"] .workspace {
+  grid-template-columns: minmax(320px, 0.74fr) minmax(0, 1.26fr);
+}
+
+.model-only-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.model-only-card strong {
+  font-size: 18px;
+}
+
+.model-input-form,
+.objective-result,
+.objective-section,
+.model-empty {
+  display: grid;
+  gap: 18px;
+}
+
+.objective-samples {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.objective-actions {
+  position: static;
+}
+
+.objective-hero-card {
+  min-height: 0;
+}
+
+.objective-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.objective-grid-compact,
+.primary-objective-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.objective-grid-compact .metric-card {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+}
+
+.objective-grid-compact .metric-card strong {
+  display: block;
+}
+
+.objective-card {
+  display: grid;
+  gap: 10px;
+  min-height: 148px;
+  padding: 16px;
+  border: 1px solid rgba(206, 222, 216, 0.82);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 16px 34px rgba(23, 33, 29, 0.05);
+}
+
+.objective-card strong {
+  overflow-wrap: anywhere;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.objective-card.is-unavailable {
+  opacity: 0.76;
+}
+
+.objective-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.objective-meta span,
+.cue-row .chip,
+.objective-table .chip {
+  width: fit-content;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: rgba(241, 248, 245, 0.86);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.objective-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.objective-detail-card {
+  align-content: start;
+}
+
+.objective-quality-card {
+  border-color: rgba(138, 90, 19, 0.22);
+  background: linear-gradient(135deg, rgba(255, 248, 233, 0.92), rgba(255, 255, 255, 0.86));
+}
+
+.objective-bars {
+  gap: 9px;
+}
+
+.cue-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.objective-table {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid rgba(216, 226, 220, 0.74);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.objective-table .table-head,
+.objective-table .table-row {
+  grid-template-columns: minmax(140px, 0.9fr) minmax(120px, 0.9fr) minmax(90px, 0.55fr) minmax(80px, 0.45fr) minmax(190px, 1.2fr);
+}
+
+.objective-table .table-row {
+  align-items: start;
+}
+
+.objective-json pre {
+  overflow: auto;
+  max-height: 420px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid rgba(216, 226, 220, 0.72);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 250, 249, 0.92);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 @keyframes skeletonSlide {
   from { background-position: 100% 0; }
   to { background-position: -100% 0; }
@@ -5431,6 +5588,32 @@ details[open] > *:not(summary) {
 
   .signal-card strong {
     font-size: 18px;
+  }
+
+  body[data-mode="model-only"] .topbar,
+  body[data-mode="model-only"] .workspace,
+  .objective-detail-grid,
+  .objective-grid-compact,
+  .primary-objective-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .objective-samples {
+    grid-template-columns: 1fr;
+  }
+
+  .objective-card {
+    min-height: 0;
+  }
+
+  .objective-table .table-head {
+    display: none;
+  }
+
+  .objective-table .table-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 7px;
   }
 }
 

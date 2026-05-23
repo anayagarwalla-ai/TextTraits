@@ -11,34 +11,25 @@
       crossorigin="anonymous"
     ></script>
   </head>
-  <body data-mode="explorer">
+  <body data-mode="model-only">
     <main class="app-shell">
       <div id="announcer" class="sr-only" aria-live="polite"></div>
 
       <header class="topbar">
         <div class="brand-block">
           <p class="eyebrow">TextTraits</p>
-          <h1 id="hero-title">Write a little clearer every day</h1>
-          <p id="hero-subtitle">A simple writing coach for understanding how your words come across and making the next draft easier to read.</p>
+          <h1 id="hero-title">Objective text traits from the local model.</h1>
+          <p id="hero-subtitle">Analyze writing through prediction distributions, confidence margins, cue terms, and text statistics.</p>
         </div>
 
-        <div class="mode-card" aria-label="Workspace mode">
-          <div class="mode-switch">
-            <button id="mode-explorer" type="button" aria-pressed="true">Explorer</button>
-            <button id="mode-enterprise" type="button" aria-pressed="false">Enterprise</button>
-          </div>
-          <p id="mode-note">Explorer is for everyday writing. Enterprise opens a separate outreach workspace.</p>
+        <div class="mode-card model-only-card" aria-label="Model status">
+          <span class="interface-label">Model-only build</span>
+          <strong>{{ public_model_info.name }}</strong>
+          <p id="mode-note">{{ public_model_info.target_count }} trained targets available{% if public_model_info.demo %}; demo predictor active{% endif %}.</p>
         </div>
       </header>
 
-      <section id="account-card" class="account-card" aria-label="Account and sync"></section>
       <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
-
-      <section id="persona-strip" class="persona-strip" aria-label="Explorer habits">
-        <article><strong>Daily check-in</strong><span>Paste one paragraph and get one clear next edit.</span></article>
-        <article><strong>Writing journal</strong><span>Save readings and compare how your style changes over time.</span></article>
-        <article><strong>Rewrite practice</strong><span>Make a note clearer, warmer, or shorter without overthinking it.</span></article>
-      </section>
 
       <section id="workspace" class="workspace" aria-label="TextTraits workspace">
         <aside id="input-panel" class="panel input-panel"></aside>
@@ -47,7 +38,7 @@
 
       <footer class="footer-note">
         <strong id="runtime-label">Local demo:</strong>
-        <span id="runtime-copy">CRM, email, and sidebar integrations stay preview-only until credentials are connected.</span>
+        <span id="runtime-copy">This branch shows only local model inference results.</span>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
       </footer>
@@ -72,11 +63,8 @@
       };
     </script>
     <script src="{{ url_for('static', filename='text_utils.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='product_config.js') }}" defer></script>
     <script src="{{ url_for('static', filename='api_client.js') }}" defer></script>
     <script src="{{ url_for('static', filename='ui_helpers.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='csv_utils.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='enterprise_copy.js') }}" defer></script>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>
 </html>

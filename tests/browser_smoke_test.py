@@ -21,115 +21,67 @@ def assert_true(condition: bool, message: str) -> None:
 def main() -> int:
     client = app_module.app.test_client()
     html = client.get("/").get_data(as_text=True)
+    explorer_html = client.get("/explorer").get_data(as_text=True)
+    enterprise_html = client.get("/enterprise").get_data(as_text=True)
     js = client.get("/static/app.js").get_data(as_text=True)
     api_js = client.get("/static/api_client.js").get_data(as_text=True)
-    product_js = client.get("/static/product_config.js").get_data(as_text=True)
     utils_js = client.get("/static/text_utils.js").get_data(as_text=True)
     ui_js = client.get("/static/ui_helpers.js").get_data(as_text=True)
-    csv_js = client.get("/static/csv_utils.js").get_data(as_text=True)
-    enterprise_copy_js = client.get("/static/enterprise_copy.js").get_data(as_text=True)
     css = client.get("/static/styles.css").get_data(as_text=True)
 
-    assert_true('id="mode-explorer"' in html, "Explorer mode control missing")
-    assert_true('id="mode-enterprise"' in html, "Enterprise mode control missing")
-    assert_true("api_client.js" in html, "split API client missing from template")
-    assert_true("product_config.js" in html, "product config module missing from template")
-    assert_true("text_utils.js" in html, "split text utility module missing from template")
-    assert_true("ui_helpers.js" in html, "split UI helper module missing from template")
-    assert_true("csv_utils.js" in html, "split CSV utility module missing from template")
-    assert_true("enterprise_copy.js" in html, "split Enterprise copy module missing from template")
-    assert_true("TextTraitsApi" in api_js, "API client global missing")
-    assert_true("saveWorkspace" in api_js, "workspace sync API helper missing")
-    assert_true("exportAccount" in api_js and "deleteAccount" in api_js, "account data controls missing")
-    assert_true("integrationProviders" in api_js, "integration provider helper missing")
-    assert_true("TextTraitsProduct" in product_js, "product config global missing")
-    assert_true("TextTraitsUtils" in utils_js and "localStats" in utils_js, "shared text utility module missing")
-    assert_true("TextTraitsUi" in ui_js and "loadingCard" in ui_js, "shared UI helper module missing")
-    assert_true("TextTraitsCsv" in csv_js and "parseCsvLine" in csv_js and "csvCell" in csv_js, "shared CSV utility module missing")
-    assert_true("TextTraitsEnterpriseCopy" in enterprise_copy_js and "buildEmailVariant" in enterprise_copy_js, "shared Enterprise copy module missing")
-    assert_true("renderExplorerInput" in js, "Explorer render path missing")
-    assert_true("renderEnterpriseInput" in js, "Enterprise render path missing")
-    assert_true("renderEnterpriseResult" in js, "Enterprise result path missing")
-    assert_true("buildEmailVariant" in js, "Enterprise draft generator missing")
-    assert_true("subjectLines" in js, "Subject variant generator missing")
-    assert_true("channelPreview" in js, "Channel preview generator missing")
-    assert_true("downloadCsv" in js, "CSV export path missing")
-    assert_true("validateMergeFields" in js, "Merge field validation missing")
-    assert_true("transformDraft" in js, "Draft transforms missing")
-    assert_true("saveCurrentCampaign" in js, "Saved campaign workflow missing")
-    assert_true("resolveMergeFields" in js, "Resolved preview path missing")
-    assert_true("workspace-tabs" in js, "Enterprise workspace tabs missing")
-    assert_true("grouped-tabs" in js, "Grouped enterprise navigation missing")
-    assert_true("activeEnterpriseTool" in js, "Grouped tool navigation missing")
-    assert_true("campaignHome" in js, "Campaign home workspace missing")
-    assert_true("enterprise-focus-band" in js and "secondary-workspace-section" in js, "Enterprise dashboard needs focus-first density control")
-    assert_true("draftsWorkspace" in js, "Focused draft workspace missing")
-    assert_true("analyticsWorkspace" in js, "Analytics workspace missing")
-    assert_true("parseCsv" in js, "Batch CSV parser missing")
-    assert_true("parseCsvLine" in js, "Batch CSV parser should handle quoted and odd CSV rows")
-    assert_true("batchRowsHtml" in js, "Batch result renderer missing")
-    assert_true("sampleInboxThreads" in js, "Inbox reply samples missing")
-    assert_true("winnerPatterns" in js, "Winner learning missing")
-    assert_true("outcomeGrid" in js, "Outcome tracking missing")
-    assert_true("crmConnections" in js, "CRM connection states missing")
-    assert_true("explorerProfileSummary" in js, "Explorer personal profile missing")
-    assert_true("weeklyRecap" in js, "Explorer weekly recap missing")
-    assert_true("consumerPromptLibrary" in js, "Explorer prompt library missing")
-    assert_true("explorerReportText" in js, "Explorer report export missing")
-    assert_true("reviewQueueTable" in js, "Enterprise review queue table missing")
-    assert_true("recordExport" in js, "Enterprise export history missing")
-    assert_true("batchMapping" in js, "Batch mapping state missing")
-    assert_true("renderAccountCard" in js, "account renderer missing")
-    assert_true("feedbackButtons" in js, "feedback learning missing")
-    assert_true("coach-flow" in js, "Explorer three-card coach flow missing")
-    assert_true("habit-strip" in js, "Explorer journal progress strip missing")
-    assert_true("weekly-recap-page" in js, "Explorer weekly recap page missing")
-    assert_true("journal-search" in js, "Explorer journal search missing")
-    assert_true("data-open-journal" in js and "data-apply-journal-filter" in js, "Explorer journal actions missing")
-    assert_true('aria-controls="explorer-journal"' in js, "Explorer journal opener should expose controlled panel")
-    assert_true("selected-prompt" in js and "explorerPlaceholder" in js, "Explorer prompts should guide writing without filling the sample")
-    assert_true("daily-home-card" in js and "streakMilestone" in js, "Explorer needs a true daily home")
-    assert_true("inferExplorerSource" in js and "goalRewriteClose" in js, "Explorer rewrites should adapt to the selected goal")
-    assert_true("mobile-result-actions" in js and "mobile-result-actions" in css, "Explorer mobile result actions missing")
-    assert_true("dailyPromptSample" not in js, "Daily prompt should not include a sample-response autofill path")
-    assert_true("integrationSetupCards" in js, "integration setup cards missing")
-    assert_true("enterpriseFocusMode" in js and "Focus editor" in js and "What changed" in js, "Enterprise focused editor improvements missing")
-    assert_true("versionHistoryHtml" in js, "version history missing")
-    assert_true("restoreVersion" in js, "restoreable version workflow missing")
-    assert_true("Admin controls" in js, "admin controls missing")
-    assert_true("Manager coaching dashboard" in js, "manager coaching missing")
-    assert_true('role="tab"' in js, "tab role semantics missing")
-    assert_true("action.disabled = !text.trim()" in js, "empty input disablement missing")
-    assert_true("data-sample-target" in js, "sample-driven input path missing")
-    assert_true("Hi {{first_name}}" in js, "merge-field placeholder rendering missing")
-    assert_true("Worth a quick 15-minute fit call?" in js + enterprise_copy_js, "CTA grammar fix missing")
-    assert_true("data-mode=\"enterprise\"" in css, "Enterprise visual theme missing")
-    assert_true("enterprise-collapsed" in css, "Collapsed enterprise layout missing")
-    assert_true("editor-workspace" in css, "Email editor layout missing")
-    assert_true("variant-row" in css, "Variant comparison layout missing")
-    assert_true("batch-table" in css, "Batch table layout missing")
-    assert_true("project-sidebar" in css, "Project sidebar layout missing")
-    assert_true("flow-path" in css, "Workflow path layout missing")
-    assert_true("prompt-library" in css, "Prompt library layout missing")
-    assert_true("review-table" in css, "Review table layout missing")
-    assert_true("data-review-draft" in js and "data-review-prospect" in js, "Review queue target actions missing")
-    assert_true('data-enterprise-primary-tab="drafts"' in js, "Non-tab Enterprise navigation should use primary-tab actions")
-    assert_true("Paste CSV rows or load the sample CSV first." in js and "data-generate-batch" in js, "Batch generation needs explicit input gating")
-    assert_true("enterpriseTabNote" in js and "enterpriseToolNote" in js, "Enterprise tabs/tools need contextual action notes")
-    assert_true("Operations" in js and '"insights", "Insights"' in js, "Enterprise should group analytics under Operations insights")
-    assert_true("integrationSetupOpen" in js, "CRM setup shortcut should open setup requirements")
-    assert_true('data-generate-batch ${canGenerate' not in js, "Batch generate should remain clickable for empty-input feedback")
-    assert_true("export-history" in css, "Export history layout missing")
-    assert_true("sync-card" in css, "Account sync layout missing")
-    assert_true("onboarding-card" in css, "Onboarding layout missing")
-    assert_true("feedback-row" in css, "Feedback layout missing")
-    assert_true("version-list" in css, "Version history layout missing")
-    assert_true("admin-grid" in css, "Admin controls layout missing")
-    assert_true("prospect-table" in css, "Prospect table layout missing")
-    assert_true("tool-switcher" in css, "Tool switcher layout missing")
-    assert_true("inbox-list" in css, "Inbox layout missing")
-    assert_true("outcome-grid" in css, "Outcome tracking layout missing")
-    assert_true("@media (max-width: 700px)" in css, "Responsive breakpoint missing")
+    for route_html in (html, explorer_html, enterprise_html):
+        assert_true("Objective text traits from the local model." in route_html, "route should render model-only shell")
+        assert_true("Model-only build" in route_html, "route should render model status")
+        assert_true("product_config.js" not in route_html, "legacy product module should not load")
+        assert_true("csv_utils.js" not in route_html, "CSV module should not load")
+        assert_true("enterprise_copy.js" not in route_html, "Enterprise copy module should not load")
+
+    assert_true("TextTraitsApi" in api_js and "evaluate" in api_js, "API client global missing")
+    assert_true("clientError" in api_js and "event:" in api_js, "client error/event helpers should remain available")
+    assert_true("TextTraitsUtils" in utils_js and "localStats" in utils_js and "escapeHtml" in utils_js, "shared text utility module missing")
+    assert_true("TextTraitsUi" in ui_js and "loadingCard" in ui_js and "errorCard" in ui_js, "shared UI helper module missing")
+
+    required_app_features = (
+        "samples",
+        "Short note",
+        "Reflective paragraph",
+        "primaryTargets",
+        "mbti_dimensions",
+        "age_estimate",
+        "dimensionTargets",
+        "cueTerms",
+        "resultReport",
+        "copyReport",
+        "downloadReport",
+        "apiClient.evaluate({text, model: \"local\", mode: \"model-only\"})",
+        "apiClient.clientError",
+    )
+    for phrase in required_app_features:
+        assert_true(phrase in js, f"model-only browser path missing {phrase}")
+
+    forbidden_app_features = (
+        "role=\"tab\"",
+        "workspace-tabs",
+        "renderAccountCard",
+        "daily-home-card",
+        "reviewQueueTable",
+        "recordExport",
+        "buildEmailVariant",
+        "parseCsvLine",
+        "batchRowsHtml",
+        "mobile-result-actions",
+        "data-open-journal",
+        "data-enterprise-primary-tab",
+    )
+    for phrase in forbidden_app_features:
+        assert_true(phrase not in js, f"legacy app surface should not be active in model-only branch: {phrase}")
+
+    assert_true('body[data-mode="model-only"] .workspace' in css, "model-only workspace layout missing")
+    assert_true(".model-input-form" in css, "model-only input form styling missing")
+    assert_true(".primary-objective-grid" in css, "primary objective grid styling missing")
+    assert_true(".objective-quality-card" in css, "input quality card styling missing")
+    assert_true(".objective-json pre" in css, "raw JSON styling missing")
+    assert_true("@media (max-width: 700px)" in css, "responsive breakpoint missing")
     assert_true((ROOT / "scripts/visual_regression_snapshots.py").exists(), "visual regression snapshot script missing")
 
     print("Browser smoke checks passed.")

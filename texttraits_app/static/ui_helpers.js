@@ -1,7 +1,7 @@
 (function () {
   function loadingCard(mode) {
-    const title = mode === "enterprise" ? "Building the campaign workspace..." : "Reading your writing...";
-    const copy = mode === "enterprise" ? "Drafts, review queue, and export checks are being prepared." : "Explorer is preparing the plain read and rewrite.";
+    const title = mode === "model-only" ? "Running local model analysis..." : "Reading your text...";
+    const copy = mode === "model-only" ? "Prediction distributions and confidence fields are being prepared." : "Waiting for local inference results.";
     return `
       <div class="loading-card fade-in" role="status" aria-live="polite" tabindex="-1">
         <span class="status-pill">Working</span>
@@ -20,7 +20,7 @@
     return `
       <div class="empty-hero error-card" role="alert">
         <span class="status-pill">Needs retry</span>
-        <h2>The reading did not run.</h2>
+        <h2>The model analysis did not run.</h2>
         <p class="muted">${message}</p>
         <button class="button-secondary" id="retry-run" type="button">Retry</button>
       </div>
