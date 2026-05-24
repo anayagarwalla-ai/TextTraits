@@ -26,6 +26,9 @@
     intent: "Follow-up",
     latestData: null,
     latestOptimization: null,
+    integrationPlan: null,
+    selectedIntegrationId: "",
+    integrationPlanError: "",
     latestError: "",
     busy: false,
   };
@@ -357,8 +360,10 @@
             </article>
           `).join("")}
         </section>
+        ${integrationLab()}
       </div>
     `;
+    bindIntegrationLab();
   }
 
   function renderLoading() {
@@ -399,6 +404,140 @@
         </div>
       </article>
     `;
+  }
+
+  function targetList(plan = state.integrationPlan) {
+    return [...(plan?.targets || [])].sort((a, b) => Number(a.priority || 99) - Number(b.priority || 99));
+  }
+
+  function selectedIntegrationTarget() {
+    const targets = targetList();
+    if (!targets.length) return null;
+    return targets.find((target) => target.id === state.selectedIntegrationId) || targets[0];
+  }
+
+  function layerLabel(plan, layerId) {
+    return plan?.layers?.find((layer) => layer.id === layerId)?.name || titleCase(String(layerId || "integration"));
+  }
+
+  function integrationBullets(items = []) {
+    return items.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("");
+  }
+
+  function integrationLab() {
+    if (state.integrationPlanError) {
+      return `
+        <section class="optimizer-section integration-lab" aria-label="Enterprise integration lab">
+          <div class="section-title">
+            <span class="label">Enterprise integration lab</span>
+            <strong>Research plan unavailable</strong>
+          </div>
+          <p class="muted">${escapeHtml(state.integrationPlanError)}</p>
+        </section>
+      `;
+    }
+    if (!state.integrationPlan) {
+      return `
+        <section class="optimizer-section integration-lab" aria-label="Enterprise integration lab">
+          <div class="section-title">
+            <span class="label">Enterprise integration lab</span>
+            <strong>Loading research-backed integration targets</strong>
+          </div>
+          <div class="skeleton-stack" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </section>
+      `;
+    }
+
+    const plan = state.integrationPlan;
+    const targets = targetList(plan);
+    const selected = selectedIntegrationTarget();
+    const layers = plan.layers || [];
+    const payload = plan.experiment_payload || {};
+    const selectedLayer = layerLabel(plan, selected?.layer);
+
+    return `
+      <section class="optimizer-section integration-lab" aria-label="Enterprise integration lab">
+        <div class="section-title">
+          <span class="label">Enterprise integration lab</span>
+          <strong>Prototype TextTraits as a workflow gate plus feedback loop.</strong>
+        </div>
+        <p class="integration-positioning">${escapeHtml(plan.recommendation?.positioning || "TextTraits fits as an analysis layer.")}</p>
+
+        <div class="integration-architecture" aria-label="Recommended enterprise layers">
+          ${layers.map((layer, index) => `
+            <article class="integration-layer-card">
+              <span>${escapeHtml(`0${index + 1}`)}</span>
+              <strong>${escapeHtml(layer.name)}</strong>
+              <p>${escapeHtml(layer.best_for)}</p>
+              <small>${escapeHtml(layer.latency_target)}</small>
+            </article>
+          `).join("")}
+        </div>
+
+        <div class="integration-target-layout">
+          <div class="integration-target-rail" aria-label="Integration targets">
+            ${targets.map((target) => `
+              <button
+                class="integration-target-button ${target.id === selected?.id ? "is-selected" : ""}"
+                type="button"
+                aria-pressed="${target.id === selected?.id ? "true" : "false"}"
+                data-integration-target="${escapeHtml(target.id)}"
+              >
+                <span>${escapeHtml(target.platform)}</span>
+                <strong>${escapeHtml(target.label)}</strong>
+              </button>
+            `).join("")}
+          </div>
+
+          <article class="integration-target-detail">
+            <div class="section-title">
+              <span class="label">${escapeHtml(selectedLayer)}</span>
+              <strong>${escapeHtml(selected?.best_use_case || "Select a target to inspect.")}</strong>
+            </div>
+            <p>${escapeHtml(selected?.experiment || "")}</p>
+            <div class="integration-chip-row" aria-label="Inputs to collect">
+              ${integrationBullets(selected?.signals || [])}
+            </div>
+            <div class="integration-output-grid">
+              <article>
+                <span class="label">Layer</span>
+                <strong>${escapeHtml(selected?.integration_layer || "n/a")}</strong>
+              </article>
+              <article>
+                <span class="label">Outputs</span>
+                <strong>${escapeHtml((selected?.outputs || []).join(", ") || "n/a")}</strong>
+              </article>
+              <article>
+                <span class="label">Risk posture</span>
+                <strong>${escapeHtml(selected?.risk || "n/a")}</strong>
+              </article>
+            </div>
+            <details class="secondary-result-details integration-payload">
+              <summary>Mock analysis payload</summary>
+              <pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>
+            </details>
+          </article>
+        </div>
+      </section>
+    `;
+  }
+
+  function bindIntegrationLab() {
+    document.querySelectorAll("[data-integration-target]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.selectedIntegrationId = button.dataset.integrationTarget || "";
+        if (state.latestData && state.latestOptimization) {
+          renderResult(state.latestData, state.latestOptimization);
+        } else if (!state.latestError) {
+          renderEmpty();
+        }
+        announce(`${button.textContent.trim()} integration target selected.`);
+      });
+    });
   }
 
   function checkCards(optimization) {
@@ -464,6 +603,7 @@
       audience: state.audience,
       intent: state.intent,
       optimization,
+      enterprise_integration_target: selectedIntegrationTarget(),
       model: data.model,
       demo: data.demo,
       predictions: data.predictions,
@@ -541,6 +681,7 @@
           </article>
         </section>
 
+        ${integrationLab()}
         <section class="optimizer-section" aria-label="Send readiness checks">
           <div class="section-title">
             <span class="label">Send-readiness checks</span>
@@ -557,6 +698,7 @@
     `;
     document.querySelector("[data-copy-report]")?.addEventListener("click", (event) => copyReport(event.currentTarget));
     document.querySelector("[data-download-report]")?.addEventListener("click", downloadReport);
+    bindIntegrationLab();
     els.outputPanel.focus();
   }
 
@@ -596,6 +738,7 @@
       state.email = "";
       state.latestData = null;
       state.latestOptimization = null;
+      state.latestError = "";
       renderInput();
       renderEmpty();
       announce("Email cleared.");
@@ -607,6 +750,7 @@
         state.email = sample?.email || "";
         state.audience = sample?.audience || state.audience;
         state.intent = sample?.intent || state.intent;
+        state.latestError = "";
         renderInput();
         renderEmpty();
         document.querySelector("#email-body")?.focus();
@@ -644,10 +788,33 @@
     }
   }
 
+  async function loadIntegrationPlan() {
+    try {
+      const plan = await apiClient.enterpriseIntegrationPlan?.();
+      state.integrationPlan = plan;
+      const preferred = plan?.recommendation?.primary_target || "";
+      const targets = targetList(plan);
+      const preferredTarget = targets.find((target) => target.id === preferred || target.layer === preferred) || targets[0];
+      state.selectedIntegrationId = state.selectedIntegrationId || preferredTarget?.id || "";
+      state.integrationPlanError = "";
+    } catch (error) {
+      state.integrationPlanError = error.message || "The enterprise integration plan could not be loaded.";
+      apiClient.clientError?.({message: state.integrationPlanError, source: "enterprise-integration-plan"}).catch(() => {});
+    }
+    if (!state.busy && !state.latestError) {
+      if (state.latestData && state.latestOptimization) {
+        renderResult(state.latestData, state.latestOptimization);
+      } else {
+        renderEmpty();
+      }
+    }
+  }
+
   function init() {
     renderInput();
     renderEmpty();
     apiClient.session?.().catch(() => {});
+    loadIntegrationPlan();
     announce("TextTraits enterprise email optimizer ready.");
   }
 

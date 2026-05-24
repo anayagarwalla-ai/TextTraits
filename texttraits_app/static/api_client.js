@@ -96,6 +96,7 @@
     }),
     integrations: () => request("/api/integrations"),
     integrationProviders: () => request("/api/integration-providers"),
+    enterpriseIntegrationPlan: () => request("/api/enterprise/integration-plan"),
     startIntegrationOAuth: (provider) => request(`/api/integrations/${encodeURIComponent(provider)}/oauth/start`, {method: "POST"}),
     saveIntegration: (provider, status, config = {}) => request("/api/integrations", {
       method: "POST",

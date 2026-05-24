@@ -146,6 +146,8 @@ COMMON_PASSWORDS = {
     "letmein123",
 }
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
+DATA_DIR = Path(__file__).resolve().parent / "data"
+ENTERPRISE_PLAN_PATH = DATA_DIR / "enterprise_integration_plan.json"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
 
@@ -496,6 +498,11 @@ def sanitize_workspace_data(data: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def load_enterprise_integration_plan() -> dict[str, Any]:
+    with ENTERPRISE_PLAN_PATH.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 @app.get("/")
 @app.get("/explorer")
 @app.get("/enterprise")
@@ -521,6 +528,16 @@ def health():
     except Exception:
         logging.exception("health_database_check_failed")
     return jsonify({"ok": not isinstance(predictor, MissingPredictor) and database_ok})
+
+
+@app.get("/api/enterprise/integration-plan")
+def api_enterprise_integration_plan():
+    try:
+        plan = load_enterprise_integration_plan()
+    except (OSError, json.JSONDecodeError):
+        logging.exception("enterprise_integration_plan_unavailable")
+        return jsonify({"error": "Enterprise integration plan is unavailable."}), 503
+    return jsonify(plan)
 
 
 @app.get("/dev/model")

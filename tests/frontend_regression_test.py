@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -25,14 +26,19 @@ def main() -> int:
     explorer_html = client.get("/explorer").get_data(as_text=True)
     app_js = client.get("/static/app.js").get_data(as_text=True)
     api_js = client.get("/static/api_client.js").get_data(as_text=True)
+    integration_plan = client.get("/api/enterprise/integration-plan").get_json()
     utils_js = client.get("/static/text_utils.js").get_data(as_text=True)
     ui_js = client.get("/static/ui_helpers.js").get_data(as_text=True)
     styles_css = client.get("/static/styles.css").get_data(as_text=True)
+    research_surface = html + app_js + json.dumps(integration_plan)
 
     assert_true("TextTraitsUtils" in utils_js and "escapeHtml" in utils_js, "text utility module missing")
     assert_true("TextTraitsUi" in ui_js and "errorCard" in ui_js, "UI helper module missing")
     assert_true("resetPassword" in api_js and "verifyEmail" in api_js, "account API helpers should remain available")
     assert_true("oauth/start" in api_js or "integrationProviders" in api_js, "integration setup helpers should remain available")
+    assert_true("enterpriseIntegrationPlan" in api_js, "enterprise integration plan API helper missing")
+    assert_true(integration_plan["recommendation"]["primary_target"] == "journey_workflow_gate", "research plan primary target should stay workflow gate")
+    assert_true(len(integration_plan["targets"]) >= 5, "research plan should expose multiple enterprise targets")
 
     for route_html in (html, enterprise_html, explorer_html):
         assert_true("Enterprise email optimization, without generated copy." in route_html, "route-level pages should be optimizer-only")
@@ -78,9 +84,15 @@ def main() -> int:
         "Objective model signals",
         "Shown as evidence, not generated writing",
         "Raw model response",
+        "Enterprise integration lab",
+        "research-backed integration targets",
+        "Mock analysis payload",
+        "HubSpot workflow action",
+        "Salesforce Journey Builder gate",
+        "TextTraits fits as an analysis layer",
     )
     for phrase in optimizer_requirements:
-        assert_true(phrase in app_js or phrase in html, f"optimizer workflow missing {phrase}")
+        assert_true(phrase in research_surface, f"optimizer workflow missing {phrase}")
 
     implementation_requirements = (
         "emailOptimization(subject, email)",
@@ -100,6 +112,10 @@ def main() -> int:
         "reportJson(data, optimization)",
         "copyReport(button)",
         "downloadReport()",
+        "integrationLab()",
+        "loadIntegrationPlan()",
+        "selectedIntegrationTarget()",
+        "apiClient.enterpriseIntegrationPlan",
         "trackEvent(\"enterprise_email_optimization\"",
         "apiClient.clientError?.({message: state.latestError, source: \"enterprise-email-optimizer\"})",
     )
@@ -139,6 +155,11 @@ def main() -> int:
         ".optimizer-check-grid",
         ".optimizer-detail-grid",
         ".optimizer-json pre",
+        ".integration-lab",
+        ".integration-architecture",
+        ".integration-target-layout",
+        ".integration-target-button",
+        ".integration-output-grid",
         ".score-track",
         ".cue-row",
         "prefers-reduced-motion",

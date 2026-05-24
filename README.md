@@ -116,6 +116,24 @@ High-RAM training scripts live in `training/`. See `training/README.md` for Cola
 
 The deployable app does not require raw training data. It only needs the runtime model bundle in `texttraits_app/models/`.
 
+## Enterprise Research Workflow
+
+This branch includes a research-backed enterprise integration plan at `texttraits_app/data/enterprise_integration_plan.json` and a public app endpoint at `/api/enterprise/integration-plan`.
+
+To ingest a completed deep-research PDF:
+
+```bash
+python scripts/poll_deep_research.py --pdf "C:\path\to\enterprise-research.pdf"
+```
+
+To poll a public ChatGPT deep-research URL until it appears complete:
+
+```bash
+python scripts/poll_deep_research.py --url "https://chatgpt.com/c/..." --interval 60 --timeout 3600
+```
+
+The enterprise UI uses the checked-in plan to prototype where TextTraits fits into existing email workflows: authoring lint, pre-send gates, and post-send analytics.
+
 ## Deployment Notes
 
 This app is currently a Flask service. A production deployment should:

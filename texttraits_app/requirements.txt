@@ -7,3 +7,4 @@ psycopg[binary]==3.3.4
 scikit-learn==1.6.1
 sentry-sdk[flask]==2.60.0
 certifi==2026.4.22
+pypdf==6.7.5
