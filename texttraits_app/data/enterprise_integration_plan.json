@@ -1,0 +1,161 @@
+{
+  "version": "2026.05.24",
+  "source": {
+    "title": "Enterprise mass email architecture and third-party analysis integration",
+    "type": "deep_research_pdf",
+    "reviewed_at": "2026-05-24",
+    "summary": "Enterprise email is usually a layered stack. The best TextTraits role is an analytical scoring layer that attaches at authoring, pre-send, and post-send points instead of becoming a sending platform."
+  },
+  "recommendation": {
+    "positioning": "TextTraits should be sold and tested as a pre-send and post-send intelligence layer for existing marketing, sales engagement, CRM, CDP, and delivery stacks.",
+    "primary_target": "journey_workflow_gate",
+    "primary_platforms": ["HubSpot", "Salesforce Marketing Cloud", "Braze", "Iterable", "Marketo"],
+    "why": [
+      "Journey and workflow layers see intent, audience, trigger reason, and message context before delivery.",
+      "Pre-send gates can prevent defective campaigns without owning subscriber state or IP reputation.",
+      "Post-send webhooks and warehouse exports let the model learn from delivery, bounce, complaint, open, click, and suppression outcomes."
+    ],
+    "avoid": [
+      "Replacing the enterprise sending platform.",
+      "Owning suppression, consent, subscriber state, or delivery IP reputation as the default product posture.",
+      "SMTP content rewriting after DKIM signing unless the deployment is explicitly designed for it."
+    ]
+  },
+  "layers": [
+    {
+      "id": "authoring_lint",
+      "name": "Authoring lint",
+      "where": "Campaign builder, template editor, browser extension, or template CI/CD path.",
+      "best_for": "Immediate marketer feedback on copy, links, tokens, disclaimers, tone, and missing evidence.",
+      "latency_target": "Sub-second to low single-digit seconds.",
+      "failure_mode": "Fail open with warnings unless a policy rule is explicitly blocking.",
+      "prototype_surface": "Inline checklist beside the email editor."
+    },
+    {
+      "id": "pre_send_gate",
+      "name": "Pre-send gate",
+      "where": "Publish, schedule, journey action, workflow step, or API send middleware.",
+      "best_for": "Blocking or warning on compliance, deliverability, personalization, brand, and clarity issues before launch.",
+      "latency_target": "Hard timeout, with p95 under a few hundred milliseconds when directly on a send path.",
+      "failure_mode": "Configurable fail-open or fail-closed by rule family.",
+      "prototype_surface": "Pass, warn, or block decision with evidence and remediation."
+    },
+    {
+      "id": "post_send_analytics",
+      "name": "Post-send analytics",
+      "where": "Provider webhooks, event streams, warehouse backfills, or BI/CDP exports.",
+      "best_for": "Outcome monitoring, complaint and bounce triage, trend analysis, benchmarking, and model tuning.",
+      "latency_target": "Near-real-time for webhooks; batch throughput and reproducibility for historical analysis.",
+      "failure_mode": "Retry, deduplicate, and never block already-accepted delivery events.",
+      "prototype_surface": "Outcome scorecards joined back to campaign, template, and send IDs."
+    }
+  ],
+  "targets": [
+    {
+      "id": "hubspot_workflow",
+      "label": "HubSpot workflow action",
+      "platform": "HubSpot",
+      "layer": "journey_workflow_gate",
+      "priority": 1,
+      "best_use_case": "Marketing or sales teams that already coordinate outreach through HubSpot workflows and need a review gate before an email step.",
+      "integration_layer": "Custom workflow action plus CRM/app-card review surface.",
+      "experiment": "Simulate a workflow action that posts subject, body, contact segment, subscription state, and campaign IDs to TextTraits, then returns pass, warn, or block plus findings.",
+      "signals": ["workflow context", "contact segment", "subscription state", "campaign ID", "email body", "subject"],
+      "outputs": ["route recommendation", "policy findings", "send-readiness score", "review notes"],
+      "risk": "Moderate. The app must keep consent and subscription state authoritative in HubSpot.",
+      "prototype_status": "ready_to_mock"
+    },
+    {
+      "id": "salesforce_marketing_cloud",
+      "label": "Salesforce Journey Builder gate",
+      "platform": "Salesforce Marketing Cloud",
+      "layer": "pre_send_gate",
+      "priority": 2,
+      "best_use_case": "Large campaign teams with Content Builder assets, Journey Builder flows, and formal approval before publish or schedule.",
+      "integration_layer": "Journey Builder custom activity plus Content Builder asset analysis.",
+      "experiment": "Mock a Journey Builder activity that analyzes template metadata, sample render context, campaign identifiers, headers, and links before allowing a journey to continue.",
+      "signals": ["Content Builder asset ID", "template version", "journey step", "sample render", "headers", "links"],
+      "outputs": ["publish gate verdict", "evidence spans", "remediation checklist", "policy bundle version"],
+      "risk": "Higher setup cost, but strong fit for enterprise governance.",
+      "prototype_status": "ready_to_mock"
+    },
+    {
+      "id": "braze_canvas",
+      "label": "Braze Canvas and Currents loop",
+      "platform": "Braze",
+      "layer": "post_send_analytics",
+      "priority": 3,
+      "best_use_case": "Lifecycle teams that need real-time journey scoring and a feedback loop from engagement streams.",
+      "integration_layer": "Canvas pre-send scoring plus Currents event ingestion.",
+      "experiment": "Score a Canvas email step, then join simulated delivery and engagement events back to the original analysis request.",
+      "signals": ["Canvas step", "Liquid tokens", "catalog usage", "segment", "Currents events"],
+      "outputs": ["route annotation", "complaint/bounce watchlist", "cohort trend", "model-tuning features"],
+      "risk": "Requires careful token and live-content handling because final render can differ from saved templates.",
+      "prototype_status": "ready_to_mock"
+    },
+    {
+      "id": "sendgrid_api_middleware",
+      "label": "SendGrid or SES API middleware",
+      "platform": "Delivery API",
+      "layer": "send_path_middleware",
+      "priority": 4,
+      "best_use_case": "Product or transactional email systems that already send through SendGrid, Amazon SES, SparkPost, or Mailchimp Transactional.",
+      "integration_layer": "API middleware before provider send endpoint plus event webhook ingestion.",
+      "experiment": "Analyze the final payload before provider submission and attach a deterministic analysis_request_id for webhook joins.",
+      "signals": ["send payload", "headers", "message type", "sending domain", "IP pool", "provider IDs"],
+      "outputs": ["inline verdict", "content hashes", "delivery hints", "webhook join key"],
+      "risk": "Latency-sensitive. Needs strict timeout, idempotency, and rate-limit handling.",
+      "prototype_status": "ready_to_mock"
+    },
+    {
+      "id": "warehouse_feedback",
+      "label": "CDP and warehouse feedback",
+      "platform": "Segment, Snowflake, BigQuery, Databricks",
+      "layer": "batch_feedback",
+      "priority": 5,
+      "best_use_case": "Teams that want benchmark dashboards, governance reporting, suppression intelligence, and model retraining data across vendors.",
+      "integration_layer": "Batch worker reading campaign, template, send, event, and suppression partitions.",
+      "experiment": "Load historical campaign rows, reconstruct cohorts, compute TextTraits findings, and publish a normalized findings table.",
+      "signals": ["campaign history", "template versions", "event lake", "suppression state", "content hashes"],
+      "outputs": ["trend metrics", "governance findings", "suppression candidates", "model evaluation set"],
+      "risk": "Not suitable for blocking sends, but strongest for learning and cross-platform visibility.",
+      "prototype_status": "ready_to_mock"
+    }
+  ],
+  "request_schema": {
+    "required": ["tenant_id", "workspace_id", "source_system", "analysis_mode", "message"],
+    "message_fields": ["message_type", "campaign_id", "journey_id", "step_id", "template_id", "template_version", "locale", "from", "reply_to", "subject", "preheader", "headers", "content", "links"],
+    "context_fields": ["personalization_context", "recipient_context", "consent_context", "delivery_context", "experiment_ids"],
+    "output_fields": ["verdict", "scores", "findings", "extracted_characteristics", "delivery_hints", "content_hashes", "policy_bundle_version", "model_version"]
+  },
+  "experiment_payload": {
+    "tenant_id": "acme-demo",
+    "workspace_id": "marketing-prod",
+    "source_system": "hubspot",
+    "analysis_mode": "pre_send_gate",
+    "message": {
+      "message_type": "marketing",
+      "campaign_id": "cmp_q3_pipeline_warmup",
+      "journey_id": "journey_reactivation_42",
+      "step_id": "email_step_2",
+      "template_id": "tmpl_119028",
+      "template_version": "17",
+      "locale": "en-US",
+      "subject": "Quick check on forecast risk",
+      "headers": {
+        "List-Unsubscribe": "<https://prefs.example.test/unsub/abc123>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+      }
+    },
+    "consent_context": {
+      "state": "subscribed",
+      "lawful_basis": "marketing_consent",
+      "region": "US"
+    },
+    "delivery_context": {
+      "sending_domain": "news.example.test",
+      "ip_pool": "marketing_pool",
+      "provider": "hubspot"
+    }
+  }
+}

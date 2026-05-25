@@ -1,0 +1,10 @@
+{
+  "event_id": "sendgrid-delivered-001",
+  "provider": "sendgrid",
+  "event_type": "delivered",
+  "request_id": "sample-follow-up-001",
+  "content_hash": "sha256:example",
+  "campaign_id": "cmp_q3_pipeline_warmup",
+  "template_id": "tmpl_119028",
+  "delivery_status": "delivered"
+}

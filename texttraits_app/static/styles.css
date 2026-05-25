@@ -4754,6 +4754,12 @@ body[data-mode="enterprise-optimizer"] .workspace {
   gap: 18px;
 }
 
+.optimizer-section .section-title {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
 .optimizer-field-grid {
   gap: 18px;
 }
@@ -4806,6 +4812,7 @@ body[data-mode="enterprise-optimizer"] .workspace {
 .optimizer-model-card {
   display: grid;
   gap: 10px;
+  min-width: 0;
   min-height: 148px;
   padding: 16px;
   border: 1px solid rgba(206, 222, 216, 0.82);
@@ -4870,6 +4877,179 @@ body[data-mode="enterprise-optimizer"] .workspace {
 
 .optimizer-check-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.integration-lab-section {
+  border-top: 1px solid rgba(216, 226, 220, 0.72);
+  padding-top: 18px;
+}
+
+.integration-lab-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.integration-lab-overview .integration-lab-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.lab-status-card {
+  min-height: 132px;
+}
+
+.setup-contracts {
+  border-top: 1px solid rgba(216, 226, 220, 0.72);
+  padding-top: 18px;
+}
+
+.governance-policy-controls {
+  border-top: 1px solid rgba(216, 226, 220, 0.72);
+  padding-top: 18px;
+}
+
+.policy-control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rule-family-control-group {
+  display: grid;
+  gap: 10px;
+}
+
+.rule-family-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.policy-control {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(206, 222, 216, 0.82);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.policy-control span,
+.policy-toggle-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.policy-control input,
+.policy-control select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid rgba(180, 201, 193, 0.9);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+}
+
+.policy-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.policy-toggle-row label {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.policy-toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-strong);
+}
+
+.adapter-simulator {
+  border-top: 1px solid rgba(216, 226, 220, 0.72);
+  padding-top: 18px;
+}
+
+.adapter-simulator-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.45fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.adapter-simulator-payload textarea {
+  min-height: 190px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.adapter-simulator-result {
+  overflow: auto;
+  max-height: 320px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid rgba(216, 226, 220, 0.72);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 250, 249, 0.92);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.setup-contract-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-contract-card {
+  align-content: start;
+  min-height: 238px;
+}
+
+.setup-contract-card button {
+  width: fit-content;
+  margin-top: 4px;
+}
+
+.setup-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.setup-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: var(--radius-sm);
+  background: rgba(224, 244, 239, 0.7);
+  color: var(--accent-strong);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.setup-empty {
+  padding: 12px;
+  border: 1px dashed rgba(15, 118, 110, 0.22);
+  border-radius: var(--radius-sm);
+}
+
+.route-grid .optimizer-check-card {
+  min-height: 132px;
+}
+
+.optimizer-check-card.needs-work .label {
+  color: var(--gold);
 }
 
 .optimizer-detail-grid {
@@ -5047,6 +5227,18 @@ body[data-mode="enterprise-optimizer"] .workspace {
   .mode-switch button {
     padding: 7px 8px;
     font-size: 12px;
+  }
+
+  .result-header {
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .empty-hero h2,
+  .result-header h2 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: 24px;
   }
 
   .daily-home-card,
@@ -5652,6 +5844,10 @@ body[data-mode="enterprise-optimizer"] .workspace {
   .optimizer-detail-grid,
   .optimizer-grid-compact,
   .primary-optimizer-grid,
+  .integration-lab-grid,
+  .policy-control-grid,
+  .adapter-simulator-grid,
+  .setup-contract-grid,
   .optimizer-samples {
     grid-template-columns: 1fr;
   }

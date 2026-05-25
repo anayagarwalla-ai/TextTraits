@@ -1,0 +1,103 @@
+{
+  "api_version": "v1",
+  "request_id": "sample-follow-up-001",
+  "content_hash": "sha256:example",
+  "created_at": "2026-05-25T00:00:00Z",
+  "policy": {
+    "bundle_id": "enterprise_email_readiness",
+    "bundle_version": "2026.05.25",
+    "gate": {
+      "status": "ready",
+      "send_ready": true,
+      "route": "approved_to_send",
+      "highest_severity": "none",
+      "thresholds": {
+        "ready_minimum_score": 72,
+        "block_on_critical": true,
+        "review_on_high": true,
+        "rule_family_modes": {
+          "compliance": "fail_closed",
+          "unsubscribe": "fail_closed",
+          "personalization": "review",
+          "cta": "review"
+        },
+        "policy_controls_version": "2026_05_25_governance_policy_controls"
+      }
+    },
+    "controls": {
+      "workspace_id": "default",
+      "environment": "production",
+      "min_ready_score": 72,
+      "high_severity_requires_review": true,
+      "content_storage_mode": "hash_only",
+      "rule_family_modes": {
+        "compliance": "fail_closed",
+        "unsubscribe": "fail_closed",
+        "personalization": "review",
+        "cta": "review"
+      }
+    },
+    "rule_packs": [
+      "clarity",
+      "cta",
+      "specificity",
+      "compliance",
+      "unsubscribe",
+      "personalization_tokens",
+      "link_count",
+      "image_ratio",
+      "subject",
+      "length",
+      "buyer_focus"
+    ]
+  },
+  "scores": {
+    "overall": 95,
+    "clarity": 100,
+    "cta": 100,
+    "specificity": 100,
+    "compliance": 100,
+    "unsubscribe": 100,
+    "personalization": 100,
+    "format": 100,
+    "subject": 100,
+    "length": 78,
+    "buyer_focus": 100
+  },
+  "findings": [],
+  "routes": [
+    {
+      "target": "sending_system",
+      "reason": "Policy gate passed with no high-severity findings."
+    }
+  ],
+  "input": {
+    "enterprise_context": {
+      "workspace_id": "default",
+      "source_system": "direct_api",
+      "analysis_mode": "direct_api",
+      "campaign_id": "",
+      "template_id": "",
+      "locale": ""
+    },
+    "rendered_template": {
+      "token_count": 0,
+      "unresolved_count": 0,
+      "unsubscribe": {
+        "header_present": false,
+        "body_link_present": false
+      }
+    }
+  },
+  "model": {
+    "id": "local",
+    "version": "model-training-version",
+    "contract_version": "local-texttraits-bundle",
+    "demo": false,
+    "targets": []
+  },
+  "privacy": {
+    "raw_body_returned": false,
+    "stored_text_policy": "hash_only"
+  }
+}

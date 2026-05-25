@@ -1,0 +1,22 @@
+{
+  "provider": "braze",
+  "payload": {
+    "workspace_id": "marketing-prod",
+    "tenant_id": "acme-demo",
+    "source_system": "braze",
+    "analysis_mode": "pre_send_gate",
+    "campaign_id": "cmp_q3_pipeline_warmup",
+    "canvas_step": {
+      "canvas_id": "canvas_reactivation_42",
+      "step_id": "email_step_2",
+      "subject": "Renewal note for {{ first_name }}",
+      "body": "Hi {{ first_name }}, review the renewal checklist by Thursday. Manage preferences: https://example.test/preferences"
+    },
+    "personalization_context": {
+      "first_name": "Maya"
+    },
+    "headers": {
+      "List-Unsubscribe": "<https://example.test/unsubscribe/acme-demo>"
+    }
+  }
+}

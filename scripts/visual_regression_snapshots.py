@@ -51,8 +51,11 @@ def main() -> int:
         **os.environ,
         "PORT": str(PORT),
         "TEXTTRAITS_SECRET_KEY": "visual-regression-local",
+        "TEXTTRAITS_DATABASE_URL": "",
+        "DATABASE_URL": "",
         "TEXTTRAITS_DB_PATH": "/tmp/texttraits-visual-regression.sqlite3",
     }
+    Path(env["TEXTTRAITS_DB_PATH"]).unlink(missing_ok=True)
     server = subprocess.Popen(
         [sys.executable, "texttraits_app/app.py"],
         cwd=ROOT,
@@ -71,13 +74,32 @@ def main() -> int:
             expect(page.get_by_text("Enterprise email optimization, without generated copy.", exact=True)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-empty.png"), full_page=False)
 
+            expect(page.get_by_text("Governance policy", exact=True)).to_be_visible(timeout=10000)
+            page.get_by_text("Governance policy", exact=True).scroll_into_view_if_needed()
+            page.locator("[data-policy-field='min_ready_score']").fill("80")
+            page.get_by_role("button", name="Save policy controls").click()
+            expect(page.locator(".setup-message", has_text="Governance policy controls saved.")).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-policy-saved.png"), full_page=False)
+
+            expect(page.get_by_text("Adapter simulator", exact=True)).to_be_visible(timeout=10000)
+            page.get_by_text("Adapter simulator", exact=True).scroll_into_view_if_needed()
+            page.get_by_role("button", name="Run simulator").click()
+            expect(page.locator(".setup-message", has_text="HubSpot simulator returned")).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-adapter-simulator.png"), full_page=False)
+
+            expect(page.get_by_text("Integration setup", exact=True)).to_be_visible(timeout=10000)
+            page.get_by_text("Integration setup", exact=True).scroll_into_view_if_needed()
+            page.get_by_role("button", name="Save recommended mapping").first.click()
+            expect(page.get_by_text("mapping is ready for workflow routing")).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-setup-saved.png"), full_page=False)
+
             page.locator("#email-subject").fill(EMAIL_SUBJECT)
             page.locator("#email-body").fill(EMAIL_BODY)
             page.locator("#analyze-email").click()
-            expect(page.get_by_text("Optimization readout for the existing draft", exact=True)).to_be_visible(timeout=15000)
+            expect(page.get_by_text("Send-readiness gate for the existing draft", exact=True)).to_be_visible(timeout=15000)
             page.screenshot(path=str(OUT / "optimizer-result.png"), full_page=False)
 
-            page.get_by_text("Raw model response", exact=True).click()
+            page.get_by_text("Raw /v1/email/analyze response", exact=True).click()
             expect(page.locator(".optimizer-json pre")).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-raw-json.png"), full_page=False)
 
@@ -86,7 +108,7 @@ def main() -> int:
             page.locator("#email-subject").fill(EMAIL_SUBJECT)
             page.locator("#email-body").fill(EMAIL_BODY)
             page.locator("#analyze-email").click()
-            expect(page.get_by_text("Optimization readout for the existing draft", exact=True)).to_be_visible(timeout=15000)
+            expect(page.get_by_text("Send-readiness gate for the existing draft", exact=True)).to_be_visible(timeout=15000)
             page.screenshot(path=str(OUT / "optimizer-mobile.png"), full_page=False)
             browser.close()
     finally:

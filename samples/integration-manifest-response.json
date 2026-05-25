@@ -1,0 +1,43 @@
+{
+  "api_version": "v1",
+  "contract_version": "2026.05.25",
+  "workspace_id": "default",
+  "manifest": {
+    "provider": "hubspot",
+    "name": "HubSpot Workflow Action",
+    "version": "2026.05.25",
+    "entrypoint": "/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "install_surface": "HubSpot workflow custom action",
+    "required_inputs": {
+      "subject": {
+        "type": "string",
+        "hubspot_property": "email_subject"
+      },
+      "body": {
+        "type": "string",
+        "hubspot_property": "email_body"
+      }
+    },
+    "recommended_writeback": {
+      "texttraits_score": "score",
+      "texttraits_gate": "gate_status",
+      "texttraits_route": "route",
+      "texttraits_request_id": "request_id",
+      "texttraits_content_hash": "content_hash"
+    }
+  },
+  "mapping_template": {
+    "inputs": {
+      "subject": "email_subject",
+      "body": "email_body"
+    },
+    "outputs": {
+      "texttraits_score": "score",
+      "texttraits_gate": "gate_status",
+      "texttraits_route": "route",
+      "texttraits_request_id": "request_id",
+      "texttraits_content_hash": "content_hash"
+    }
+  },
+  "saved_mapping": null
+}

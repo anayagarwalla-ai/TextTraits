@@ -1,0 +1,19 @@
+{
+  "workspace_id": "acme-revops",
+  "mapping": {
+    "inputs": {
+      "subject": "email_subject",
+      "body": "email_body",
+      "audience": "lifecyclestage",
+      "intent": "workflow_name",
+      "recipient_id": "hs_object_id"
+    },
+    "outputs": {
+      "texttraits_score": "score",
+      "texttraits_gate": "gate_status",
+      "texttraits_route": "route",
+      "texttraits_request_id": "request_id",
+      "texttraits_content_hash": "content_hash"
+    }
+  }
+}

@@ -55,8 +55,27 @@ def main() -> int:
         "email-body",
         "Analyze email optimization",
         "emailOptimization(subject, email)",
-        "Optimization score",
-        "Send-readiness checks",
+        "apiClient.analyzeEmail",
+        "Policy score",
+        "Structured findings",
+        "Stable contract",
+        "Policy gate",
+        "Integration lab status",
+        "Governance ledger",
+        "Setup manifests",
+        "Governance policy",
+        "Research targets",
+        "Adapter simulator",
+        "Run simulator",
+        "Save policy controls",
+        "Send timeout ms",
+        "Idempotency window sec",
+        "Rule family behavior",
+        "Fail closed",
+        "Integration setup",
+        "Save recommended mapping",
+        "Contract export",
+        "Download OpenAPI JSON",
         "Objective model signals",
         "No replacement email was generated",
         "enterprise_email_optimization",
@@ -87,6 +106,8 @@ def main() -> int:
     css = styles.get_data(as_text=True)
     assert_true('body[data-mode="enterprise-optimizer"]' in css, "enterprise optimizer layout styles missing")
     assert_true(".optimizer-score-card" in css and ".optimizer-check-card" in css, "optimizer result styles missing")
+    assert_true(".governance-policy-controls" in css and ".policy-control-grid" in css, "governance policy styles missing")
+    assert_true(".adapter-simulator" in css, "adapter simulator styles missing")
 
     health = client.get("/health")
     assert_true(health.status_code == 200, f"health returned {health.status_code}")
@@ -116,6 +137,24 @@ def main() -> int:
     assert_true("mbti_dimensions" in predictions, "response missing MBTI dimension predictions")
     assert_true("text_stats" in predictions, "response missing text stats")
     assert_true("input_quality" in predictions, "response missing input-quality metadata")
+
+    v1_payload = {
+        "request_id": "smoke-v1",
+        "subject": "Next step after Tuesday",
+        "body": payload["text"],
+        "audience": "Prospect",
+        "intent": "Follow-up",
+        "channel": "ui_enterprise_optimizer",
+    }
+    v1_response = client.post("/v1/email/analyze", json=v1_payload, headers=csrf_headers(client))
+    assert_true(v1_response.status_code == 200, f"v1 analyze returned {v1_response.status_code}: {v1_response.get_data(as_text=True)}")
+    v1_data = v1_response.get_json()
+    assert_true(v1_data["policy"]["bundle_version"] == "2026.05.25", "v1 response missing policy version")
+    assert_true(v1_data["content_hash"].startswith("sha256:"), "v1 response missing content hash")
+    assert_true("findings" in v1_data and "routes" in v1_data, "v1 response missing structured findings/routes")
+    policy_response = client.get("/v1/governance/policy?workspace_id=smoke")
+    assert_true(policy_response.status_code == 200, "governance policy endpoint missing")
+    assert_true(policy_response.get_json()["policy"]["content_storage_mode"] == "hash_only", "governance policy default missing")
 
     print("Smoke tests passed.")
     return 0

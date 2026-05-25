@@ -4,6 +4,10 @@ import json
 import logging
 import os
 import secrets
+import hashlib
+import hmac
+import csv
+import io
 import time
 import urllib.request
 from html import escape as html_escape
@@ -19,6 +23,14 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from demo_predictor import DemoPredictor
 from email_delivery import send_account_email, status as email_status
+from email_analysis import (
+    build_email_analysis,
+    compact_analysis,
+    integration_flow_catalog,
+    rendered_template_harness,
+    safe_template_summary,
+    utc_now,
+)
 from env_loader import load_env_file
 from integration_adapters import (
     build_authorization_url,
@@ -31,6 +43,15 @@ from integration_adapters import (
     public_providers,
     slug as provider_slug,
 )
+from integration_contracts import (
+    CONTRACT_VERSION as INTEGRATION_CONTRACT_VERSION,
+    all_manifests,
+    mapping_template,
+    normalize_provider,
+    provider_manifest,
+    validate_field_mapping,
+)
+from openapi_contract import build_install_kit, build_openapi_spec
 from observability import configure_logging, init_error_reporting
 from predictor import DEFAULT_MODEL_PATH, TextTraitsPredictor
 from storage import (
@@ -41,7 +62,9 @@ from storage import (
     database_backend,
     database_url,
     delete_user,
+    enterprise_governance_snapshot,
     export_user_data,
+    get_governance_policy,
     get_user_by_id,
     get_workspace,
     init_db,
@@ -49,10 +72,19 @@ from storage import (
     log_event,
     needs_email_verification,
     recent_events,
+    recent_integration_field_mappings,
+    governance_export_rows,
+    save_email_analysis,
+    save_email_outcome,
+    save_integration_field_mapping,
+    save_sample_import,
     reset_password,
+    save_governance_policy,
     save_workspace,
     contains_sensitive_key,
     scrub_payload,
+    upsert_webhook_event,
+    get_integration_field_mapping,
     upsert_integration,
     upsert_oauth_user,
     user_session_version,
@@ -146,6 +178,8 @@ COMMON_PASSWORDS = {
     "letmein123",
 }
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
+DATA_DIR = Path(__file__).resolve().parent / "data"
+ENTERPRISE_PLAN_PATH = DATA_DIR / "enterprise_integration_plan.json"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
 
@@ -395,10 +429,36 @@ def request_origin_allowed() -> bool:
     return supplied.scheme == public_origin.scheme and supplied.netloc in allowed_netlocs
 
 
+def api_key_request_allowed() -> bool:
+    expected = os.getenv("TEXTTRAITS_API_KEY", "").strip()
+    supplied = request.headers.get("X-TextTraits-Api-Key", "").strip()
+    if not (expected and supplied and secrets.compare_digest(expected, supplied)):
+        return False
+    raw_scopes = os.getenv("TEXTTRAITS_API_KEY_SCOPES", "").strip()
+    if not raw_scopes:
+        g.api_key_scope = "unscoped"
+        return True
+    workspace_id = integration_workspace_id(request.get_json(silent=True) if request.is_json else None) if request.path.startswith("/v1/") else "default"
+    method_path = f"{request.method}:{request.path}"
+    for raw_scope in raw_scopes.split(","):
+        scope = raw_scope.strip()
+        if not scope or ":" not in scope:
+            continue
+        workspace_scope, path_scope = scope.split(":", 1)
+        workspace_match = workspace_scope in {"*", workspace_id}
+        endpoint_match = path_scope in {"*", request.path} or method_path.startswith(path_scope) or request.path.startswith(path_scope)
+        if workspace_match and endpoint_match:
+            g.api_key_scope = scope
+            return True
+    return False
+
+
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if request.path.startswith("/v1/") and api_key_request_allowed():
         return None
     if not request_origin_allowed():
         return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
@@ -439,6 +499,20 @@ def public_app_info() -> dict:
         "privacy_url": "/privacy",
         "terms_url": "/terms",
     }
+
+
+def load_enterprise_integration_plan() -> dict[str, Any]:
+    with ENTERPRISE_PLAN_PATH.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+@app.get("/api/enterprise/integration-plan")
+def api_enterprise_integration_plan():
+    try:
+        return jsonify(load_enterprise_integration_plan())
+    except Exception:
+        logging.exception("enterprise_integration_plan_unavailable")
+        return jsonify({"error": "Enterprise integration plan is unavailable."}), 503
 
 
 def verify_google_identity_token(credential: str) -> dict[str, str]:
@@ -554,6 +628,790 @@ def evaluate():
         )
     except RuntimeError as error:
         return jsonify({"error": str(error)}), 503
+
+
+def normalize_email_analysis_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    normalized = {**payload}
+    normalized["subject"] = payload.get("subject") or message.get("subject") or ""
+    normalized["body"] = payload.get("body") or payload.get("text") or message.get("content") or message.get("body") or message.get("text") or message.get("html") or ""
+    normalized["headers"] = payload.get("headers") if isinstance(payload.get("headers"), dict) else message.get("headers") if isinstance(message.get("headers"), dict) else {}
+    normalized["tenant_id"] = payload.get("tenant_id") or message.get("tenant_id") or ""
+    normalized["source_system"] = payload.get("source_system") or message.get("source_system") or payload.get("source") or payload.get("channel") or ""
+    normalized["analysis_mode"] = payload.get("analysis_mode") or message.get("analysis_mode") or payload.get("channel") or "direct_api"
+    for key in ("campaign_id", "journey_id", "step_id", "template_id", "template_version", "locale"):
+        normalized[key] = payload.get(key) or message.get(key) or ""
+    if "links" not in normalized and message.get("links"):
+        normalized["links"] = message.get("links")
+    return normalized
+
+
+def analyze_email_payload(payload: dict[str, Any], request_id: str | None = None) -> dict[str, Any]:
+    payload = normalize_email_analysis_payload(payload)
+    subject = str(payload.get("subject") or "").strip()
+    body = str(payload.get("body") or payload.get("text") or "").strip()
+    model_id = str(payload.get("model", "local")).strip() or "local"
+    workspace_id = str(payload.get("workspace_id") or "default").strip()[:120] or "default"
+    if not body:
+        raise ValueError("Email body is required.")
+    if len(f"{subject} {body}".split()) > MAX_TEXT_WORDS:
+        raise ValueError(f"Please keep email samples under {MAX_TEXT_WORDS} words for this workspace.")
+    if model_id != "local":
+        raise RuntimeError("The PANDORA cloud-trained model is not connected yet.")
+    governance_policy = get_governance_policy(workspace_id)
+    predictions = predictor.predict(f"{subject}\n\n{body}".strip())
+    public_predictions = predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions)
+    analysis = build_email_analysis(
+        {**payload, "subject": subject, "body": body, "model": model_id, "workspace_id": workspace_id},
+        public_predictions,
+        model_metadata=getattr(predictor, "metadata", {}),
+        demo=bool(getattr(predictor, "is_demo", False)),
+        request_id=request_id,
+        policy_controls=governance_policy,
+    )
+    save_email_analysis(analysis, source=str(payload.get("source") or payload.get("channel") or "direct_api"), workspace_id=workspace_id)
+    log_event(
+        current_user_id(),
+        "v1_email_analyze",
+        {
+            "request_id": analysis["request_id"],
+            "workspace_id": workspace_id,
+            "score": analysis["scores"]["overall"],
+            "gate": analysis["policy"]["gate"]["status"],
+            "finding_count": len(analysis["findings"]),
+        },
+    )
+    return analysis
+
+
+def analysis_error_response(error: Exception):
+    if isinstance(error, ValueError):
+        return jsonify({"error": str(error)}), 400
+    if isinstance(error, RuntimeError):
+        return jsonify({"error": str(error)}), 503
+    logging.exception("v1_email_analysis_failed")
+    return jsonify({"error": "Email analysis failed. Retry in a moment."}), 500
+
+
+@app.post("/v1/email/analyze")
+@rate_limited()
+def v1_email_analyze():
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify(analyze_email_payload(payload, request.headers.get("X-Request-ID")))
+    except Exception as error:
+        return analysis_error_response(error)
+
+
+@app.get("/v1/openapi.json")
+def v1_openapi_contract():
+    return jsonify(build_openapi_spec(PUBLIC_BASE_URL))
+
+
+@app.get("/v1/install-kit")
+def v1_install_kit():
+    return jsonify(build_install_kit(PUBLIC_BASE_URL))
+
+
+@app.get("/v1/integrations/mock-flows")
+def v1_mock_integration_flows():
+    return jsonify({"api_version": "v1", "flows": integration_flow_catalog()})
+
+
+def integration_workspace_id(payload: dict[str, Any] | None = None) -> str:
+    candidate = (
+        request.headers.get("X-TextTraits-Workspace")
+        or request.args.get("workspace_id")
+        or (payload or {}).get("workspace_id")
+        or "default"
+    )
+    return str(candidate).strip()[:120] or "default"
+
+
+def nested_value(data: Any, path: str) -> Any:
+    for candidate in str(path or "").split("|"):
+        current = data
+        for part in candidate.strip().split("."):
+            if not part:
+                continue
+            if not isinstance(current, dict) or part not in current:
+                current = None
+                break
+            current = current[part]
+        if current not in (None, ""):
+            return current
+    return None
+
+
+def mapped_input(data: dict[str, Any], mapping_record: dict[str, Any] | None, logical_key: str, fallback_paths: list[str]) -> Any:
+    configured_path = (mapping_record or {}).get("mapping", {}).get("inputs", {}).get(logical_key)
+    paths = [configured_path] if configured_path else []
+    paths.extend(fallback_paths)
+    for path in paths:
+        value = nested_value(data, str(path))
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def analysis_output_values(analysis: dict[str, Any]) -> dict[str, Any]:
+    gate = analysis.get("policy", {}).get("gate", {})
+    return {
+        "request_id": analysis.get("request_id"),
+        "content_hash": analysis.get("content_hash"),
+        "score": analysis.get("scores", {}).get("overall"),
+        "gate_status": gate.get("status"),
+        "send_ready": gate.get("send_ready"),
+        "route": gate.get("route"),
+        "highest_severity": gate.get("highest_severity"),
+        "findings_count": len(analysis.get("findings") or []),
+        "policy_bundle_version": analysis.get("policy", {}).get("bundle_version"),
+    }
+
+
+def mapped_outputs(analysis: dict[str, Any], mapping_record: dict[str, Any] | None, defaults: dict[str, Any]) -> dict[str, Any]:
+    output_values = analysis_output_values(analysis)
+    configured_outputs = (mapping_record or {}).get("mapping", {}).get("outputs", {})
+    if not configured_outputs:
+        return defaults
+    fields = {}
+    for provider_field, logical_key in configured_outputs.items():
+        if logical_key in output_values:
+            fields[provider_field] = output_values[logical_key]
+    return fields or defaults
+
+
+@app.get("/v1/integrations/manifests")
+def v1_integration_manifests():
+    workspace_id = integration_workspace_id()
+    return jsonify(
+        {
+            "api_version": "v1",
+            "contract_version": INTEGRATION_CONTRACT_VERSION,
+            "manifests": all_manifests(),
+            "field_mappings": recent_integration_field_mappings(workspace_id=workspace_id, limit=20),
+            "workspace_id": workspace_id,
+        }
+    )
+
+
+@app.get("/v1/integrations/<provider>/manifest")
+def v1_integration_manifest(provider: str):
+    manifest = provider_manifest(provider)
+    if not manifest:
+        return jsonify({"error": "Unsupported integration provider.", "provider": normalize_provider(provider)}), 404
+    workspace_id = integration_workspace_id()
+    return jsonify(
+        {
+            "api_version": "v1",
+            "contract_version": INTEGRATION_CONTRACT_VERSION,
+            "manifest": manifest,
+            "mapping_template": mapping_template(provider),
+            "saved_mapping": get_integration_field_mapping(workspace_id, normalize_provider(provider)),
+            "workspace_id": workspace_id,
+        }
+    )
+
+
+@app.get("/v1/integrations/field-mappings")
+def v1_integration_field_mappings():
+    workspace_id = integration_workspace_id()
+    return jsonify(
+        {
+            "api_version": "v1",
+            "contract_version": INTEGRATION_CONTRACT_VERSION,
+            "workspace_id": workspace_id,
+            "field_mappings": recent_integration_field_mappings(workspace_id=workspace_id, limit=50),
+        }
+    )
+
+
+@app.post("/v1/integrations/<provider>/field-mapping/validate")
+@rate_limited(60)
+def v1_integration_field_mapping_validate(provider: str):
+    payload = request.get_json(silent=True) or {}
+    manifest = provider_manifest(provider)
+    if not manifest:
+        return jsonify({"error": "Unsupported integration provider.", "provider": normalize_provider(provider)}), 404
+    mapping = payload.get("mapping") if isinstance(payload.get("mapping"), dict) else payload
+    validation = validate_field_mapping(provider, mapping)
+    return jsonify(
+        {
+            "api_version": "v1",
+            "contract_version": INTEGRATION_CONTRACT_VERSION,
+            "provider": manifest["provider"],
+            "manifest": manifest,
+            "validation": validation,
+            "mapping_template": mapping_template(provider),
+        }
+    )
+
+
+@app.post("/v1/integrations/<provider>/field-mapping")
+@rate_limited(40)
+def v1_integration_field_mapping_save(provider: str):
+    payload = request.get_json(silent=True) or {}
+    manifest = provider_manifest(provider)
+    if not manifest:
+        return jsonify({"error": "Unsupported integration provider.", "provider": normalize_provider(provider)}), 404
+    workspace_id = integration_workspace_id(payload)
+    mapping = payload.get("mapping") if isinstance(payload.get("mapping"), dict) else payload
+    validation = validate_field_mapping(provider, mapping)
+    if not validation["valid"] and not payload.get("save_draft"):
+        return (
+            jsonify(
+                {
+                    "error": "Field mapping is incomplete.",
+                    "validation": validation,
+                    "mapping_template": mapping_template(provider),
+                }
+            ),
+            400,
+        )
+    saved = save_integration_field_mapping(
+        workspace_id,
+        manifest["provider"],
+        validation["normalized_mapping"],
+        validation,
+        INTEGRATION_CONTRACT_VERSION,
+    )
+    return jsonify(
+        {
+            "api_version": "v1",
+            "contract_version": INTEGRATION_CONTRACT_VERSION,
+            "provider": manifest["provider"],
+            "workspace_id": workspace_id,
+            "field_mapping": saved,
+        }
+    )
+
+
+@app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
+@rate_limited()
+def v1_hubspot_workflow_action():
+    payload = request.get_json(silent=True) or {}
+    workspace_id = integration_workspace_id(payload)
+    mapping_record = get_integration_field_mapping(workspace_id, "hubspot")
+    fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
+    analysis_payload = {
+        "workspace_id": workspace_id,
+        "subject": mapped_input(fields, mapping_record, "subject", ["subject", "email_subject"]),
+        "body": mapped_input(fields, mapping_record, "body", ["body", "email_body", "message"]),
+        "audience": mapped_input(fields, mapping_record, "audience", ["audience"]) or "HubSpot contact",
+        "intent": mapped_input(fields, mapping_record, "intent", ["intent"]) or "Workflow email",
+        "channel": "hubspot_workflow",
+        "source": "hubspot_workflow_action",
+    }
+    try:
+        analysis = analyze_email_payload(analysis_payload, payload.get("requestId"))
+    except Exception as error:
+        return analysis_error_response(error)
+    gate = analysis["policy"]["gate"]
+    default_outputs = {
+        "texttraits_request_id": analysis["request_id"],
+        "texttraits_content_hash": analysis["content_hash"],
+        "texttraits_score": analysis["scores"]["overall"],
+        "texttraits_gate": gate["status"],
+        "texttraits_route": gate["route"],
+        "texttraits_send_ready": gate["send_ready"],
+    }
+    return jsonify(
+        {
+            "workflow": "hubspot_workflow_action",
+            "workspace_id": workspace_id,
+            "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
+            "outputFields": mapped_outputs(analysis, mapping_record, default_outputs),
+            "analysis": compact_analysis(analysis),
+        }
+    )
+
+
+@app.post("/v1/integrations/salesforce/journey-builder/activity")
+@rate_limited()
+def v1_salesforce_journey_activity():
+    payload = request.get_json(silent=True) or {}
+    workspace_id = integration_workspace_id(payload)
+    mapping_record = get_integration_field_mapping(workspace_id, "salesforce")
+    in_arguments = payload.get("inArguments") if isinstance(payload.get("inArguments"), list) else []
+    fields: dict[str, Any] = {}
+    for item in in_arguments:
+        if isinstance(item, dict):
+            fields.update(item)
+    fields.update({key: value for key, value in payload.items() if key in {"subject", "body", "email_body", "audience", "intent"}})
+    analysis_payload = {
+        "workspace_id": workspace_id,
+        "subject": mapped_input(fields, mapping_record, "subject", ["subject", "EmailSubject"]),
+        "body": mapped_input(fields, mapping_record, "body", ["body", "email_body", "EmailBody"]),
+        "audience": mapped_input(fields, mapping_record, "audience", ["audience", "ContactType"]) or "Salesforce contact",
+        "intent": mapped_input(fields, mapping_record, "intent", ["intent", "JourneyName"]) or "Journey email",
+        "channel": "salesforce_journey_builder",
+        "source": "salesforce_journey_builder_activity",
+    }
+    try:
+        analysis = analyze_email_payload(analysis_payload, payload.get("requestId"))
+    except Exception as error:
+        return analysis_error_response(error)
+    gate = analysis["policy"]["gate"]
+    default_arguments = {
+        "texttraits_request_id": analysis["request_id"],
+        "texttraits_score": analysis["scores"]["overall"],
+        "texttraits_gate": gate["status"],
+        "texttraits_route": gate["route"],
+    }
+    return jsonify(
+        {
+            "activity": "salesforce_journey_builder_activity",
+            "branchResult": "send" if gate["send_ready"] else "review",
+            "workspace_id": workspace_id,
+            "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
+            "arguments": mapped_outputs(analysis, mapping_record, default_arguments),
+            "analysis": compact_analysis(analysis),
+        }
+    )
+
+
+@app.post("/v1/integrations/sendgrid-ses/middleware")
+@rate_limited()
+def v1_sendgrid_ses_middleware():
+    started = time.perf_counter()
+    payload = request.get_json(silent=True) or {}
+    workspace_id = integration_workspace_id(payload)
+    governance_policy = get_governance_policy(workspace_id)
+    mapping_record = get_integration_field_mapping(workspace_id, "sendgrid_ses")
+    message = payload.get("message") if isinstance(payload.get("message"), dict) else payload
+    body = message.get("text") or message.get("body") or message.get("html") or ""
+    analysis_payload = {
+        "workspace_id": workspace_id,
+        "subject": mapped_input(payload, mapping_record, "subject", ["message.subject", "subject"]),
+        "body": mapped_input(payload, mapping_record, "body", ["message.text", "message.body", "message.html", "text", "body", "html"]) or body,
+        "audience": mapped_input(payload, mapping_record, "audience", ["message.audience", "audience"]) or "Outbound recipient",
+        "intent": mapped_input(payload, mapping_record, "intent", ["message.intent", "intent"]) or "Transactional or campaign email",
+        "channel": str(payload.get("provider") or "sendgrid_ses_middleware"),
+        "source": "sendgrid_ses_middleware",
+        "assets": message.get("assets") or {},
+        "tenant_id": payload.get("tenant_id") or "",
+        "source_system": payload.get("source_system") or payload.get("provider") or "sendgrid_ses",
+        "analysis_mode": payload.get("analysis_mode") or "send_path_middleware",
+        "campaign_id": payload.get("campaign_id") or message.get("campaign_id") or "",
+        "template_id": payload.get("template_id") or message.get("template_id") or "",
+        "headers": message.get("headers") or payload.get("headers") or {},
+        "delivery_context": payload.get("delivery_context") if isinstance(payload.get("delivery_context"), dict) else {},
+    }
+    try:
+        analysis = analyze_email_payload(analysis_payload, payload.get("request_id"))
+    except Exception as error:
+        return analysis_error_response(error)
+    gate = analysis["policy"]["gate"]
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+    timeout_ms = int(governance_policy.get("send_path_timeout_ms") or 500)
+    return jsonify(
+        {
+            "middleware": "sendgrid_ses",
+            "workspace_id": workspace_id,
+            "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
+            "allow_send": gate["send_ready"],
+            "provider_action": "forward_to_provider" if gate["send_ready"] else "hold_for_review",
+            "latency_budget": {
+                "elapsed_ms": elapsed_ms,
+                "timeout_ms": timeout_ms,
+                "within_budget": elapsed_ms <= timeout_ms,
+                "idempotency_window_seconds": governance_policy.get("idempotency_window_seconds"),
+                "idempotency_key": str(payload.get("idempotency_key") or payload.get("request_id") or analysis["request_id"])[:180],
+            },
+            "headers": {
+                "X-TextTraits-Request-ID": analysis["request_id"],
+                "X-TextTraits-Policy-Version": analysis["policy"]["bundle_version"],
+                "X-TextTraits-Gate": gate["status"],
+            },
+            "analysis": compact_analysis(analysis),
+        }
+    )
+
+
+def generic_enterprise_adapter_payload(payload: dict[str, Any], provider: str) -> dict[str, Any]:
+    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    canvas_step = payload.get("canvas_step") if isinstance(payload.get("canvas_step"), dict) else {}
+    asset = payload.get("asset") if isinstance(payload.get("asset"), dict) else {}
+    input_fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else {}
+    in_arguments = payload.get("inArguments") if isinstance(payload.get("inArguments"), list) else []
+    argument_fields: dict[str, Any] = {}
+    for item in in_arguments:
+        if isinstance(item, dict):
+            argument_fields.update(item)
+    source = {**payload, **input_fields, **argument_fields, **message, **canvas_step, **asset}
+    body = (
+        source.get("body")
+        or source.get("content")
+        or source.get("text")
+        or source.get("html")
+        or message.get("html")
+        or asset.get("html")
+        or canvas_step.get("body")
+        or ""
+    )
+    return {
+        "workspace_id": integration_workspace_id(payload),
+        "tenant_id": payload.get("tenant_id") or "",
+        "source_system": payload.get("source_system") or provider,
+        "analysis_mode": payload.get("analysis_mode") or "pre_send_gate",
+        "campaign_id": payload.get("campaign_id") or source.get("campaign_id") or source.get("campaignId") or source.get("program_id") or source.get("canvas_id") or source.get("email_campaign_id") or "",
+        "journey_id": payload.get("journey_id") or source.get("journey_id") or source.get("workflow_id") or source.get("canvas_id") or "",
+        "step_id": payload.get("step_id") or source.get("step_id") or source.get("activity_id") or "",
+        "template_id": payload.get("template_id") or source.get("template_id") or source.get("asset_id") or source.get("id") or "",
+        "template_version": payload.get("template_version") or source.get("template_version") or source.get("version") or "",
+        "locale": payload.get("locale") or source.get("locale") or "",
+        "subject": source.get("subject") or source.get("email_subject") or source.get("EmailSubject") or "",
+        "body": body or source.get("email_body") or source.get("EmailBody") or "",
+        "audience": payload.get("audience") or source.get("segment") or provider,
+        "intent": payload.get("intent") or source.get("intent") or "Enterprise workflow gate",
+        "channel": provider,
+        "source": f"{provider}_mock_adapter",
+        "headers": payload.get("headers") if isinstance(payload.get("headers"), dict) else message.get("headers") if isinstance(message.get("headers"), dict) else {},
+        "personalization_context": payload.get("personalization_context") if isinstance(payload.get("personalization_context"), dict) else {},
+        "recipient_context": payload.get("recipient_context") if isinstance(payload.get("recipient_context"), dict) else {},
+        "consent_context": payload.get("consent_context") if isinstance(payload.get("consent_context"), dict) else {},
+        "delivery_context": payload.get("delivery_context") if isinstance(payload.get("delivery_context"), dict) else {},
+        "assets": source.get("assets") if isinstance(source.get("assets"), dict) else {},
+    }
+
+
+def adapter_response(provider: str, payload: dict[str, Any], request_id: str | None = None) -> tuple[dict[str, Any], int]:
+    analysis_payload = generic_enterprise_adapter_payload(payload, provider)
+    try:
+        analysis = analyze_email_payload(analysis_payload, request_id or payload.get("request_id") or payload.get("requestId"))
+    except Exception as error:
+        response, status = analysis_error_response(error)
+        return response.get_json() or {"error": str(error)}, status
+    gate = analysis["policy"]["gate"]
+    return {
+        "adapter": provider,
+        "workspace_id": analysis_payload["workspace_id"],
+        "decision": "send" if gate["send_ready"] else "review",
+        "writeback": {
+            "texttraits_request_id": analysis["request_id"],
+            "texttraits_content_hash": analysis["content_hash"],
+            "texttraits_score": analysis["scores"]["overall"],
+            "texttraits_gate": gate["status"],
+            "texttraits_route": gate["route"],
+        },
+        "render_test": analysis["input"].get("rendered_template", {}),
+        "analysis": compact_analysis(analysis),
+    }, 200
+
+
+@app.post("/v1/integrations/braze/canvas-gate")
+@rate_limited()
+def v1_braze_canvas_gate():
+    payload = request.get_json(silent=True) or {}
+    response, status = adapter_response("braze", payload)
+    return jsonify(response), status
+
+
+@app.post("/v1/integrations/marketo/smart-campaign-gate")
+@rate_limited()
+def v1_marketo_smart_campaign_gate():
+    payload = request.get_json(silent=True) or {}
+    response, status = adapter_response("marketo", payload)
+    return jsonify(response), status
+
+
+@app.post("/v1/integrations/iterable/workflow-gate")
+@rate_limited()
+def v1_iterable_workflow_gate():
+    payload = request.get_json(silent=True) or {}
+    response, status = adapter_response("iterable", payload)
+    return jsonify(response), status
+
+
+@app.post("/v1/integrations/warehouse/feedback-import")
+@rate_limited(20)
+def v1_warehouse_feedback_import():
+    payload = request.get_json(silent=True) or {}
+    rows = payload.get("rows") if isinstance(payload.get("rows"), list) else payload.get("samples")
+    if not isinstance(rows, list) or not rows:
+        return jsonify({"error": "Provide non-empty rows or samples for warehouse feedback import."}), 400
+    workspace_id = integration_workspace_id(payload)
+    import_payload = {**payload, "workspace_id": workspace_id, "samples": rows, "source_system": "warehouse"}
+    summaries = []
+    errors = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            errors.append({"index": index, "error": "Warehouse row must be an object."})
+            continue
+        response, status = adapter_response("warehouse", {**payload, **row, "workspace_id": workspace_id}, f"{stable_import_id(import_payload)}:{index}")
+        if status == 200:
+            summaries.append({"index": index, **response["analysis"]})
+            event_type = str(row.get("event_type") or row.get("delivery_status") or "").strip()
+            if event_type:
+                save_email_outcome(
+                    {
+                        "workspace_id": workspace_id,
+                        "request_id": response["analysis"]["request_id"],
+                        "content_hash": response["analysis"]["content_hash"],
+                        "provider": row.get("provider") or row.get("source_system") or "warehouse",
+                        "event_type": event_type,
+                        "delivery_status": row.get("delivery_status") or event_type,
+                        "campaign_id": row.get("campaign_id") or "",
+                        "template_id": row.get("template_id") or "",
+                        "event_timestamp": row.get("event_timestamp") or utc_now(),
+                    },
+                    workspace_id=workspace_id,
+                )
+        else:
+            errors.append({"index": index, "error": response.get("error", "Warehouse row failed analysis.")})
+    summary = save_sample_import(
+        {
+            "import_id": stable_import_id(import_payload),
+            "workspace_id": workspace_id,
+            "accepted": len(summaries),
+            "rejected": len(errors),
+            "chunk_index": int(payload.get("chunk_index") or 0),
+            "chunk_total": int(payload.get("chunk_total") or 1),
+            "resume_token": str(payload.get("resume_token") or ""),
+            "average_score": round(sum(row["score"] for row in summaries) / len(summaries), 1) if summaries else 0,
+            "blocked_or_review": sum(1 for row in summaries if row["gate"]["status"] != "ready"),
+            "created_at": utc_now(),
+        },
+        workspace_id=workspace_id,
+    )
+    return jsonify({"summary": summary, "rows": summaries, "errors": errors})
+
+
+@app.post("/v1/integrations/simulate")
+@rate_limited(40)
+def v1_adapter_simulator():
+    payload = request.get_json(silent=True) or {}
+    provider = normalize_provider(str(payload.get("provider") or "hubspot"))
+    adapter_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+    response, status = adapter_response(provider, adapter_payload)
+    response["manifest"] = provider_manifest(provider)
+    response["mapping_template"] = mapping_template(provider)
+    return jsonify(response), status
+
+
+@app.post("/v1/templates/render-test")
+@rate_limited(60)
+def v1_template_render_test():
+    payload = request.get_json(silent=True) or {}
+    harness = rendered_template_harness(payload)
+    include_preview = bool(payload.get("include_rendered_preview"))
+    response = {
+        "api_version": "v1",
+        "workspace_id": integration_workspace_id(payload),
+        "render_test": safe_template_summary(harness),
+    }
+    if include_preview:
+        response["rendered_preview"] = {
+            "subject": harness.get("rendered_subject", ""),
+            "body": harness.get("rendered_body", ""),
+        }
+    return jsonify(response)
+
+
+def webhook_dedupe_key(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("event_id") or payload.get("id") or payload.get("message_id") or "").strip()
+    if explicit:
+        return explicit[:180]
+    canonical = json.dumps(scrub_payload(payload), sort_keys=True, separators=(",", ":"))[:4000]
+    return "event_hash:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def webhook_signature_status() -> str:
+    secret = os.getenv("TEXTTRAITS_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        return "not_configured"
+    supplied = request.headers.get("X-TextTraits-Signature", "").strip()
+    if not supplied:
+        return "missing"
+    raw_body = request.get_data(cache=True)
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return "verified" if hmac.compare_digest(expected, supplied) else "invalid"
+
+
+@app.post("/v1/webhooks/post-send")
+@rate_limited(180)
+def v1_post_send_webhook():
+    payload = request.get_json(silent=True) or {}
+    workspace_id = integration_workspace_id(payload)
+    governance_policy = get_governance_policy(workspace_id)
+    signature_status = webhook_signature_status()
+    if signature_status in {"invalid", "missing"}:
+        return jsonify({"accepted": False, "retry": False, "error": "Webhook signature verification failed."}), 401
+    provider = str(payload.get("provider") or "").strip()
+    event_type = str(payload.get("event_type") or payload.get("event") or "").strip()
+    if not provider or not event_type:
+        return (
+            jsonify(
+                {
+                    "accepted": False,
+                    "retry": True,
+                    "retry_after_seconds": 300,
+                    "error": "Webhook event requires provider and event_type.",
+                }
+            ),
+            202,
+        )
+    key = webhook_dedupe_key(payload)
+    record = {
+        "workspace_id": workspace_id,
+        "dedupe_key": key,
+        "provider": provider[:80],
+        "event_type": event_type[:80],
+        "request_id": str(payload.get("request_id") or payload.get("texttraits_request_id") or "")[:120],
+        "content_hash": str(payload.get("content_hash") or "")[:120],
+        "first_seen_at": utc_now(),
+        "last_seen_at": utc_now(),
+        "seen_count": 1,
+        "delivery_status": str(payload.get("delivery_status") or payload.get("status") or "received")[:80],
+        "signature_status": signature_status,
+        "campaign_id": str(payload.get("campaign_id") or "")[:160],
+        "template_id": str(payload.get("template_id") or "")[:160],
+    }
+    event, duplicate = upsert_webhook_event(
+        key,
+        record,
+        payload,
+        workspace_id=workspace_id,
+        dedupe_window_days=int(governance_policy.get("webhook_dedupe_window_days") or 30),
+    )
+    outcome = save_email_outcome({**record, "event_timestamp": event["last_seen_at"]}, workspace_id=workspace_id)
+    return jsonify(
+        {
+            "accepted": True,
+            "duplicate": duplicate,
+            "workspace_id": workspace_id,
+            "dedupe_key": key,
+            "dedupe_window_days": governance_policy.get("webhook_dedupe_window_days"),
+            "signature_status": signature_status,
+            "event": event,
+            "outcome": outcome,
+        }
+    )
+
+
+@app.post("/v1/samples/import")
+@rate_limited(20)
+def v1_samples_import():
+    payload = request.get_json(silent=True) or {}
+    workspace_id = integration_workspace_id(payload)
+    governance_policy = get_governance_policy(workspace_id)
+    samples = payload.get("samples")
+    if not isinstance(samples, list) or not samples:
+        return jsonify({"error": "Provide a non-empty samples array."}), 400
+    sample_limit = int(governance_policy.get("sample_import_limit") or 25)
+    if len(samples) > sample_limit:
+        return jsonify({"error": f"Import up to {sample_limit} samples at a time for this workspace."}), 413
+    import_id = stable_import_id(payload)
+    rows = []
+    errors = []
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            errors.append({"index": index, "error": "Sample must be an object."})
+            continue
+        try:
+            analysis = analyze_email_payload(
+                {
+                    **sample,
+                    "workspace_id": workspace_id,
+                    "audience": sample.get("audience") or payload.get("audience") or "Batch import",
+                    "intent": sample.get("intent") or payload.get("intent") or "Warehouse sample",
+                    "channel": sample.get("channel") or "warehouse_import",
+                    "source": "batch_sample_import",
+                },
+                f"{import_id}:{index}",
+            )
+            rows.append({"index": index, **compact_analysis(analysis)})
+        except Exception as error:
+            errors.append({"index": index, "error": str(error)})
+    summary = {
+        "import_id": import_id,
+        "workspace_id": workspace_id,
+        "chunk_index": int(payload.get("chunk_index") or 0),
+        "chunk_total": int(payload.get("chunk_total") or 1),
+        "resume_token": str(payload.get("resume_token") or ""),
+        "accepted": len(rows),
+        "rejected": len(errors),
+        "average_score": round(sum(row["score"] for row in rows) / len(rows), 1) if rows else 0,
+        "blocked_or_review": sum(1 for row in rows if row["gate"]["status"] != "ready"),
+        "created_at": utc_now(),
+    }
+    summary = save_sample_import(summary, workspace_id=workspace_id)
+    return jsonify({"summary": summary, "rows": rows, "errors": errors})
+
+
+def stable_import_id(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("import_id") or "").strip()
+    if explicit:
+        return explicit[:120]
+    return "import_" + hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
+
+
+@app.get("/v1/governance/dashboard")
+def v1_governance_dashboard():
+    workspace_id = integration_workspace_id()
+    snapshot = enterprise_governance_snapshot(limit=20, workspace_id=workspace_id)
+    return jsonify(
+        {
+            "api_version": "v1",
+            "policy_bundle_version": "2026.05.25",
+            "model_version": str(getattr(predictor, "metadata", {}).get("trained_at") or "local-texttraits-bundle"),
+            **snapshot,
+            "integration_flows": integration_flow_catalog(),
+            "enterprise_integration_plan": load_enterprise_integration_plan(),
+            "field_mappings": recent_integration_field_mappings(workspace_id=workspace_id, limit=20),
+        }
+    )
+
+
+@app.get("/v1/governance/export")
+def v1_governance_export():
+    workspace_id = integration_workspace_id()
+    kind = str(request.args.get("type") or request.args.get("kind") or "analyses").strip().lower()
+    export_format = str(request.args.get("format") or "json").strip().lower()
+    limit = int(request.args.get("limit") or 1000)
+    try:
+        rows = governance_export_rows(kind, workspace_id=workspace_id, limit=limit)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    if export_format == "csv":
+        output = io.StringIO()
+        fieldnames = sorted({key for row in rows for key in row.keys()}) or ["empty"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+        response = app.response_class(output.getvalue(), mimetype="text/csv")
+        response.headers["Content-Disposition"] = f"attachment; filename=texttraits-{kind}-{workspace_id}.csv"
+        return response
+    return jsonify({"api_version": "v1", "workspace_id": workspace_id, "type": kind, "rows": rows})
+
+
+@app.get("/v1/governance/policy")
+def v1_governance_policy():
+    workspace_id = integration_workspace_id()
+    return jsonify(
+        {
+            "api_version": "v1",
+            "workspace_id": workspace_id,
+            "policy": get_governance_policy(workspace_id),
+        }
+    )
+
+
+@app.put("/v1/governance/policy")
+@rate_limited(40)
+def v1_governance_policy_save():
+    payload = request.get_json(silent=True) or {}
+    workspace_id = integration_workspace_id(payload)
+    policy_payload = payload.get("policy") if isinstance(payload.get("policy"), dict) else payload
+    policy = save_governance_policy(workspace_id, policy_payload)
+    log_event(current_user_id(), "governance_policy_updated", {"workspace_id": workspace_id, "policy": policy})
+    return jsonify(
+        {
+            "api_version": "v1",
+            "workspace_id": workspace_id,
+            "policy": policy,
+        }
+    )
 
 
 @app.get("/api/session")
@@ -964,7 +1822,7 @@ def terms():
           <body>
         <main class="legal-page">
           <h1>Terms</h1>
-          <p>TextTraits is a writing coach and outreach workflow tool. Users are responsible for reviewing generated drafts before using them.</p>
+          <p>TextTraits is an email optimization and outreach workflow scoring tool. It evaluates existing messages and does not generate replacement emails in this branch.</p>
           <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, external integration credentials, and user access.</p>
           <p>Preview integrations are disabled until real credentials, provider approvals, and field mappings are configured by the workspace owner.</p>
           <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
