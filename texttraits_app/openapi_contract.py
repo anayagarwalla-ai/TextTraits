@@ -51,7 +51,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
         "tags": [
             {"name": "Email analysis"},
             {"name": "Integration setup"},
-            {"name": "Mock workflow adapters"},
+            {"name": "Sandbox adapters"},
             {"name": "Governance"},
         ],
         "paths": {
@@ -69,7 +69,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "tags": ["Integration setup"],
                     "operationId": "listIntegrationManifests",
                     "summary": "List provider manifests and saved field mappings.",
-                    "responses": {"200": json_response("IntegrationManifestsResponse")},
+                    "responses": {"200": json_response("IntegrationManifestsResponse"), "401": error_response("Authentication required")},
                 }
             },
             "/v1/integrations/{provider}/manifest": {
@@ -78,7 +78,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "operationId": "getIntegrationManifest",
                     "summary": "Get one provider manifest, template, and saved mapping.",
                     "parameters": [provider_parameter()],
-                    "responses": {"200": json_response("IntegrationManifestResponse"), "404": error_response("Unsupported provider")},
+                    "responses": {"200": json_response("IntegrationManifestResponse"), "401": error_response("Authentication required"), "404": error_response("Unsupported provider")},
                 }
             },
             "/v1/integrations/{provider}/field-mapping/validate": {
@@ -101,71 +101,72 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "responses": {"200": json_response("FieldMappingSaveResponse"), "400": error_response("Incomplete mapping"), "404": error_response("Unsupported provider")},
                 }
             },
-            "/v1/integrations/mock-flows": {
+            "/v1/integrations/sandbox-flows": {
                 "get": {
-                    "tags": ["Mock workflow adapters"],
-                    "operationId": "listMockFlows",
-                    "summary": "List available mock workflow flows.",
-                    "responses": {"200": json_response("MockFlowsResponse")},
+                    "tags": ["Sandbox adapters"],
+                    "operationId": "listSandboxFlows",
+                    "summary": "List available sandbox adapter flows.",
+                    "security": [],
+                    "responses": {"200": json_response("SandboxFlowsResponse")},
                 }
             },
             "/v1/integrations/hubspot/workflow-actions/analyze-email": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "hubspotWorkflowAction",
-                    "summary": "Mock HubSpot workflow action analysis flow.",
+                    "summary": "Sandbox HubSpot workflow action analysis flow.",
                     "requestBody": json_request("HubSpotWorkflowRequest"),
                     "responses": {"200": json_response("HubSpotWorkflowResponse")},
                 }
             },
             "/v1/integrations/salesforce/journey-builder/activity": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "salesforceJourneyBuilderActivity",
-                    "summary": "Mock Salesforce Journey Builder activity analysis flow.",
+                    "summary": "Sandbox Salesforce Journey Builder activity analysis flow.",
                     "requestBody": json_request("SalesforceJourneyRequest"),
                     "responses": {"200": json_response("SalesforceJourneyResponse")},
                 }
             },
             "/v1/integrations/sendgrid-ses/middleware": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "sendgridSesMiddleware",
-                    "summary": "Mock SendGrid/SES pre-send middleware flow.",
+                    "summary": "Sandbox SendGrid/SES pre-send middleware flow.",
                     "requestBody": json_request("SendMiddlewareRequest"),
                     "responses": {"200": json_response("SendMiddlewareResponse")},
                 }
             },
             "/v1/integrations/braze/canvas-gate": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "brazeCanvasGate",
-                    "summary": "Mock Braze Canvas pre-send gate with Currents join metadata.",
+                    "summary": "Sandbox Braze Canvas pre-send gate with Currents join metadata.",
                     "requestBody": json_request("EnterpriseAdapterRequest"),
                     "responses": {"200": json_response("EnterpriseAdapterResponse")},
                 }
             },
             "/v1/integrations/marketo/smart-campaign-gate": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "marketoSmartCampaignGate",
-                    "summary": "Mock Marketo smart campaign email-asset gate.",
+                    "summary": "Sandbox Marketo smart campaign email-asset gate.",
                     "requestBody": json_request("EnterpriseAdapterRequest"),
                     "responses": {"200": json_response("EnterpriseAdapterResponse")},
                 }
             },
             "/v1/integrations/iterable/workflow-gate": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "iterableWorkflowGate",
-                    "summary": "Mock Iterable workflow gate with Handlebars render checks.",
+                    "summary": "Sandbox Iterable workflow gate with Handlebars render checks.",
                     "requestBody": json_request("EnterpriseAdapterRequest"),
                     "responses": {"200": json_response("EnterpriseAdapterResponse")},
                 }
             },
             "/v1/integrations/warehouse/feedback-import": {
                 "post": {
-                    "tags": ["Mock workflow adapters"],
+                    "tags": ["Sandbox adapters"],
                     "operationId": "warehouseFeedbackImport",
                     "summary": "Import warehouse feedback rows and join outcomes to analyses.",
                     "requestBody": json_request("WarehouseFeedbackRequest"),
@@ -213,7 +214,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "tags": ["Governance"],
                     "operationId": "governanceDashboard",
                     "summary": "Return persisted governance summary, analyses, webhooks, imports, and field mappings.",
-                    "responses": {"200": json_response("GovernanceDashboardResponse")},
+                    "responses": {"200": json_response("GovernanceDashboardResponse"), "401": error_response("Authentication required")},
                 }
             },
             "/v1/governance/export": {
@@ -221,7 +222,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "tags": ["Governance"],
                     "operationId": "governanceExport",
                     "summary": "Export analyses, findings, outcomes, or joined outcome rows as JSON or CSV.",
-                    "responses": {"200": {"description": "JSON or CSV governance export"}},
+                    "responses": {"200": {"description": "JSON or CSV governance export"}, "401": error_response("Authentication required")},
                 }
             },
             "/v1/governance/policy": {
@@ -229,7 +230,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "tags": ["Governance"],
                     "operationId": "getGovernancePolicy",
                     "summary": "Return workspace governance policy controls used by the send-readiness gate.",
-                    "responses": {"200": json_response("GovernancePolicyResponse")},
+                    "responses": {"200": json_response("GovernancePolicyResponse"), "401": error_response("Authentication required")},
                 },
                 "put": {
                     "tags": ["Governance"],
@@ -244,6 +245,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "tags": ["Integration setup"],
                     "operationId": "openApiContract",
                     "summary": "Return this machine-readable API contract.",
+                    "security": [],
                     "responses": {"200": {"description": "OpenAPI document"}},
                 }
             },
@@ -252,6 +254,7 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "tags": ["Integration setup"],
                     "operationId": "installKit",
                     "summary": "Return endpoint links, manifests, and sample payload references for enterprise installation.",
+                    "security": [],
                     "responses": {"200": json_response("InstallKitResponse")},
                 }
             },
@@ -441,7 +444,7 @@ def schemas() -> dict[str, Any]:
                 "saved_mapping": {"type": ["object", "null"]},
             },
         },
-        "MockFlowsResponse": {"type": "object"},
+        "SandboxFlowsResponse": {"type": "object"},
         "HubSpotWorkflowRequest": {"type": "object"},
         "HubSpotWorkflowResponse": {"type": "object"},
         "SalesforceJourneyRequest": {"type": "object"},
@@ -488,6 +491,7 @@ def build_install_kit(base_url: str) -> dict[str, Any]:
         "/v1/integrations/{provider}/manifest",
         "/v1/integrations/{provider}/field-mapping/validate",
         "/v1/integrations/{provider}/field-mapping",
+        "/v1/integrations/sandbox-flows",
         "/v1/integrations/hubspot/workflow-actions/analyze-email",
         "/v1/integrations/salesforce/journey-builder/activity",
         "/v1/integrations/sendgrid-ses/middleware",
@@ -517,6 +521,7 @@ def build_install_kit(base_url: str) -> dict[str, Any]:
         "authentication": {
             "browser": "X-CSRF-Token from /api/session",
             "server_to_server": "Set TEXTTRAITS_API_KEY and send X-TextTraits-Api-Key.",
+            "workspace_reads": "Governance dashboards, exports, policies, saved mappings, and manifest mapping views require a browser session or scoped API key.",
         },
         "endpoints": [{"path": path, "url": f"{public_url}{path.replace('{provider}', 'hubspot')}"} for path in endpoint_paths],
         "provider_manifests": all_manifests(),

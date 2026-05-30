@@ -69,6 +69,7 @@ def main() -> int:
         "/v1/integrations/marketo/smart-campaign-gate",
         "/v1/integrations/iterable/workflow-gate",
         "/v1/integrations/warehouse/feedback-import",
+        "/v1/integrations/sandbox-flows",
         "/v1/integrations/simulate",
         "/v1/templates/render-test",
         "/v1/webhooks/post-send",
@@ -91,6 +92,32 @@ def main() -> int:
     assert_true("samples/enterprise-context-analyze-request.json" in install_data["sample_payloads"], "install kit missing enterprise context sample")
     assert_true("samples/adapter-simulator-request.json" in install_data["sample_payloads"], "install kit missing adapter simulator sample")
     assert_true("samples/warehouse-feedback-import-request.json" in install_data["sample_payloads"], "install kit missing warehouse feedback sample")
+
+    unauthenticated_client = app_module.app.test_client()
+    private_dashboard = unauthenticated_client.get("/v1/governance/dashboard")
+    assert_true(private_dashboard.status_code == 401, "governance dashboard should require a session or scoped API key")
+    assert_true(private_dashboard.headers.get("Cache-Control") == "no-store", "governance dashboard should not be cacheable")
+    private_mappings = unauthenticated_client.get("/v1/integrations/manifests")
+    assert_true(private_mappings.status_code == 401, "saved integration mappings should require a session or scoped API key")
+    public_flows = unauthenticated_client.get("/v1/integrations/sandbox-flows")
+    assert_true(public_flows.status_code == 200, "public sandbox adapter catalog should stay readable")
+    legacy_flows = unauthenticated_client.get("/v1/integrations/mock-flows")
+    assert_true(legacy_flows.status_code == 200, "legacy mock-flow alias should stay readable for older callers")
+
+    previous_key = os.environ.get("TEXTTRAITS_API_KEY")
+    previous_scopes = os.environ.get("TEXTTRAITS_API_KEY_SCOPES")
+    os.environ["TEXTTRAITS_API_KEY"] = "read-key"
+    os.environ["TEXTTRAITS_API_KEY_SCOPES"] = "*:/v1/governance"
+    scoped_dashboard = unauthenticated_client.get("/v1/governance/dashboard", headers={"X-TextTraits-Api-Key": "read-key"})
+    assert_true(scoped_dashboard.status_code == 200, "scoped API key should allow governance reads without CSRF")
+    if previous_key is None:
+        os.environ.pop("TEXTTRAITS_API_KEY", None)
+    else:
+        os.environ["TEXTTRAITS_API_KEY"] = previous_key
+    if previous_scopes is None:
+        os.environ.pop("TEXTTRAITS_API_KEY_SCOPES", None)
+    else:
+        os.environ["TEXTTRAITS_API_KEY_SCOPES"] = previous_scopes
 
     integration_plan = client.get("/api/enterprise/integration-plan")
     assert_true(integration_plan.status_code == 200, integration_plan.get_data(as_text=True))
@@ -116,10 +143,10 @@ def main() -> int:
         assert_true(category in categories, f"missing {category} rule-pack finding")
     assert_true(risky_analysis["policy"]["gate"]["send_ready"] is False, "risky campaign should not be send ready")
 
-    flows = client.get("/v1/integrations/mock-flows").get_json()["flows"]
-    assert_true(any(flow["id"] == "hubspot_workflow_action" for flow in flows), "HubSpot mock flow missing")
-    assert_true(any(flow["id"] == "salesforce_journey_builder_activity" for flow in flows), "Salesforce mock flow missing")
-    assert_true(any(flow["id"] == "sendgrid_ses_middleware" for flow in flows), "SendGrid/SES mock flow missing")
+    flows = client.get("/v1/integrations/sandbox-flows").get_json()["flows"]
+    assert_true(any(flow["id"] == "hubspot_workflow_action" for flow in flows), "HubSpot sandbox adapter flow missing")
+    assert_true(any(flow["id"] == "salesforce_journey_builder_activity" for flow in flows), "Salesforce sandbox adapter flow missing")
+    assert_true(any(flow["id"] == "sendgrid_ses_middleware" for flow in flows), "SendGrid/SES sandbox adapter flow missing")
 
     manifests = client.get("/v1/integrations/manifests")
     assert_true(manifests.status_code == 200, manifests.get_data(as_text=True))

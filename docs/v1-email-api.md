@@ -56,9 +56,9 @@ headers, links, unsubscribe state, and safe body/subject length. Set
 `include_rendered_preview` only for internal testing when an admin needs to see
 the rendered preview.
 
-## Mock Enterprise Flows
+## Sandbox Adapter Flows
 
-The mock adapters route through the same v1 policy engine:
+The sandbox adapters route through the same v1 policy engine:
 
 - `POST /v1/integrations/hubspot/workflow-actions/analyze-email`
 - `POST /v1/integrations/salesforce/journey-builder/activity`
@@ -103,7 +103,7 @@ back to analyses by `request_id` or `content_hash`.
 Webhook signature hooks are available with `TEXTTRAITS_WEBHOOK_SECRET`. When the
 secret is configured, send `X-TextTraits-Signature: sha256=<hmac>` over the raw
 request body. When the secret is not configured, events are accepted with
-`signature_status: not_configured` so local mock flows can still run.
+`signature_status: not_configured` so local sandbox flows can still run.
 
 ## Governance Storage
 

@@ -61,6 +61,23 @@ def main() -> int:
         "policy_bundle: state.policyBundle",
         "integrationLab",
         "labOverview",
+        "bindNavigation",
+        "currentEnterpriseContext",
+        "runRenderTest",
+        "governanceDashboardPanels",
+        "dashboardTrendCharts",
+        "approvalQueuePanel",
+        "scoreExplanation",
+        "adminSettingsPanel",
+        "apiKeyManagementPanel",
+        "webhookSigningPanel",
+        "trustAndDeploymentPanel",
+        "saveExportSchedule",
+        "createLocalApiKeyProfile",
+        "runWebhookSignatureTest",
+        "errorRecoverySteps",
+        "enterpriseReadinessChecklist",
+        "downloadGovernanceExport",
         "governanceDashboard",
         "enterpriseIntegrationPlan",
         "governancePolicy",
@@ -109,8 +126,14 @@ def main() -> int:
     assert_true(".optimizer-summary-grid" in css, "optimization summary styling missing")
     assert_true(".optimizer-check-grid" in css, "send readiness styling missing")
     assert_true(".governance-policy-controls" in css, "governance policy styling missing")
+    assert_true(".enterprise-readiness-panel" in css and ".readiness-grid" in css, "enterprise readiness styling missing")
     assert_true(".rule-family-control-group" in css and ".rule-family-grid" in css, "rule family policy styling missing")
     assert_true(".adapter-simulator" in css and ".adapter-simulator-result" in css, "adapter simulator styling missing")
+    assert_true(".enterprise-nav" in css and ".legal-shell" in css, "persistent nav and legal page styling missing")
+    assert_true(".dashboard-filter-grid" in css and ".trend-chart-grid" in css, "dashboard filters and trend styling missing")
+    assert_true(".approval-queue-grid" in css and ".approval-action-row" in css and ".admin-settings-panel" in css, "approval/admin styling missing")
+    assert_true(".api-key-list" in css and ".trust-deployment-panel" in css, "API/trust styling missing")
+    assert_true(".hash-line" in css and "overflow-wrap: anywhere" in css, "hash overflow protection missing")
     assert_true(".optimizer-json pre" in css, "raw JSON styling missing")
     assert_true("@media (max-width: 700px)" in css, "responsive breakpoint missing")
     assert_true((ROOT / "scripts/visual_regression_snapshots.py").exists(), "visual regression snapshot script missing")

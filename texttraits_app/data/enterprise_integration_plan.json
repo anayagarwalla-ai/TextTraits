@@ -73,7 +73,7 @@
       "priority": 2,
       "best_use_case": "Large campaign teams with Content Builder assets, Journey Builder flows, and formal approval before publish or schedule.",
       "integration_layer": "Journey Builder custom activity plus Content Builder asset analysis.",
-      "experiment": "Mock a Journey Builder activity that analyzes template metadata, sample render context, campaign identifiers, headers, and links before allowing a journey to continue.",
+      "experiment": "Prototype a Journey Builder sandbox adapter that analyzes template metadata, sample render context, campaign identifiers, headers, and links before allowing a journey to continue.",
       "signals": ["Content Builder asset ID", "template version", "journey step", "sample render", "headers", "links"],
       "outputs": ["publish gate verdict", "evidence spans", "remediation checklist", "policy bundle version"],
       "risk": "Higher setup cost, but strong fit for enterprise governance.",

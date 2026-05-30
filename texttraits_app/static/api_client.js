@@ -40,6 +40,12 @@
     return data;
   }
 
+  function query(params = {}) {
+    const pairs = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "");
+    if (!pairs.length) return "";
+    return `?${new URLSearchParams(Object.fromEntries(pairs)).toString()}`;
+  }
+
   window.TextTraitsApi = {
     request,
     session: () => refreshCsrf(),
@@ -55,7 +61,7 @@
     openApiContract: () => request("/v1/openapi.json"),
     installKit: () => request("/v1/install-kit"),
     enterpriseIntegrationPlan: () => request("/api/enterprise/integration-plan"),
-    integrationFlows: () => request("/v1/integrations/mock-flows"),
+    integrationFlows: () => request("/v1/integrations/sandbox-flows"),
     integrationManifests: () => request("/v1/integrations/manifests"),
     providerManifest: (provider) => request(`/v1/integrations/${encodeURIComponent(provider)}/manifest`),
     fieldMappings: () => request("/v1/integrations/field-mappings"),
@@ -67,9 +73,9 @@
       method: "POST",
       body: JSON.stringify({...options, mapping}),
     }),
-    governanceDashboard: () => request("/v1/governance/dashboard"),
-    governanceExport: (kind = "analyses", format = "json") => request(`/v1/governance/export?type=${encodeURIComponent(kind)}&format=${encodeURIComponent(format)}`),
-    governancePolicy: () => request("/v1/governance/policy"),
+    governanceDashboard: (workspace_id = "") => request(`/v1/governance/dashboard${query({workspace_id})}`),
+    governanceExport: (kind = "analyses", format = "json", workspace_id = "") => request(`/v1/governance/export${query({type: kind, format, workspace_id})}`),
+    governancePolicy: (workspace_id = "") => request(`/v1/governance/policy${query({workspace_id})}`),
     saveGovernancePolicy: (policy, options = {}) => request("/v1/governance/policy", {
       method: "PUT",
       body: JSON.stringify({...options, policy}),

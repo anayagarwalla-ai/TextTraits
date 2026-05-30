@@ -180,6 +180,14 @@ COMMON_PASSWORDS = {
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 DATA_DIR = Path(__file__).resolve().parent / "data"
 ENTERPRISE_PLAN_PATH = DATA_DIR / "enterprise_integration_plan.json"
+ENTERPRISE_DATA_GET_PREFIXES = (
+    "/v1/governance",
+    "/v1/integrations/manifests",
+    "/v1/integrations/field-mappings",
+)
+ENTERPRISE_DATA_GET_SUFFIXES = (
+    "/manifest",
+)
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
 
@@ -392,6 +400,10 @@ def send_password_reset_email(email: str, token: str) -> dict:
 
 @app.after_request
 def add_security_headers(response):
+    if enterprise_data_read_path():
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
@@ -453,9 +465,25 @@ def api_key_request_allowed() -> bool:
     return False
 
 
+def enterprise_data_read_path() -> bool:
+    if request.method not in {"GET", "HEAD"}:
+        return False
+    if any(request.path.startswith(prefix) for prefix in ENTERPRISE_DATA_GET_PREFIXES):
+        return True
+    return request.path.startswith("/v1/integrations/") and request.path.endswith(ENTERPRISE_DATA_GET_SUFFIXES)
+
+
+def browser_session_request_allowed() -> bool:
+    return bool(session.get("csrf_token")) and request_origin_allowed()
+
+
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
+    if enterprise_data_read_path():
+        if api_key_request_allowed() or browser_session_request_allowed():
+            return None
+        return jsonify({"error": "Authentication required for enterprise governance and integration data."}), 401
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return None
     if request.path.startswith("/v1/") and api_key_request_allowed():
@@ -713,9 +741,14 @@ def v1_install_kit():
     return jsonify(build_install_kit(PUBLIC_BASE_URL))
 
 
+@app.get("/v1/integrations/sandbox-flows")
+def v1_sandbox_integration_flows():
+    return jsonify({"api_version": "v1", "flows": integration_flow_catalog()})
+
+
 @app.get("/v1/integrations/mock-flows")
 def v1_mock_integration_flows():
-    return jsonify({"api_version": "v1", "flows": integration_flow_catalog()})
+    return v1_sandbox_integration_flows()
 
 
 def integration_workspace_id(payload: dict[str, Any] | None = None) -> str:
@@ -1065,7 +1098,7 @@ def generic_enterprise_adapter_payload(payload: dict[str, Any], provider: str) -
         "audience": payload.get("audience") or source.get("segment") or provider,
         "intent": payload.get("intent") or source.get("intent") or "Enterprise workflow gate",
         "channel": provider,
-        "source": f"{provider}_mock_adapter",
+        "source": f"{provider}_sandbox_adapter",
         "headers": payload.get("headers") if isinstance(payload.get("headers"), dict) else message.get("headers") if isinstance(message.get("headers"), dict) else {},
         "personalization_context": payload.get("personalization_context") if isinstance(payload.get("personalization_context"), dict) else {},
         "recipient_context": payload.get("recipient_context") if isinstance(payload.get("recipient_context"), dict) else {},
@@ -1787,15 +1820,32 @@ def privacy():
               crossorigin="anonymous"
             ></script>
           </head>
-          <body>
-        <main class="legal-page">
-          <h1>Privacy</h1>
-          <p>TextTraits stores account and workspace data for signed-in users, including saved writing history, campaigns, drafts, outcomes, settings, and integration connection status.</p>
-          <p>Text submitted for analysis is processed by the TextTraits application. Raw pasted text is not included in normal workspace sync unless a user saves a reading, draft, or campaign that contains it.</p>
-          <p>Signed-in users can export their account data and delete their account from the account menu. Deletion removes the synced workspace and integration connection records for that account.</p>
-          <p>Enterprise integrations require administrator setup before any CRM or email data is exchanged. Preview integrations do not connect to third-party systems.</p>
-          <p>Operational logs and error reports are used to keep the service reliable and should avoid storing passwords, reset codes, API keys, and OAuth credentials.</p>
-          <p><a href="/">Back to TextTraits</a></p>
+          <body data-mode="enterprise-optimizer">
+        <main class="app-shell legal-shell">
+          <header class="topbar legal-topbar">
+            <div class="brand-block">
+              <p class="eyebrow">TextTraits</p>
+              <h1>Privacy</h1>
+              <p>Enterprise-grade handling for email analysis, governance metadata, and integration setup.</p>
+            </div>
+            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
+          </header>
+          <section class="panel legal-page">
+            <article>
+              <span class="interface-label">Data handling</span>
+              <p>TextTraits stores account and workspace data for signed-in users, including saved writing history, campaigns, drafts, outcomes, settings, and integration connection status.</p>
+              <p>Text submitted for analysis is processed by the TextTraits application. Raw pasted text is not included in normal workspace sync unless a user saves a reading, draft, or campaign that contains it.</p>
+            </article>
+            <article>
+              <span class="interface-label">Controls</span>
+              <p>Signed-in users can export their account data and delete their account from the account menu. Deletion removes the synced workspace and integration connection records for that account.</p>
+              <p>Enterprise integrations require administrator setup before any CRM or email data is exchanged. Preview integrations do not connect to third-party systems.</p>
+            </article>
+            <article>
+              <span class="interface-label">Operational safeguards</span>
+              <p>Operational logs and error reports are used to keep the service reliable and should avoid storing passwords, reset codes, API keys, and OAuth credentials.</p>
+            </article>
+          </section>
         </main>
           </body>
         </html>
@@ -1819,14 +1869,133 @@ def terms():
               crossorigin="anonymous"
             ></script>
           </head>
-          <body>
-        <main class="legal-page">
-          <h1>Terms</h1>
-          <p>TextTraits is an email optimization and outreach workflow scoring tool. It evaluates existing messages and does not generate replacement emails in this branch.</p>
-          <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, external integration credentials, and user access.</p>
-          <p>Preview integrations are disabled until real credentials, provider approvals, and field mappings are configured by the workspace owner.</p>
-          <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
-          <p><a href="/">Back to TextTraits</a></p>
+          <body data-mode="enterprise-optimizer">
+        <main class="app-shell legal-shell">
+          <header class="topbar legal-topbar">
+            <div class="brand-block">
+              <p class="eyebrow">TextTraits</p>
+              <h1>Terms</h1>
+              <p>Operational terms for an optimization layer that evaluates existing messages and does not generate replacement emails.</p>
+            </div>
+            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
+          </header>
+          <section class="panel legal-page">
+            <article>
+              <span class="interface-label">Product role</span>
+              <p>TextTraits is an email optimization and outreach workflow scoring tool. It evaluates existing messages and does not generate replacement emails in this branch.</p>
+            </article>
+            <article>
+              <span class="interface-label">Administrator responsibility</span>
+              <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, external integration credentials, and user access.</p>
+              <p>Preview integrations are disabled until real credentials, provider approvals, and field mappings are configured by the workspace owner.</p>
+            </article>
+            <article>
+              <span class="interface-label">Content and compliance</span>
+              <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
+            </article>
+          </section>
+        </main>
+          </body>
+        </html>
+        """
+    )
+
+
+@app.get("/security")
+def security():
+    return render_template_string(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TextTraits Security</title>
+            <link rel="stylesheet" href="/static/styles.css">
+            <script
+              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+              crossorigin="anonymous"
+            ></script>
+          </head>
+          <body data-mode="enterprise-optimizer">
+        <main class="app-shell legal-shell">
+          <header class="topbar legal-topbar">
+            <div class="brand-block">
+              <p class="eyebrow">TextTraits</p>
+              <h1>Security</h1>
+              <p>Internal enterprise trust package for data handling, retention, model limits, and integration boundaries.</p>
+            </div>
+            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
+          </header>
+          <section class="panel legal-page">
+            <article>
+              <span class="interface-label">Data handling</span>
+              <p>Default governance storage is designed around request IDs, content hashes, normalized findings, policy metadata, and outcome joins. Raw email body text is excluded from normal governance responses.</p>
+            </article>
+            <article>
+              <span class="interface-label">Retention controls</span>
+              <p>Workspace policies define analysis retention, webhook retention, dedupe windows, and storage mode. Production deployments should pair these controls with database backup and restore policies.</p>
+            </article>
+            <article>
+              <span class="interface-label">Model limits</span>
+              <p>TextTraits returns policy-backed signals and confidence metadata for existing messages. It should be treated as decision support, not a legal, deliverability, or compliance authority.</p>
+            </article>
+            <article>
+              <span class="interface-label">Integration boundaries</span>
+              <p>Sandbox adapters are for payload validation and workflow design. Production connections require real provider credentials, scoped API keys, webhook signing secrets, and administrator approval.</p>
+            </article>
+          </section>
+        </main>
+          </body>
+        </html>
+        """
+    )
+
+
+@app.get("/deployment")
+def deployment():
+    return render_template_string(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TextTraits Deployment</title>
+            <link rel="stylesheet" href="/static/styles.css">
+            <script
+              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+              crossorigin="anonymous"
+            ></script>
+          </head>
+          <body data-mode="enterprise-optimizer">
+        <main class="app-shell legal-shell">
+          <header class="topbar legal-topbar">
+            <div class="brand-block">
+              <p class="eyebrow">TextTraits</p>
+              <h1>Deployment Readiness</h1>
+              <p>Checklist for moving the enterprise optimizer from local sandbox to production workflow infrastructure.</p>
+            </div>
+            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
+          </header>
+          <section class="panel legal-page">
+            <article>
+              <span class="interface-label">Secrets</span>
+              <p>Set high-entropy application secrets, scoped server-to-server API keys, webhook signing secrets, and provider OAuth credentials outside source control.</p>
+            </article>
+            <article>
+              <span class="interface-label">Database</span>
+              <p>Use hosted Postgres with SSL, backups, retention controls, restore testing, and environment separation for sandbox, staging, and production.</p>
+            </article>
+            <article>
+              <span class="interface-label">Runtime</span>
+              <p>Run behind HTTPS with secure cookies, a production WSGI server, request timeouts, monitoring, error reporting, and alerting for send-path latency.</p>
+            </article>
+            <article>
+              <span class="interface-label">Operations</span>
+              <p>Document key rotation, incident ownership, webhook replay handling, export governance, and approval workflows before connecting live enterprise traffic.</p>
+            </article>
+          </section>
         </main>
           </body>
         </html>

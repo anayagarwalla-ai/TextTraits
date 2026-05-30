@@ -29,6 +29,16 @@
         </div>
       </header>
 
+      <nav class="enterprise-nav" aria-label="Enterprise workspace navigation">
+        <button type="button" data-nav-section="analyze">Analyze</button>
+        <button type="button" data-nav-section="dashboard">Dashboard</button>
+        <button type="button" data-nav-section="governance">Governance</button>
+        <button type="button" data-nav-section="simulator">Simulator</button>
+        <button type="button" data-nav-section="integrations">Integrations</button>
+        <button type="button" data-nav-section="admin">Admin</button>
+        <button type="button" data-nav-section="exports">Exports</button>
+      </nav>
+
       <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
       <section id="workspace" class="workspace optimizer-workspace" aria-label="Email optimization workspace">
@@ -41,6 +51,8 @@
         <span id="runtime-copy">This branch analyzes existing email drafts, returns policy decisions, and never writes the email for you.</span>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
+        <a href="/security">Security</a>
+        <a href="/deployment">Deployment</a>
       </footer>
 
       {% if dev_tools_enabled %}
