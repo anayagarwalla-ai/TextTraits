@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -9,7 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "texttraits_app"
 sys.path.insert(0, str(APP_DIR))
+tmpdir = tempfile.TemporaryDirectory()
+os.environ["TEXTTRAITS_DB_PATH"] = str(Path(tmpdir.name) / "v1_email_api.sqlite3")
+os.environ["DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_DATABASE_URL"] = ""
 os.environ.setdefault("ENABLE_DEV_TOOLS", "false")
+os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "test-secret-key")
 
 import app as app_module  # noqa: E402
 import storage  # noqa: E402

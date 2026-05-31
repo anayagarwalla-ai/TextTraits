@@ -12,6 +12,7 @@
     ></script>
   </head>
   <body data-mode="enterprise-optimizer">
+    <a class="skip-link" href="#input-panel">Skip to analysis workspace</a>
     <main class="app-shell">
       <div id="announcer" class="sr-only" aria-live="polite"></div>
 
@@ -30,7 +31,7 @@
       </header>
 
       <nav class="enterprise-nav" aria-label="Enterprise workspace navigation">
-        <button type="button" data-nav-section="analyze">Analyze</button>
+        <button type="button" data-nav-section="analyze" aria-current="page">Analyze</button>
         <button type="button" data-nav-section="dashboard">Dashboard</button>
         <button type="button" data-nav-section="governance">Governance</button>
         <button type="button" data-nav-section="simulator">Simulator</button>
@@ -47,7 +48,7 @@
       </section>
 
       <footer class="footer-note">
-        <strong id="runtime-label">Local demo:</strong>
+        <strong id="runtime-label">Local build:</strong>
         <span id="runtime-copy">This branch analyzes existing email drafts, returns policy decisions, and never writes the email for you.</span>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>

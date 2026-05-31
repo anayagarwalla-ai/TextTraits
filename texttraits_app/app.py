@@ -243,10 +243,10 @@ AVAILABLE_MODELS = [
         "description": "Runtime model bundle",
     },
     {
-        "id": "pandora_cloud",
-        "name": "PANDORA cloud-trained",
+        "id": "external_connector",
+        "name": "External model connector",
         "available": False,
-        "description": "Cloud model placeholder",
+        "description": "Not configured in this local build",
     },
 ]
 
@@ -643,7 +643,7 @@ def evaluate():
     if len(text.split()) > MAX_TEXT_WORDS:
         return jsonify({"error": f"Please keep samples under {MAX_TEXT_WORDS} words for this workspace."}), 413
     if model_id != "local":
-        return jsonify({"error": "The PANDORA cloud-trained model is not connected yet."}), 503
+        return jsonify({"error": "External model connectors are not configured in this local build."}), 503
     try:
         log_event(current_user_id(), "evaluate", {"mode": payload.get("mode", "unknown"), "words": len(text.split())})
         predictions = predictor.predict(text)
@@ -685,7 +685,7 @@ def analyze_email_payload(payload: dict[str, Any], request_id: str | None = None
     if len(f"{subject} {body}".split()) > MAX_TEXT_WORDS:
         raise ValueError(f"Please keep email samples under {MAX_TEXT_WORDS} words for this workspace.")
     if model_id != "local":
-        raise RuntimeError("The PANDORA cloud-trained model is not connected yet.")
+        raise RuntimeError("External model connectors are not configured in this local build.")
     governance_policy = get_governance_policy(workspace_id)
     predictions = predictor.predict(f"{subject}\n\n{body}".strip())
     public_predictions = predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions)

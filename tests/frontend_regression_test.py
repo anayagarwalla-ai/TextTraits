@@ -43,7 +43,8 @@ def main() -> int:
         assert_true("Enterprise email optimization, without generated copy." in route_html, "route-level pages should be optimizer-only")
         assert_true("Score existing emails through a stable v1 API" in route_html, "optimizer route copy missing")
         assert_true("never writes the email for you" in route_html, "non-generative positioning missing")
-        assert_true("Local demo:" in route_html and "Privacy" in route_html and "Terms" in route_html, "footer trust links missing")
+        assert_true("Local build:" in route_html and "Privacy" in route_html and "Terms" in route_html, "footer trust links missing")
+        assert_true("Skip to analysis workspace" in route_html and 'aria-current="page"' in route_html, "accessibility navigation affordances missing")
         assert_true("Explorer" not in route_html, "Explorer copy should not render")
 
     forbidden_public_copy = (
@@ -187,6 +188,7 @@ def main() -> int:
         "governancePolicyControls(policy",
         "governanceDashboardPanels(dashboard",
         "dashboardTrendCharts(dashboard",
+        "dashboardEmptyState(title)",
         "exportsPanel()",
         "saveExportSchedule()",
         "downloadGovernanceExport(kind",
@@ -257,6 +259,7 @@ def main() -> int:
         ".setup-action-row",
         ".governance-policy-controls",
         ".enterprise-nav",
+        ".skip-link",
         ".enterprise-context-panel",
         ".render-test-card",
         ".governance-dashboard",
@@ -272,6 +275,7 @@ def main() -> int:
         ".adapter-simulator-result",
         ".dashboard-filter-grid",
         ".trend-chart-grid",
+        ".dashboard-empty-state",
         ".approval-queue-grid",
         ".approval-action-row",
         ".admin-settings-panel",
@@ -293,6 +297,7 @@ def main() -> int:
     assert_true("sheetIn" in styles_css and "softReveal" in styles_css, "subtle UI motion should stay available")
     assert_true(".sample-card:hover:not(:disabled)" in styles_css, "sample hover state should remain readable")
     assert_true("grid-template-columns: repeat(3, minmax(0, 1fr))" in styles_css, "check cards should use stable grid tracks")
+    assert_true(".enterprise-nav {\n  position: static;" in styles_css, "transparent nav should not overlay page content while scrolling")
 
     print("Frontend regression checks passed.")
     return 0

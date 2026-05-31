@@ -143,6 +143,26 @@ button:disabled {
   overflow-x: clip;
 }
 
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: 12px;
+  z-index: 1000;
+  transform: translateY(-160%);
+  padding: 9px 12px;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--accent-strong);
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 10px 24px rgba(23, 33, 29, 0.12);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 body.app-compact .app-shell {
   padding-top: 10px;
 }
@@ -4767,9 +4787,7 @@ body[data-mode="enterprise-optimizer"] .topbar {
 }
 
 .enterprise-nav {
-  position: sticky;
-  top: 10px;
-  z-index: 20;
+  position: static;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -5154,6 +5172,26 @@ body[data-mode="enterprise-optimizer"] .workspace {
   height: 100%;
   border-radius: inherit;
   background: var(--accent-strong);
+}
+
+.dashboard-empty-state {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px dashed rgba(180, 201, 193, 0.9);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 250, 249, 0.72);
+}
+
+.dashboard-empty-state strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.dashboard-empty-state p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.42;
 }
 
 .driver-grid {
@@ -6307,8 +6345,6 @@ body[data-mode="enterprise-optimizer"] .workspace {
   }
 
   .enterprise-nav {
-    position: sticky;
-    top: 0;
     margin-inline: -4px;
     overflow-x: auto;
     flex-wrap: nowrap;

@@ -972,8 +972,28 @@
             <div class="trend-track" aria-hidden="true"><b style="width: ${Math.max(6, Math.round((row.count / max) * 100))}%"></b></div>
             <strong>${escapeHtml(row.count)}</strong>
           </div>
-        `).join("") : `<p class="muted">No rows match the current filters.</p>`}
+        `).join("") : dashboardEmptyState(title)}
       </article>
+    `;
+  }
+
+  function dashboardEmptyState(title) {
+    const guidance = {
+      "Gate distribution": "Run an analysis or clear filters to compare ready, review, and blocked decisions.",
+      "Source-system trend": "Set source_system in enterprise context or run a sandbox adapter test to group activity by workflow source.",
+      "Campaign drilldown": "Add campaign_id values to analyses or imports to compare campaign-level readiness.",
+      "Top failing rule packs": "Review/block findings will appear here after analyses produce policy findings.",
+      "Risky template versions": "Add template_id values to analyses or render tests to surface risky template versions.",
+      "Trend by source system": "Use enterprise context or adapter payloads to create source-system trend rows.",
+      "Outcome joins": "Post delivery, bounce, complaint, click, unsubscribe, or suppression webhooks to join outcomes to analyses.",
+      "Outcome counts": "Webhook events populate this panel without storing raw email body text.",
+      "Filtered drilldown": "Clear filters or run analyses with matching campaign/template metadata to inspect specific records.",
+    };
+    return `
+      <div class="dashboard-empty-state">
+        <strong>No matching data yet</strong>
+        <p>${escapeHtml(guidance[title] || "Run analyses, imports, or webhooks to populate this enterprise governance panel.")}</p>
+      </div>
     `;
   }
 
@@ -982,7 +1002,7 @@
     return `
       <article class="dashboard-panel">
         <span class="interface-label">${escapeHtml(title)}</span>
-        ${cleanRows.length ? cleanRows.map((row) => `<p>${escapeHtml(labeler(row))}</p>`).join("") : `<p class="muted">No data yet. Run analyses, imports, or webhooks to populate this panel.</p>`}
+        ${cleanRows.length ? cleanRows.map((row) => `<p>${escapeHtml(labeler(row))}</p>`).join("") : dashboardEmptyState(title)}
       </article>
     `;
   }

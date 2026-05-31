@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "texttraits_app"
 sys.path.insert(0, str(APP_DIR))
+tmpdir = tempfile.TemporaryDirectory()
+os.environ["TEXTTRAITS_DB_PATH"] = str(Path(tmpdir.name) / "smoke.sqlite3")
+os.environ["DATABASE_URL"] = ""
+os.environ["TEXTTRAITS_DATABASE_URL"] = ""
 os.environ.setdefault("ENABLE_DEV_TOOLS", "false")
+os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "test-secret-key")
 
 import app as app_module  # noqa: E402
 
@@ -32,7 +38,8 @@ def main() -> int:
     assert_true('data-mode="enterprise-optimizer"' in html, "enterprise optimizer page mode missing")
     assert_true("Enterprise email optimization, without generated copy." in html, "optimizer heading missing")
     assert_true("Enterprise optimizer" in html, "optimizer status card missing")
-    assert_true("never writes the email for you" in html, "non-generative footer copy missing")
+    assert_true("never writes the email for you" in html and "Local build:" in html, "non-generative footer copy missing")
+    assert_true("Skip to analysis workspace" in html and 'aria-current="page"' in html, "accessible navigation state missing")
     assert_true("static/app.js" in html, "app script missing")
     assert_true("static/api_client.js" in html, "api client script missing")
     assert_true("static/text_utils.js" in html, "text utility script missing")
@@ -45,6 +52,11 @@ def main() -> int:
     assert_true("Developer tools" not in html, "developer tools should be hidden by default")
     assert_true("response-debug" not in html, "raw response debug should be hidden by default")
     assert_true("model_path" not in html, "model internals should not render in public HTML")
+    for path, title in (("/privacy", "Privacy"), ("/terms", "Terms"), ("/security", "Security"), ("/deployment", "Deployment Readiness")):
+        route = client.get(path)
+        route_html = route.get_data(as_text=True)
+        assert_true(route.status_code == 200 and title in route_html, f"{path} trust route missing")
+        assert_true('data-mode="enterprise-optimizer"' in route_html and "Back to TextTraits" in route_html, f"{path} should match enterprise app shell")
 
     app_js = client.get("/static/app.js")
     assert_true(app_js.status_code == 200, f"app.js returned {app_js.status_code}")
@@ -72,6 +84,7 @@ def main() -> int:
         "Dashboard filters",
         "Source-system trend",
         "Campaign drilldown",
+        "No matching data yet",
         "Enterprise readiness checklist",
         "Workspace data boundary",
         "Exports",

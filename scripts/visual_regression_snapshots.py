@@ -144,6 +144,14 @@ def main() -> int:
             expect(page.get_by_text("Data handling", exact=True)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-security.png"), full_page=False)
 
+            page.goto(f"{BASE}/privacy", wait_until="load")
+            expect(page.get_by_text("Privacy", exact=True)).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-privacy.png"), full_page=False)
+
+            page.goto(f"{BASE}/terms", wait_until="load")
+            expect(page.get_by_text("Terms", exact=True)).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-terms.png"), full_page=False)
+
             page.goto(f"{BASE}/deployment", wait_until="load")
             expect(page.get_by_text("Deployment Readiness", exact=True)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-deployment.png"), full_page=False)
