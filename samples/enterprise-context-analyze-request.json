@@ -1,0 +1,40 @@
+{
+  "request_id": "cmp-q3-pipeline-warmup-step-2",
+  "tenant_id": "acme-demo",
+  "workspace_id": "marketing-prod",
+  "source_system": "braze",
+  "analysis_mode": "pre_send_gate",
+  "campaign_id": "cmp_q3_pipeline_warmup",
+  "journey_id": "canvas_reactivation_42",
+  "step_id": "email_step_2",
+  "template_id": "tmpl_119028",
+  "template_version": "17",
+  "locale": "en-US",
+  "subject": "Quick check on forecast risk for {{ first_name }}",
+  "body": "Hi {{ first_name }}, your team mentioned renewal risk reviews are happening later than planned. Could we review the current manager handoff on Thursday? Manage preferences: https://example.test/preferences",
+  "headers": {
+    "List-Unsubscribe": "<https://example.test/unsubscribe/acme-demo>",
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"
+  },
+  "personalization_context": {
+    "first_name": "Maya"
+  },
+  "consent_context": {
+    "state": "subscribed",
+    "lawful_basis": "marketing_consent",
+    "region": "US"
+  },
+  "delivery_context": {
+    "sending_domain": "news.example.test",
+    "ip_pool": "marketing_pool",
+    "provider": "braze"
+  },
+  "assets": {
+    "links": [
+      "https://example.test/preferences"
+    ],
+    "image_count": 0,
+    "image_bytes": 0,
+    "html_bytes": 540
+  }
+}

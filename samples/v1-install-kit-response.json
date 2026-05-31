@@ -1,0 +1,118 @@
+{
+  "api_version": "v1",
+  "contract_version": "2026.05.25",
+  "policy_bundle_version": "2026.05.25",
+  "non_generative": true,
+  "openapi_url": "https://example.test/v1/openapi.json",
+  "documentation": {
+    "repository_path": "docs/v1-email-api.md",
+    "openapi_url": "https://example.test/v1/openapi.json"
+  },
+  "authentication": {
+    "browser": "X-CSRF-Token from /api/session",
+    "server_to_server": "Set TEXTTRAITS_API_KEY and send X-TextTraits-Api-Key."
+  },
+  "endpoints": [
+    {
+      "path": "/v1/email/analyze",
+      "url": "https://example.test/v1/email/analyze"
+    },
+    {
+      "path": "/v1/integrations/manifests",
+      "url": "https://example.test/v1/integrations/manifests"
+    },
+    {
+      "path": "/v1/integrations/{provider}/manifest",
+      "url": "https://example.test/v1/integrations/hubspot/manifest"
+    },
+    {
+      "path": "/v1/integrations/{provider}/field-mapping/validate",
+      "url": "https://example.test/v1/integrations/hubspot/field-mapping/validate"
+    },
+    {
+      "path": "/v1/integrations/{provider}/field-mapping",
+      "url": "https://example.test/v1/integrations/hubspot/field-mapping"
+    },
+    {
+      "path": "/v1/integrations/hubspot/workflow-actions/analyze-email",
+      "url": "https://example.test/v1/integrations/hubspot/workflow-actions/analyze-email"
+    },
+    {
+      "path": "/v1/integrations/salesforce/journey-builder/activity",
+      "url": "https://example.test/v1/integrations/salesforce/journey-builder/activity"
+    },
+    {
+      "path": "/v1/integrations/sendgrid-ses/middleware",
+      "url": "https://example.test/v1/integrations/sendgrid-ses/middleware"
+    },
+    {
+      "path": "/v1/integrations/braze/canvas-gate",
+      "url": "https://example.test/v1/integrations/braze/canvas-gate"
+    },
+    {
+      "path": "/v1/integrations/marketo/smart-campaign-gate",
+      "url": "https://example.test/v1/integrations/marketo/smart-campaign-gate"
+    },
+    {
+      "path": "/v1/integrations/iterable/workflow-gate",
+      "url": "https://example.test/v1/integrations/iterable/workflow-gate"
+    },
+    {
+      "path": "/v1/integrations/warehouse/feedback-import",
+      "url": "https://example.test/v1/integrations/warehouse/feedback-import"
+    },
+    {
+      "path": "/v1/integrations/simulate",
+      "url": "https://example.test/v1/integrations/simulate"
+    },
+    {
+      "path": "/v1/templates/render-test",
+      "url": "https://example.test/v1/templates/render-test"
+    },
+    {
+      "path": "/v1/webhooks/post-send",
+      "url": "https://example.test/v1/webhooks/post-send"
+    },
+    {
+      "path": "/v1/samples/import",
+      "url": "https://example.test/v1/samples/import"
+    },
+    {
+      "path": "/v1/governance/dashboard",
+      "url": "https://example.test/v1/governance/dashboard"
+    },
+    {
+      "path": "/v1/governance/export",
+      "url": "https://example.test/v1/governance/export"
+    },
+    {
+      "path": "/v1/governance/policy",
+      "url": "https://example.test/v1/governance/policy"
+    },
+    {
+      "path": "/v1/openapi.json",
+      "url": "https://example.test/v1/openapi.json"
+    }
+  ],
+  "sample_payloads": [
+    "samples/v1-email-analyze-request.json",
+    "samples/hubspot-workflow-action-request.json",
+    "samples/hubspot-field-mapping-request.json",
+    "samples/post-send-webhook-event.json",
+    "samples/governance-policy-request.json",
+    "samples/enterprise-context-analyze-request.json",
+    "samples/adapter-simulator-request.json",
+    "samples/warehouse-feedback-import-request.json"
+  ],
+  "integration_sequence": [
+    "Read /v1/openapi.json and provider manifests.",
+    "Validate and save field mappings for the workspace.",
+    "Render-test personalization tokens with sample recipient context before routing a template.",
+    "Route existing email content through /v1/email/analyze or a provider adapter.",
+    "Persist request_id and content_hash with downstream send records.",
+    "Set workspace governance policy controls for thresholds, retention, dedupe, and storage mode.",
+    "Send provider outcomes to /v1/webhooks/post-send for governance joins.",
+    "Export normalized analyses, findings, outcomes, or joins for internal governance reporting.",
+    "Review /v1/governance/dashboard for quality, routing, and delivery patterns."
+  ]
+}

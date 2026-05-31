@@ -1,0 +1,21 @@
+{
+  "workspace_id": "acme-revops",
+  "policy": {
+    "min_ready_score": 80,
+    "high_severity_requires_review": true,
+    "retention_days": 365,
+    "webhook_retention_days": 730,
+    "webhook_dedupe_window_days": 45,
+    "policy_environment": "staging",
+    "content_storage_mode": "hash_only",
+    "sample_import_limit": 50,
+    "send_path_timeout_ms": 500,
+    "idempotency_window_seconds": 900,
+    "rule_family_modes": {
+      "compliance": "fail_closed",
+      "unsubscribe": "fail_closed",
+      "personalization": "review",
+      "cta": "fail_open"
+    }
+  }
+}

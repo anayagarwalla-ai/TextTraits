@@ -1,0 +1,17 @@
+{
+  "workspace_id": "marketing-prod",
+  "import_id": "warehouse-feedback-2026-05-25-001",
+  "chunk_index": 0,
+  "chunk_total": 2,
+  "resume_token": "opaque-resume-cursor-from-your-worker",
+  "rows": [
+    {
+      "subject": "Renewal checklist follow-up",
+      "body": "Hi Maya, your team mentioned renewal risk reviews are happening later than planned. Could we review the current manager handoff on Thursday?",
+      "campaign_id": "cmp_q3_pipeline_warmup",
+      "template_id": "tmpl_119028",
+      "event_type": "clicked",
+      "delivery_status": "clicked"
+    }
+  ]
+}

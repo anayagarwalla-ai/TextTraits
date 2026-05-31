@@ -63,7 +63,7 @@
       "signals": ["workflow context", "contact segment", "subscription state", "campaign ID", "email body", "subject"],
       "outputs": ["route recommendation", "policy findings", "send-readiness score", "review notes"],
       "risk": "Moderate. The app must keep consent and subscription state authoritative in HubSpot.",
-      "prototype_status": "ready_to_mock"
+      "prototype_status": "ready_to_sandbox"
     },
     {
       "id": "salesforce_marketing_cloud",
@@ -73,11 +73,11 @@
       "priority": 2,
       "best_use_case": "Large campaign teams with Content Builder assets, Journey Builder flows, and formal approval before publish or schedule.",
       "integration_layer": "Journey Builder custom activity plus Content Builder asset analysis.",
-      "experiment": "Mock a Journey Builder activity that analyzes template metadata, sample render context, campaign identifiers, headers, and links before allowing a journey to continue.",
+      "experiment": "Prototype a Journey Builder sandbox adapter that analyzes template metadata, sample render context, campaign identifiers, headers, and links before allowing a journey to continue.",
       "signals": ["Content Builder asset ID", "template version", "journey step", "sample render", "headers", "links"],
       "outputs": ["publish gate verdict", "evidence spans", "remediation checklist", "policy bundle version"],
       "risk": "Higher setup cost, but strong fit for enterprise governance.",
-      "prototype_status": "ready_to_mock"
+      "prototype_status": "ready_to_sandbox"
     },
     {
       "id": "braze_canvas",
@@ -91,7 +91,7 @@
       "signals": ["Canvas step", "Liquid tokens", "catalog usage", "segment", "Currents events"],
       "outputs": ["route annotation", "complaint/bounce watchlist", "cohort trend", "model-tuning features"],
       "risk": "Requires careful token and live-content handling because final render can differ from saved templates.",
-      "prototype_status": "ready_to_mock"
+      "prototype_status": "ready_to_sandbox"
     },
     {
       "id": "sendgrid_api_middleware",
@@ -105,7 +105,7 @@
       "signals": ["send payload", "headers", "message type", "sending domain", "IP pool", "provider IDs"],
       "outputs": ["inline verdict", "content hashes", "delivery hints", "webhook join key"],
       "risk": "Latency-sensitive. Needs strict timeout, idempotency, and rate-limit handling.",
-      "prototype_status": "ready_to_mock"
+      "prototype_status": "ready_to_sandbox"
     },
     {
       "id": "warehouse_feedback",
@@ -119,7 +119,7 @@
       "signals": ["campaign history", "template versions", "event lake", "suppression state", "content hashes"],
       "outputs": ["trend metrics", "governance findings", "suppression candidates", "model evaluation set"],
       "risk": "Not suitable for blocking sends, but strongest for learning and cross-platform visibility.",
-      "prototype_status": "ready_to_mock"
+      "prototype_status": "ready_to_sandbox"
     }
   ],
   "request_schema": {

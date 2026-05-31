@@ -27,7 +27,7 @@ jobs:
 
       - name: Static syntax checks
         run: |
-          python -m py_compile texttraits_app/app.py texttraits_app/storage.py
+          python -m py_compile texttraits_app/app.py texttraits_app/storage.py texttraits_app/email_analysis.py texttraits_app/integration_contracts.py texttraits_app/openapi_contract.py
           node --check texttraits_app/static/app.js
 
       - name: Database migration smoke
@@ -42,6 +42,7 @@ jobs:
           python tests/security_regression_test.py
           python tests/security_attack_harness.py
           python tests/config_regression_test.py
+          python tests/v1_email_api_test.py
           python tests/frontend_regression_test.py
           python tests/env_storage_regression_test.py
           python tests/readiness_regression_test.py

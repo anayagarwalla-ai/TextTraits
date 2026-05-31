@@ -134,6 +134,24 @@ python scripts/poll_deep_research.py --url "https://chatgpt.com/c/..." --interva
 
 The enterprise UI uses the checked-in plan to prototype where TextTraits fits into existing email workflows: authoring lint, pre-send gates, and post-send analytics.
 
+## B2B Profile Intelligence
+
+The enterprise UI also includes a privacy-safe relationship-profile builder for B2B marketing and sales workflows. It accepts consented communication history and account context, then returns business priorities, objections, buying-stage guidance, CRM activation fields, and LLM generation guardrails without returning raw identifiers or sensitive personal-attribute predictions.
+
+API endpoint:
+
+```bash
+POST /v1/b2b/profile
+```
+
+Prepare a cloud-training dataset without local training:
+
+```bash
+python scripts/prepare_b2b_profile_model.py --communications-csv consented_export.csv --output-dir output/b2b_profile_model
+```
+
+See `docs/b2b-profile-platform.md` for the data contract and privacy boundary.
+
 ## Deployment Notes
 
 This app is currently a Flask service. A production deployment should:

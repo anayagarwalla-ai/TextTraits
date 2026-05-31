@@ -12,6 +12,7 @@
     ></script>
   </head>
   <body data-mode="enterprise-optimizer">
+    <a class="skip-link" href="#input-panel">Skip to analysis workspace</a>
     <main class="app-shell">
       <div id="announcer" class="sr-only" aria-live="polite"></div>
 
@@ -19,7 +20,7 @@
         <div class="brand-block">
           <p class="eyebrow">TextTraits</p>
           <h1 id="hero-title">Enterprise email optimization, without generated copy.</h1>
-          <p id="hero-subtitle">Score existing emails with local model signals, objective writing stats, and send-readiness checks before they leave your current tools.</p>
+          <p id="hero-subtitle">Score existing emails through a stable v1 API with local model signals, policy-backed findings, and send-readiness routing before they leave your current tools.</p>
         </div>
 
         <div class="mode-card optimizer-status-card" aria-label="Enterprise optimizer status">
@@ -29,6 +30,16 @@
         </div>
       </header>
 
+      <nav class="enterprise-nav" aria-label="Enterprise workspace navigation">
+        <button type="button" data-nav-section="analyze" aria-current="page">Analyze</button>
+        <button type="button" data-nav-section="dashboard">Dashboard</button>
+        <button type="button" data-nav-section="governance">Governance</button>
+        <button type="button" data-nav-section="simulator">Simulator</button>
+        <button type="button" data-nav-section="integrations">Integrations</button>
+        <button type="button" data-nav-section="admin">Admin</button>
+        <button type="button" data-nav-section="exports">Exports</button>
+      </nav>
+
       <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
       <section id="workspace" class="workspace optimizer-workspace" aria-label="Email optimization workspace">
@@ -37,10 +48,12 @@
       </section>
 
       <footer class="footer-note">
-        <strong id="runtime-label">Local demo:</strong>
-        <span id="runtime-copy">This branch analyzes existing email drafts and never writes the email for you.</span>
+        <strong id="runtime-label">Local build:</strong>
+        <span id="runtime-copy">This branch analyzes existing email drafts, returns policy decisions, and never writes the email for you.</span>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
+        <a href="/security">Security</a>
+        <a href="/deployment">Deployment</a>
       </footer>
 
       {% if dev_tools_enabled %}

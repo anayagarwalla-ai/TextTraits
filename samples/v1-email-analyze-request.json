@@ -1,0 +1,15 @@
+{
+  "request_id": "sample-follow-up-001",
+  "subject": "Next step after Tuesday",
+  "body": "Hi Maya, thanks for walking through the renewal workflow on Tuesday. The strongest gap I heard was that managers see risk after the forecast is already under pressure. Would Thursday afternoon work for a quick fit check?",
+  "audience": "Prospect",
+  "intent": "Follow-up",
+  "channel": "hubspot_workflow",
+  "policy_bundle": "enterprise_email_readiness",
+  "assets": {
+    "links": [],
+    "image_count": 0,
+    "image_bytes": 0,
+    "html_bytes": 231
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "requestId": "hubspot-workflow-42",
+  "inputFields": {
+    "email_subject": "Renewal workflow follow-up",
+    "email_body": "Hi Jordan, your team mentioned renewal risk reviews are happening later than planned. Could we review the current manager handoff on Thursday?",
+    "audience": "Customer",
+    "intent": "Workflow email"
+  }
+}
