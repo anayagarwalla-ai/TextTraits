@@ -190,6 +190,10 @@ ENTERPRISE_DATA_GET_PREFIXES = (
 ENTERPRISE_DATA_GET_SUFFIXES = (
     "/manifest",
 )
+HUBSPOT_PUBLIC_INGRESS_PATHS = {
+    "/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "/v1/integrations/hubspot/crm-card/analyze-email",
+}
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
 
@@ -531,6 +535,10 @@ def private_response_path() -> bool:
     return request.path.startswith("/api/") or request.path.startswith("/v1/")
 
 
+def hubspot_public_ingress_path() -> bool:
+    return request.method in {"POST", "OPTIONS"} and request.path in HUBSPOT_PUBLIC_INGRESS_PATHS
+
+
 def browser_session_request_allowed() -> bool:
     if not (session.get("csrf_token") and request_origin_allowed()):
         return False
@@ -542,6 +550,8 @@ def browser_session_request_allowed() -> bool:
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
+    if hubspot_public_ingress_path():
+        return None
     if enterprise_data_read_path():
         if api_key_header_supplied():
             if api_key_request_allowed():
@@ -987,9 +997,7 @@ def v1_integration_field_mapping_save(provider: str):
     )
 
 
-@app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
-@rate_limited()
-def v1_hubspot_workflow_action():
+def hubspot_analyze_email_response(flow_name: str, default_audience: str, default_intent: str):
     payload = request.get_json(silent=True) or {}
     workspace_id = integration_workspace_id(payload)
     mapping_record = get_integration_field_mapping(workspace_id, "hubspot")
@@ -998,10 +1006,10 @@ def v1_hubspot_workflow_action():
         "workspace_id": workspace_id,
         "subject": mapped_input(fields, mapping_record, "subject", ["subject", "email_subject"]),
         "body": mapped_input(fields, mapping_record, "body", ["body", "email_body", "message"]),
-        "audience": mapped_input(fields, mapping_record, "audience", ["audience"]) or "HubSpot contact",
-        "intent": mapped_input(fields, mapping_record, "intent", ["intent"]) or "Workflow email",
-        "channel": "hubspot_workflow",
-        "source": "hubspot_workflow_action",
+        "audience": mapped_input(fields, mapping_record, "audience", ["audience"]) or default_audience,
+        "intent": mapped_input(fields, mapping_record, "intent", ["intent"]) or default_intent,
+        "channel": flow_name,
+        "source": flow_name,
     }
     try:
         analysis = analyze_email_payload(analysis_payload, payload.get("requestId"))
@@ -1018,13 +1026,25 @@ def v1_hubspot_workflow_action():
     }
     return jsonify(
         {
-            "workflow": "hubspot_workflow_action",
+            "workflow": flow_name,
             "workspace_id": workspace_id,
             "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
             "outputFields": mapped_outputs(analysis, mapping_record, default_outputs),
             "analysis": compact_analysis(analysis),
         }
     )
+
+
+@app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
+@rate_limited()
+def v1_hubspot_workflow_action():
+    return hubspot_analyze_email_response("hubspot_workflow_action", "HubSpot contact", "Workflow email")
+
+
+@app.post("/v1/integrations/hubspot/crm-card/analyze-email")
+@rate_limited()
+def v1_hubspot_crm_card():
+    return hubspot_analyze_email_response("hubspot_crm_card", "HubSpot CRM record", "CRM outreach review")
 
 
 @app.post("/v1/integrations/salesforce/journey-builder/activity")
@@ -1893,12 +1913,65 @@ def api_integration_oauth_start(provider: str):
     return jsonify({"authorize_url": authorize_url, "provider": entry.public_dict()})
 
 
+def oauth_completion_page(title: str, body: str, status_code: int = 200):
+    return (
+        render_template_string(
+            """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>{{ title }}</title>
+                <link rel="stylesheet" href="/static/styles.css">
+              </head>
+              <body data-mode="enterprise-optimizer">
+                <main class="app-shell legal-shell">
+                  <section class="panel legal-page">
+                    <article>
+                      <span class="interface-label">HubSpot install</span>
+                      <h1>{{ title }}</h1>
+                      <p>{{ body }}</p>
+                      <p>Return to HubSpot, refresh the Contact record customization card library, search for TextTraits, and add the TextTraits email fit card to the right sidebar.</p>
+                    </article>
+                  </section>
+                </main>
+              </body>
+            </html>
+            """,
+            title=title,
+            body=body,
+        ),
+        status_code,
+    )
+
+
+def marketplace_install_user(entry, token_payload: dict[str, Any], state: str) -> dict[str, Any]:
+    hub_id = str(token_payload.get("hub_id") or token_payload.get("portal_id") or request.args.get("portalId") or "").strip()
+    hub_domain = str(token_payload.get("hub_domain") or "").strip()
+    state_hash = hashlib.sha256(str(state or hub_id or secrets.token_urlsafe(8)).encode("utf-8")).hexdigest()[:12]
+    install_key = re.sub(r"[^a-z0-9.-]+", "-", (hub_id or hub_domain.lower() or state_hash).lower()).strip(".-")
+    email = f"hubspot-install-{install_key or state_hash}@integrations.texttraits.local"
+    name = f"HubSpot install {hub_domain or hub_id or state_hash}"
+    user = upsert_oauth_user(email, name=name, provider=f"{entry.name} Marketplace")
+    config = {
+        "connected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "install_type": "hubspot_marketplace_oauth",
+        "hub_id": hub_id,
+        "hub_domain": hub_domain,
+        "token_type": token_payload.get("token_type"),
+        "expires_in": token_payload.get("expires_in"),
+        "scope": token_payload.get("scope"),
+        "tokens_stored": bool(os.getenv("TEXTTRAITS_STORE_OAUTH_TOKENS", "").strip().lower() in {"1", "true", "yes", "on"}),
+    }
+    upsert_integration(int(user["id"]), entry.name, "connected", config)
+    log_event(int(user["id"]), "hubspot_marketplace_install", config)
+    return user
+
+
 @app.get("/api/integrations/<provider>/oauth/callback")
 @rate_limited(20)
 def api_integration_oauth_callback(provider: str):
-    user_id, error = require_user()
-    if error:
-        return error
     entry = get_provider(provider)
     if not entry:
         return jsonify({"error": "Unsupported integration provider."}), 404
@@ -1906,10 +1979,31 @@ def api_integration_oauth_callback(provider: str):
     state = request.args.get("state", "")
     if not code or not state:
         return jsonify({"error": "OAuth callback is missing code or state."}), 400
+
     try:
         decoded = decoded_state(state)
     except Exception:
-        return jsonify({"error": "OAuth state is invalid."}), 400
+        if entry.name != "HubSpot":
+            return jsonify({"error": "OAuth state is invalid."}), 400
+        redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
+        try:
+            token_payload = exchange_oauth_code(entry, redirect_uri, code)
+            marketplace_install_user(entry, token_payload, state)
+        except Exception:
+            logging.exception("hubspot_marketplace_install_failed")
+            return oauth_completion_page(
+                "HubSpot install reached TextTraits",
+                "HubSpot redirected back successfully, but TextTraits could not complete the token exchange. Check deployed HUBSPOT_CLIENT_ID and HUBSPOT_CLIENT_SECRET before using live integrations.",
+                502,
+            )
+        return oauth_completion_page(
+            "HubSpot app installed",
+            "TextTraits received the HubSpot install callback and saved a connected install record.",
+        )
+
+    user_id, error = require_user()
+    if error:
+        return error
     expected_nonce = session.get(f"oauth_nonce_{provider_slug(entry.name)}")
     if decoded.get("user_id") != user_id or decoded.get("provider") != entry.name or decoded.get("nonce") != expected_nonce:
         return jsonify({"error": "OAuth state did not match this session."}), 400

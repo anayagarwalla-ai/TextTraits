@@ -119,6 +119,15 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "responses": {"200": json_response("HubSpotWorkflowResponse")},
                 }
             },
+            "/v1/integrations/hubspot/crm-card/analyze-email": {
+                "post": {
+                    "tags": ["Sandbox adapters"],
+                    "operationId": "hubspotCrmCardAnalyzeEmail",
+                    "summary": "HubSpot CRM card analysis flow for scoring an existing draft from a record sidebar.",
+                    "requestBody": json_request("HubSpotWorkflowRequest"),
+                    "responses": {"200": json_response("HubSpotWorkflowResponse")},
+                }
+            },
             "/v1/integrations/salesforce/journey-builder/activity": {
                 "post": {
                     "tags": ["Sandbox adapters"],

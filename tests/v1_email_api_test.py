@@ -69,6 +69,7 @@ def main() -> int:
     for path in (
         "/v1/email/analyze",
         "/v1/integrations/hubspot/workflow-actions/analyze-email",
+        "/v1/integrations/hubspot/crm-card/analyze-email",
         "/v1/integrations/salesforce/journey-builder/activity",
         "/v1/integrations/sendgrid-ses/middleware",
         "/v1/integrations/braze/canvas-gate",
@@ -153,6 +154,19 @@ def main() -> int:
     assert_true(any(flow["id"] == "hubspot_workflow_action" for flow in flows), "HubSpot sandbox adapter flow missing")
     assert_true(any(flow["id"] == "salesforce_journey_builder_activity" for flow in flows), "Salesforce sandbox adapter flow missing")
     assert_true(any(flow["id"] == "sendgrid_ses_middleware" for flow in flows), "SendGrid/SES sandbox adapter flow missing")
+
+    hubspot_card = unauthenticated_client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot-card-test",
+            "inputFields": {
+                "subject": "Renewal workflow follow-up",
+                "body": "Hi Maya, could we review the renewal handoff on Thursday and decide the next step?",
+            },
+        },
+    )
+    assert_true(hubspot_card.status_code == 200, hubspot_card.get_data(as_text=True))
+    assert_true(hubspot_card.get_json()["workflow"] == "hubspot_crm_card", "HubSpot CRM card endpoint should return the card workflow")
 
     manifests = client.get("/v1/integrations/manifests")
     assert_true(manifests.status_code == 200, manifests.get_data(as_text=True))

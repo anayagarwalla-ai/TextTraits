@@ -124,6 +124,22 @@ def main() -> int:
     oauth_start = client.post("/api/integrations/hubspot/oauth/start", headers=csrf_headers(client))
     assert_true(oauth_start.status_code == 409, "OAuth start should require configured provider credentials")
 
+    original_exchange = app_module.exchange_oauth_code
+    try:
+        app_module.exchange_oauth_code = lambda entry, redirect_uri, code: {
+            "token_type": "bearer",
+            "expires_in": 1800,
+            "scope": "oauth crm.objects.contacts.read",
+            "hub_id": 246356639,
+            "hub_domain": "simsayer.com",
+        }
+        marketplace_client = app_module.app.test_client()
+        marketplace_callback = marketplace_client.get("/api/integrations/hubspot/oauth/callback?code=sample-code&state=hubspot-install-state")
+        assert_true(marketplace_callback.status_code == 200, marketplace_callback.get_data(as_text=True))
+        assert_true("HubSpot app installed" in marketplace_callback.get_data(as_text=True), "HubSpot marketplace callback should not require TextTraits sign-in")
+    finally:
+        app_module.exchange_oauth_code = original_exchange
+
     export = client.post("/api/account/export", json={"password": "texttraits-test-updated"}, headers=csrf_headers(client))
     assert_true(export.status_code == 200, "account export failed")
     assert_true(export.get_json()["workspace"]["name"] == "QA workspace", "account export missing workspace")
