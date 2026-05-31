@@ -91,7 +91,7 @@ def main() -> int:
         "Export schedule",
         "Policy history and audit log",
         "Top failing rule packs",
-        "Production-ready",
+        "Documented",
         "Needs mapping",
         "Production blocked",
         "Guided integration wizard",
@@ -143,6 +143,9 @@ def main() -> int:
         "buildEmailVariant",
         "data-generate-batch",
         "Full sequence builder",
+        "Production-ready",
+        "tt_sbx",
+        "tt_prod",
     )
     for phrase in forbidden_js:
         assert_true(phrase not in js, f"legacy writing/generation surface leaked into app.js: {phrase}")

@@ -215,10 +215,10 @@
     subject: "Campaign owner",
   };
   const roleProfiles = [
-    {role: "Admin", detail: "Owns workspace setup, environments, keys, webhooks, and policy promotion.", permissions: ["Manage policy", "Manage integrations", "Export governance data", "Approve production"]},
+    {role: "Admin", detail: "Owns workspace setup, environments, key profiles, webhooks, and policy promotion.", permissions: ["Manage policy", "Manage integrations", "Export governance data", "Approve promotion"]},
     {role: "Reviewer", detail: "Reviews routed messages, resolves findings, and approves or holds sends.", permissions: ["Review findings", "Approve or hold", "Add notes"]},
     {role: "Analyst", detail: "Reads governance dashboards, outcome trends, exports, and model-performance context.", permissions: ["View dashboards", "Download exports", "Inspect trends"]},
-    {role: "Developer", detail: "Validates payloads, mapping contracts, sandbox adapters, API scopes, and webhook signatures.", permissions: ["Run simulator", "Manage sandbox keys", "Test webhooks"]},
+    {role: "Developer", detail: "Validates payloads, mapping contracts, sandbox adapters, API scopes, and webhook signatures.", permissions: ["Run simulator", "Manage key profiles", "Test webhooks"]},
   ];
   const deploymentChecks = [
     ["Secrets", "TEXTTRAITS_SECRET_KEY, API keys, webhook signing secrets, and OAuth client secrets are managed outside source control."],
@@ -300,15 +300,22 @@
         environment: "sandbox",
         scopes: ["default:/v1/email/analyze", "default:/v1/governance"],
         status: "Sandbox",
-        secretPreview: "tt_sbx_••••_local_only",
+        secretPreview: "No credential material stored",
         created_at: new Date().toISOString(),
         last_used: "Not used",
       },
     ];
   }
 
+  function normalizeLocalKeyProfile(profile) {
+    return {
+      ...(profile || {}),
+      secretPreview: "No credential material stored",
+    };
+  }
+
   function hydrateLocalAdminState() {
-    state.apiKeys = readLocalSetting("apiKeys", defaultApiKeys());
+    state.apiKeys = readLocalSetting("apiKeys", defaultApiKeys()).map(normalizeLocalKeyProfile);
     state.webhookConfig = readLocalSetting("webhookConfig", state.webhookConfig);
     state.approvalActions = readLocalSetting("approvalActions", {});
     state.exportSchedule = readLocalSetting("exportSchedule", state.exportSchedule);
@@ -803,7 +810,7 @@
         <div class="optimizer-grid integration-lab-grid">
           ${cards.map(([label, value, detail]) => `
             <article class="optimizer-context-card lab-status-card">
-              ${statusBadge(label === "Sandbox adapters" ? "Sandbox" : label === "Research targets" ? "Production-ready" : "Live", label === "Sandbox adapters" ? "warning" : "neutral")}
+              ${statusBadge(label === "Sandbox adapters" ? "Sandbox" : label === "Research targets" ? "Documented" : "Live", label === "Sandbox adapters" ? "warning" : "neutral")}
               <span class="interface-label">${escapeHtml(label)}</span>
               <strong>${escapeHtml(value)}</strong>
               <p>${escapeHtml(detail)}</p>
@@ -1495,7 +1502,7 @@
       <section class="admin-subsection" aria-label="API key management">
         <div class="section-title">
           <span class="label">API key management</span>
-          <strong>Local scoped-key profiles for sandbox planning</strong>
+          <strong>Local scope profiles for sandbox planning</strong>
         </div>
         ${state.apiKeyMessage ? `<p class="setup-message">${escapeHtml(state.apiKeyMessage)}</p>` : ""}
         <div class="policy-control-grid">
@@ -1511,13 +1518,13 @@
           </label>
           <label class="policy-control api-scope-control">
             <span>Scopes</span>
-            <input type="text" data-api-key-form="scopes" value="${escapeHtml(state.apiKeyForm.scopes)}">
+            <textarea rows="2" data-api-key-form="scopes" spellcheck="false">${escapeHtml(state.apiKeyForm.scopes)}</textarea>
             <small>Example: default:/v1/email/analyze, default:/v1/governance</small>
           </label>
         </div>
         <div class="setup-action-row">
           <button class="button-secondary" type="button" data-create-api-key-profile>Create local key profile</button>
-          ${statusBadge("No real secret generated", "neutral")}
+          ${statusBadge("No credential generated", "neutral")}
         </div>
         <div class="api-key-list">
           ${state.apiKeys.map((key) => `
@@ -1780,12 +1787,12 @@
       environment,
       scopes: scopes.length ? scopes : ["default:/v1/email/analyze"],
       status: environment === "production" ? "Production blocked" : "Sandbox",
-      secretPreview: `${environment === "production" ? "tt_prod" : "tt_sbx"}_••••_${Math.random().toString(36).slice(2, 6)}`,
+      secretPreview: "No credential material stored",
       created_at: new Date().toISOString(),
       last_used: "Not used",
     };
     state.apiKeys = [profile, ...state.apiKeys].slice(0, 8);
-    state.apiKeyMessage = "Local API key profile saved. No real production secret was generated.";
+    state.apiKeyMessage = "Local API key profile saved. No credential material was generated or stored.";
     persistLocalAdminState();
     renderEmpty();
   }

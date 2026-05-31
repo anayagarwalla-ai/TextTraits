@@ -899,25 +899,6 @@ h3 { font-size: 16px; }
   white-space: nowrap;
 }
 
-body[data-mode="enterprise"] #generate-enterprise,
-body[data-mode="enterprise"] [data-save-campaign],
-body[data-mode="enterprise"] .enterprise-actions > button:not(.button-secondary),
-body[data-mode="enterprise"] .next-step-card button,
-body[data-mode="enterprise"] .today-grid button:not(.button-secondary),
-body[data-mode="enterprise"] .enterprise-focus-band button:not(.button-secondary) {
-  background: #4a5263;
-  box-shadow: none;
-}
-
-body[data-mode="enterprise"] #generate-enterprise:hover:not(:disabled),
-body[data-mode="enterprise"] [data-save-campaign]:hover:not(:disabled),
-body[data-mode="enterprise"] .enterprise-actions > button:not(.button-secondary):hover:not(:disabled),
-body[data-mode="enterprise"] .next-step-card button:hover:not(:disabled),
-body[data-mode="enterprise"] .today-grid button:not(.button-secondary):hover:not(:disabled),
-body[data-mode="enterprise"] .enterprise-focus-band button:not(.button-secondary):hover:not(:disabled) {
-  background: #262c38;
-}
-
 body[data-mode="enterprise"] .button-secondary,
 body[data-mode="enterprise"] .action-menu summary,
 body[data-mode="enterprise"] .workspace-toolbar > button {
@@ -4226,10 +4207,6 @@ body[data-mode="enterprise"] .advanced-card {
   font-weight: 800;
 }
 
-.split-actions button[data-generate-batch] {
-  box-shadow: 0 10px 22px rgba(17, 19, 24, 0.12);
-}
-
 .card-row {
   display: flex;
   justify-content: space-between;
@@ -5347,7 +5324,8 @@ body[data-mode="enterprise-optimizer"] .workspace {
 }
 
 .policy-control input,
-.policy-control select {
+.policy-control select,
+.policy-control textarea {
   width: 100%;
   min-height: 42px;
   padding: 9px 10px;
@@ -5357,6 +5335,15 @@ body[data-mode="enterprise-optimizer"] .workspace {
   color: var(--ink);
   font: inherit;
   font-weight: 800;
+}
+
+.policy-control textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+
+.api-scope-control {
+  grid-column: 1 / -1;
 }
 
 .policy-toggle-row {

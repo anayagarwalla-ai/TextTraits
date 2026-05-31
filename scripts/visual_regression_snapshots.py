@@ -111,7 +111,7 @@ def main() -> int:
             page.locator("[data-api-key-form='name']").fill("Visual regression sandbox key")
             page.locator("[data-api-key-form='scopes']").fill("default:/v1/email/analyze, default:/v1/governance")
             page.get_by_role("button", name="Create local key profile").click()
-            expect(page.get_by_text("Local API key profile saved. No real production secret was generated.")).to_be_visible(timeout=10000)
+            expect(page.get_by_text("Local API key profile saved. No credential material was generated or stored.")).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-api-key-profile.png"), full_page=False)
 
             page.get_by_text("Webhook signing setup", exact=True).scroll_into_view_if_needed()

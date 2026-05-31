@@ -58,6 +58,9 @@ def main() -> int:
         "Full sequence builder",
         "Chrome sidebar preview",
         "Gmail / Outlook inbox mode",
+        "Production-ready",
+        "tt_sbx",
+        "tt_prod",
     )
     public_surface = html + app_js
     for phrase in forbidden_public_copy:
@@ -128,7 +131,7 @@ def main() -> int:
         "Run sandbox test",
         "Promote environment",
         "Payload validates",
-        "Production-ready",
+        "Documented",
         "Needs mapping",
         "Production blocked",
         "Admin settings",
