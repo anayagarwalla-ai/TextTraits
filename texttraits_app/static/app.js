@@ -805,12 +805,12 @@
       <section id="dashboard-section" class="optimizer-section integration-lab-overview" aria-label="Integration lab status">
         <div class="section-title">
           <span class="label">Integration lab status</span>
-          <strong>${state.labError ? "Live status unavailable" : "Workflow-ready infrastructure"}</strong>
+          <strong>${state.labError ? "Status unavailable" : "Workflow-ready infrastructure"}</strong>
         </div>
         <div class="optimizer-grid integration-lab-grid">
           ${cards.map(([label, value, detail]) => `
             <article class="optimizer-context-card lab-status-card">
-              ${statusBadge(label === "Sandbox adapters" ? "Sandbox" : label === "Research targets" ? "Documented" : "Live", label === "Sandbox adapters" ? "warning" : "neutral")}
+              ${statusBadge(label === "Sandbox adapters" ? "Sandbox" : label === "Research targets" ? "Documented" : "Available", label === "Sandbox adapters" ? "warning" : "neutral")}
               <span class="interface-label">${escapeHtml(label)}</span>
               <strong>${escapeHtml(value)}</strong>
               <p>${escapeHtml(detail)}</p>
