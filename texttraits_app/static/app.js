@@ -104,6 +104,12 @@
     profileBusy: false,
     profileMessage: "",
     profileResult: null,
+    workflowProvider: "hubspot",
+    workflowScenario: "governance-nurture",
+    workflowBusy: false,
+    workflowMessage: "",
+    workflowProfile: null,
+    workflowAdapterResult: null,
     latestError: "",
     busy: false,
   };
@@ -146,6 +152,60 @@
       goal: "Route to governance-first nurture",
       account: "Lifecycle marketing team using HubSpot workflows, campaign approvals, and legal review before outbound launches.",
       transcript: "Marketing operations is worried about another tool, adoption, policy gates, and audit trails. They asked for a HubSpot workflow action, clear consent handling, and proof that the product will not store raw inbox history before procurement.",
+    },
+  ];
+  const workflowProviders = [
+    {value: "hubspot", label: "HubSpot", layer: "Workflow custom action", surface: "Contact workflow step"},
+    {value: "salesforce", label: "Salesforce", layer: "Journey Builder activity", surface: "Lead and campaign member fields"},
+    {value: "marketo", label: "Marketo", layer: "Smart Campaign gate", surface: "Program asset review"},
+    {value: "braze", label: "Braze", layer: "Canvas webhook step", surface: "Lifecycle journey branch"},
+    {value: "sendgrid_ses", label: "SendGrid / SES", layer: "Pre-send middleware", surface: "Send API proxy"},
+  ];
+  const workflowScenarios = [
+    {
+      id: "governance-nurture",
+      label: "Governance nurture",
+      provider: "hubspot",
+      audience: "Marketing operations",
+      goal: "Route to governance-first nurture",
+      account: "Lifecycle marketing team using HubSpot workflows, campaign approvals, and legal review before outbound launches.",
+      transcript: "Marketing operations is worried about another tool, adoption, policy gates, audit trails, consent handling, and proof that the product will not store raw inbox history before procurement.",
+      subject: "Governance-first workflow pilot",
+      body: "Hi Maya, your team asked whether TextTraits can fit inside HubSpot without storing raw inbox history. The cleanest next step is a workflow-action pilot that writes back score, route, and objection signals while keeping raw message bodies out of governance storage. Would a sandbox review next week help?",
+      fit: 0.82,
+      governance: 0.91,
+      urgency: 0.62,
+      expectedDisplay: "Show governance-first nurture route, policy evidence, and writeback fields inside the workflow builder.",
+    },
+    {
+      id: "pipeline-risk",
+      label: "Pipeline risk",
+      provider: "salesforce",
+      audience: "Revenue operations",
+      goal: "Book a workflow-fit pilot discussion",
+      account: "B2B SaaS account using Salesforce, Outreach, RevOps weekly forecast reviews, and manager coaching workflows.",
+      transcript: "The VP Sales said forecast surprises and late renewal risk are the biggest issue. They asked whether TextTraits works inside Salesforce and Outreach without creating another tool. Security review matters before rollout, but they are open to a pilot if it shows manager coaching moments earlier.",
+      subject: "Forecast risk visibility pilot",
+      body: "Hi Jordan, the clearest fit I heard was earlier visibility into forecast surprises and renewal risk. TextTraits can start as a Salesforce Journey Builder activity that flags coaching moments and writes back next-best-action fields without asking your managers to open another tool. Should we test that against one renewal workflow?",
+      fit: 0.88,
+      governance: 0.74,
+      urgency: 0.86,
+      expectedDisplay: "Show pipeline-risk priority, security-review objection, and manager-coaching next action inside CRM.",
+    },
+    {
+      id: "campaign-review",
+      label: "Campaign review",
+      provider: "marketo",
+      audience: "Demand generation",
+      goal: "Hold risky campaign assets for review",
+      account: "Demand generation team using Marketo programs, regional templates, and legal approval before event outreach.",
+      transcript: "The campaign manager said they need faster asset review, cleaner segmentation evidence, and fewer last-minute legal escalations. They asked for a program-level gate and an audit trail that explains why an email should be reviewed before launch.",
+      subject: "Program-level review gate",
+      body: "Hi Priya, your team described the review bottleneck as a program-level governance problem. TextTraits can run as a Marketo Smart Campaign gate that routes risky assets to review and writes back why the message needs attention. Could we test this on one event program?",
+      fit: 0.79,
+      governance: 0.88,
+      urgency: 0.69,
+      expectedDisplay: "Show review gate status, audit reason, and campaign field mapping for a launch manager.",
     },
   ];
   const simulatorPayloads = {
@@ -710,6 +770,276 @@
     `;
   }
 
+  function selectedWorkflowScenario() {
+    return workflowScenarios.find((scenario) => scenario.id === state.workflowScenario) || workflowScenarios[0];
+  }
+
+  function selectedWorkflowProvider() {
+    return workflowProviders.find((provider) => provider.value === state.workflowProvider) || workflowProviders[0];
+  }
+
+  function workflowPayload(scenario, provider) {
+    const base = {
+      workspace_id: state.workspaceId || "default",
+      source_system: provider,
+      analysis_mode: "pre_send_gate",
+      campaign_id: `cmp_${scenario.id.replace(/-/g, "_")}`,
+      template_id: `tmpl_${provider}_${scenario.id.replace(/-/g, "_")}`,
+      subject: scenario.subject,
+      body: scenario.body,
+      audience: scenario.audience,
+      intent: scenario.goal,
+      headers: {"List-Unsubscribe": "<https://example.test/unsubscribe>"},
+      personalization_context: {first_name: "Maya", company: "Example account"},
+      consent_context: {state: "subscribed", lawful_basis: "business_relationship"},
+    };
+    if (provider === "hubspot") {
+      return {
+        ...base,
+        inputFields: {
+          email_subject: scenario.subject,
+          email_body: scenario.body,
+          lifecyclestage: scenario.audience,
+          workflow_name: scenario.goal,
+        },
+      };
+    }
+    if (provider === "salesforce") {
+      return {
+        ...base,
+        inArguments: [{
+          EmailSubject: scenario.subject,
+          EmailBody: scenario.body,
+          ContactType: scenario.audience,
+          JourneyName: scenario.goal,
+        }],
+      };
+    }
+    if (provider === "sendgrid_ses") {
+      return {
+        ...base,
+        message: {
+          subject: scenario.subject,
+          text: scenario.body,
+          audience: scenario.audience,
+          intent: scenario.goal,
+        },
+      };
+    }
+    if (provider === "braze") {
+      return {
+        ...base,
+        canvas_step: {
+          subject: scenario.subject,
+          body: scenario.body,
+          template_id: base.template_id,
+        },
+      };
+    }
+    if (provider === "marketo") {
+      return {
+        ...base,
+        asset: {
+          subject: scenario.subject,
+          html: scenario.body,
+          program_id: base.campaign_id,
+          id: base.template_id,
+        },
+      };
+    }
+    return base;
+  }
+
+  function primaryWorkflowSignal(profile, key, fallback) {
+    const business = profile?.business_profile || {};
+    const items = key === "objection" ? business.detected_objections : business.business_priorities;
+    return (items || [])[0]?.label || fallback;
+  }
+
+  function workflowScoreRows(profile, scenario) {
+    const privacy = profile?.privacy || {};
+    return [
+      {
+        label: "Workflow fit",
+        value: scenario.fit,
+        note: primaryWorkflowSignal(profile, "priority", "Integration and workflow fit"),
+      },
+      {
+        label: "Governance need",
+        value: scenario.governance,
+        note: privacy.sensitive_attribute_inference === "disabled" ? "Sensitive inference disabled" : "Check governance mode",
+      },
+      {
+        label: "Revenue urgency",
+        value: scenario.urgency,
+        note: primaryWorkflowSignal(profile, "objection", "No explicit objection yet"),
+      },
+    ];
+  }
+
+  function scoreBucketClass(value) {
+    const bucket = Math.max(0, Math.min(100, Math.round(Number(value || 0) * 10) * 10));
+    return `score-bucket-${bucket}`;
+  }
+
+  function workflowScoreBars(profile, scenario) {
+    return `
+      <div class="workflow-score-list" aria-label="Workflow fit metrics">
+        ${workflowScoreRows(profile, scenario).map((row) => `
+          <div class="workflow-score-row">
+            <span>${escapeHtml(row.label)}</span>
+            <div class="workflow-score-bar" aria-hidden="true"><b class="${escapeHtml(scoreBucketClass(row.value))}"></b></div>
+            <strong>${escapeHtml(percent(row.value))}</strong>
+            <small>${escapeHtml(row.note)}</small>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function workflowTimeline(profile, adapter, provider) {
+    const business = profile?.business_profile || {};
+    const gate = adapter?.analysis?.gate || {};
+    const writeback = adapter?.writeback || {};
+    const steps = [
+      ["1", "Consent-safe history", profile ? "Profile input minimized and identifiers suppressed." : "Load a scenario or paste consented context."],
+      ["2", "Business profile", business.buying_stage || "Awaiting profile run"],
+      ["3", `${provider.label} adapter`, gate.status ? `${displayLabel(gate.status)} -> ${displayLabel(gate.route)}` : provider.layer],
+      ["4", "Writeback", writeback.texttraits_score !== undefined ? `${writeback.texttraits_score}/100 with request hash` : "Score, route, priority, and next action"],
+    ];
+    return `
+      <ol class="workflow-timeline" aria-label="Simulation timeline">
+        ${steps.map(([number, title, detail]) => `
+          <li>
+            <span>${escapeHtml(number)}</span>
+            <strong>${escapeHtml(title)}</strong>
+            <p>${escapeHtml(detail)}</p>
+          </li>
+        `).join("")}
+      </ol>
+    `;
+  }
+
+  function workflowWritebackFields(profile, adapter) {
+    const activationFields = profile?.activation?.crm_fields || [];
+    const adapterFields = Object.keys(adapter?.writeback || {});
+    const fields = Array.from(new Set([...activationFields, ...adapterFields])).slice(0, 8);
+    if (!fields.length) {
+      return ["texttraits_buying_stage", "texttraits_priority_signal", "texttraits_next_best_action", "texttraits_gate"];
+    }
+    return fields;
+  }
+
+  function workflowGuardrails(profile) {
+    return profile?.resonance_strategy?.message_guidance || [
+      "Use business priorities, not demographic or sensitive personal inference.",
+      "Reference the workflow problem the account already raised.",
+      "Keep raw communication history out of prompt context.",
+    ];
+  }
+
+  function revenueSignalLab() {
+    const scenario = selectedWorkflowScenario();
+    const provider = selectedWorkflowProvider();
+    const profile = state.workflowProfile;
+    const adapter = state.workflowAdapterResult;
+    const business = profile?.business_profile || {};
+    const strategy = profile?.resonance_strategy || {};
+    const gate = adapter?.analysis?.gate || {};
+    const writeback = workflowWritebackFields(profile, adapter);
+    return `
+      <section id="revenue-lab-section" class="revenue-signal-lab" aria-label="Revenue Signal Lab">
+        <div class="revenue-lab-hero">
+          <div>
+            <span class="interface-label">Revenue Signal Lab</span>
+            <h2>Simulate the B2B workflow before a real integration exists.</h2>
+            <p>Choose a platform and account scenario, then run the same profile and adapter calls a marketing or revenue team would use inside their workflow builder.</p>
+          </div>
+          <div class="lab-proof-stack" aria-label="Simulation safeguards">
+            ${statusBadge("No raw PII returned", "success")}
+            ${statusBadge("Sandbox only", "warning")}
+            ${statusBadge(provider.label, "neutral")}
+          </div>
+        </div>
+        <div class="revenue-lab-grid">
+          <article class="workflow-control-panel">
+            <div class="section-title">
+              <span class="label">Simulate workflow</span>
+              <strong>${escapeHtml(provider.layer)}</strong>
+            </div>
+            <label class="policy-control">
+              <span>Business platform</span>
+              <select data-workflow-provider>
+                ${workflowProviders.map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === state.workflowProvider ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
+              </select>
+              <small>${escapeHtml(provider.surface)}</small>
+            </label>
+            <div class="workflow-scenario-grid" aria-label="Workflow scenarios">
+              ${workflowScenarios.map((item) => `
+                <button class="workflow-scenario-card ${item.id === scenario.id ? "is-selected" : ""}" type="button" data-workflow-scenario="${escapeHtml(item.id)}" aria-pressed="${item.id === scenario.id ? "true" : "false"}">
+                  <span>${escapeHtml(item.audience)}</span>
+                  <strong>${escapeHtml(item.label)}</strong>
+                  <small>${escapeHtml(item.goal)}</small>
+                </button>
+              `).join("")}
+            </div>
+            <div class="workflow-input-preview">
+              <span class="interface-label">Scenario input</span>
+              <strong>${escapeHtml(scenario.goal)}</strong>
+              <p>${escapeHtml(scenario.account)}</p>
+              <small>${escapeHtml(scenario.expectedDisplay)}</small>
+            </div>
+            ${state.workflowMessage ? `<p class="setup-message">${escapeHtml(state.workflowMessage)}</p>` : ""}
+            <div class="setup-action-row">
+              <button type="button" data-run-workflow-lab ${state.workflowBusy ? "disabled" : ""}>${state.workflowBusy ? "Running simulation..." : "Run workflow simulation"}</button>
+              <button class="button-secondary" type="button" data-load-workflow-profile>Load in profile builder</button>
+            </div>
+          </article>
+          <article class="workflow-result-panel">
+            <div class="section-title">
+              <span class="label">Business profile</span>
+              <strong>${escapeHtml(business.buying_stage || "Ready to simulate")}</strong>
+            </div>
+            <div class="workflow-decision-row">
+              <div>
+                <span>Next best action</span>
+                <strong>${escapeHtml(business.next_best_action || "Run a sandbox profile to produce the buyer-facing action.")}</strong>
+              </div>
+              <div>
+                <span>Adapter decision</span>
+                <strong>${escapeHtml(gate.status ? `${displayLabel(gate.status)} / ${displayLabel(gate.route)}` : "Not run yet")}</strong>
+              </div>
+            </div>
+            ${workflowScoreBars(profile, scenario)}
+            <div class="workflow-output-columns">
+              <div>
+                <span class="interface-label">Writeback fields</span>
+                <ul>${writeback.map((field) => `<li>${escapeHtml(field)}</li>`).join("")}</ul>
+              </div>
+              <div>
+                <span class="interface-label">Message guardrails</span>
+                <ul>${workflowGuardrails(profile).slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+              </div>
+            </div>
+            ${strategy.recommended_angles?.length ? `
+              <div class="workflow-angle-note">
+                <span>Recommended angle</span>
+                <strong>${escapeHtml(strategy.recommended_angles[0])}</strong>
+              </div>
+            ` : ""}
+          </article>
+        </div>
+        <div class="workflow-timeline-shell">
+          <div class="section-title">
+            <span class="label">What the platform user sees</span>
+            <strong>Profile, score, route, and writeback preview</strong>
+          </div>
+          ${workflowTimeline(profile, adapter, provider)}
+        </div>
+      </section>
+    `;
+  }
+
   function renderInput() {
     const stats = localStats(state.email);
     els.inputPanel.innerHTML = `
@@ -856,6 +1186,7 @@
   function renderEmpty() {
     els.outputPanel.innerHTML = `
       <div class="empty-layout fade-in optimizer-empty">
+        ${revenueSignalLab()}
         <section class="empty-hero optimizer-hero-card">
           <span class="status-pill">Enterprise integration lab</span>
           <h2>Policy-backed email analysis will appear here.</h2>
@@ -1833,6 +2164,26 @@
   }
 
   function bindLabControls() {
+    document.querySelector("[data-workflow-provider]")?.addEventListener("change", (event) => {
+      state.workflowProvider = event.currentTarget.value;
+      state.workflowAdapterResult = null;
+      state.workflowMessage = `${providerLabel(state.workflowProvider)} selected for sandbox workflow simulation.`;
+      renderEmpty();
+    });
+    document.querySelectorAll("[data-workflow-scenario]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const scenario = workflowScenarios.find((item) => item.id === button.dataset.workflowScenario);
+        if (!scenario) return;
+        state.workflowScenario = scenario.id;
+        state.workflowProvider = scenario.provider;
+        state.workflowProfile = null;
+        state.workflowAdapterResult = null;
+        state.workflowMessage = `${scenario.label} scenario selected.`;
+        renderEmpty();
+      });
+    });
+    document.querySelector("[data-run-workflow-lab]")?.addEventListener("click", runRevenueSignalSimulation);
+    document.querySelector("[data-load-workflow-profile]")?.addEventListener("click", loadWorkflowProfileBuilder);
     document.querySelectorAll("[data-save-recommended-mapping]").forEach((button) => {
       button.addEventListener("click", () => saveRecommendedMapping(button.dataset.saveRecommendedMapping));
     });
@@ -2623,6 +2974,63 @@
     els.outputPanel.focus();
   }
 
+  function loadWorkflowProfileBuilder() {
+    const scenario = selectedWorkflowScenario();
+    state.profileGoal = scenario.goal;
+    state.profileAccount = scenario.account;
+    state.profileTranscript = scenario.transcript;
+    state.profileResult = state.workflowProfile;
+    state.profileMessage = `${scenario.label} scenario loaded in the profile builder.`;
+    renderInput();
+    announce("Workflow scenario loaded in the profile builder.");
+  }
+
+  async function runRevenueSignalSimulation() {
+    if (state.workflowBusy) return;
+    const scenario = selectedWorkflowScenario();
+    const provider = selectedWorkflowProvider();
+    state.workflowBusy = true;
+    state.workflowMessage = `Running ${provider.label} sandbox profile and adapter simulation...`;
+    state.profileGoal = scenario.goal;
+    state.profileAccount = scenario.account;
+    state.profileTranscript = scenario.transcript;
+    renderInput();
+    renderEmpty();
+    try {
+      const profile = await apiClient.b2bProfile?.({
+        communication_history: scenario.transcript,
+        account_context: scenario.account,
+        campaign_goal: scenario.goal,
+        workspace_id: state.workspaceId || "default",
+      });
+      const payload = workflowPayload(scenario, state.workflowProvider);
+      const adapter = await apiClient.simulateAdapter?.(state.workflowProvider, payload);
+      state.workflowProfile = profile;
+      state.workflowAdapterResult = adapter;
+      state.profileResult = profile;
+      state.simulatorProvider = state.workflowProvider;
+      state.simulatorPayload = JSON.stringify(payload, null, 2);
+      state.simulatorResult = adapter;
+      state.workflowMessage = `${provider.label} simulation ready: ${displayLabel(adapter?.analysis?.gate?.status || adapter?.decision || "decision returned")}.`;
+      state.profileMessage = "Profile ready for strategy review.";
+      trackEvent("b2b_workflow_simulation", {
+        provider: state.workflowProvider,
+        scenario: scenario.id,
+        stage: profile?.business_profile?.buying_stage || "unknown",
+      });
+      announce("B2B workflow simulation complete.");
+    } catch (error) {
+      state.workflowProfile = null;
+      state.workflowAdapterResult = null;
+      state.workflowMessage = error.message || "Workflow simulation failed.";
+      apiClient.clientError?.({message: state.workflowMessage, source: "b2b-workflow-lab"}).catch(() => {});
+    } finally {
+      state.workflowBusy = false;
+      renderInput();
+      renderEmpty();
+    }
+  }
+
   function bindProfileControls() {
     const goal = document.querySelector("#profile-goal");
     const account = document.querySelector("#profile-account");
@@ -2850,6 +3258,7 @@
         const section = button.dataset.navSection;
         const targets = {
           analyze: "#input-panel",
+          "revenue-lab": "#revenue-lab-section",
           dashboard: "#dashboard-section",
           governance: "#governance-section",
           simulator: "#simulator-section",

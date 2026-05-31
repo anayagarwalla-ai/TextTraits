@@ -4799,8 +4799,8 @@ body[data-mode="enterprise-optimizer"] .brand-block .eyebrow {
 }
 
 body[data-mode="enterprise-optimizer"] .workspace {
-  grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.28fr);
-  gap: 18px;
+  grid-template-columns: minmax(340px, 0.66fr) minmax(0, 1.34fr);
+  gap: 22px;
 }
 
 .optimizer-status-card {
@@ -5052,6 +5052,234 @@ body[data-mode="enterprise-optimizer"] .workspace {
 .enterprise-readiness-panel {
   border-top: 1px solid rgba(216, 226, 220, 0.72);
   padding-top: 18px;
+}
+
+.revenue-signal-lab {
+  display: grid;
+  gap: 22px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid rgba(190, 210, 203, 0.72);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 247, 0.9)),
+    radial-gradient(circle at top right, rgba(224, 244, 239, 0.72), transparent 34%);
+  box-shadow: 0 24px 70px rgba(23, 33, 29, 0.08);
+}
+
+.revenue-lab-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+}
+
+.revenue-lab-hero h2 {
+  max-width: 760px;
+  margin: 4px 0 8px;
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+.revenue-lab-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.lab-proof-stack,
+.workflow-output-columns,
+.workflow-decision-row,
+.workflow-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.revenue-lab-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.workflow-control-panel,
+.workflow-result-panel,
+.workflow-timeline-shell {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(206, 222, 216, 0.82);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.workflow-scenario-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-scenario-card {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-height: 0;
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid rgba(206, 222, 216, 0.82);
+  border-radius: var(--radius-sm);
+  background: rgba(250, 252, 250, 0.92);
+  color: var(--ink);
+  text-align: left;
+}
+
+.workflow-scenario-card span,
+.workflow-scenario-card small,
+.workflow-input-preview small,
+.workflow-decision-row span,
+.workflow-angle-note span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.workflow-scenario-card strong {
+  font-size: 17px;
+}
+
+.workflow-scenario-card.is-selected,
+.workflow-scenario-card:hover {
+  border-color: rgba(15, 118, 110, 0.34);
+  background: rgba(224, 244, 239, 0.62);
+}
+
+.workflow-input-preview,
+.workflow-angle-note {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(216, 226, 220, 0.72);
+}
+
+.workflow-input-preview p,
+.workflow-input-preview small,
+.workflow-angle-note strong {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.workflow-decision-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workflow-decision-row > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 0;
+  border-top: 1px solid rgba(216, 226, 220, 0.82);
+  border-bottom: 1px solid rgba(216, 226, 220, 0.82);
+}
+
+.workflow-decision-row strong {
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.workflow-score-list {
+  display: grid;
+  gap: 13px;
+}
+
+.workflow-score-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(120px, 1fr) 48px;
+  gap: 10px;
+  align-items: center;
+}
+
+.workflow-score-row span,
+.workflow-score-row strong {
+  font-weight: 900;
+}
+
+.workflow-score-row small {
+  grid-column: 2 / 4;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.workflow-score-bar {
+  height: 6px;
+  background: linear-gradient(90deg, rgba(15, 118, 110, 0.1), rgba(15, 118, 110, 0.16));
+}
+
+.workflow-score-bar b {
+  display: block;
+  height: 100%;
+  background: var(--accent-strong);
+}
+
+.score-bucket-0 { width: 2%; }
+.score-bucket-10 { width: 10%; }
+.score-bucket-20 { width: 20%; }
+.score-bucket-30 { width: 30%; }
+.score-bucket-40 { width: 40%; }
+.score-bucket-50 { width: 50%; }
+.score-bucket-60 { width: 60%; }
+.score-bucket-70 { width: 70%; }
+.score-bucket-80 { width: 80%; }
+.score-bucket-90 { width: 90%; }
+.score-bucket-100 { width: 100%; }
+
+.workflow-output-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-top: 8px;
+}
+
+.workflow-output-columns ul {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.workflow-timeline {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-timeline li {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 2px solid rgba(15, 118, 110, 0.24);
+}
+
+.workflow-timeline li > span {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 900;
+}
+
+.workflow-timeline p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .b2b-profile-builder,
@@ -5640,10 +5868,23 @@ body[data-mode="enterprise-optimizer"] .workspace {
   .enterprise-focus-band,
   .today-grid,
   .drafts-workspace,
+  .revenue-lab-hero,
+  .revenue-lab-grid,
+  .workflow-decision-row,
+  .workflow-output-columns,
+  .workflow-timeline,
   .profile-card-grid,
   .profile-report-grid,
   .profile-playbook {
     grid-template-columns: 1fr;
+  }
+
+  .lab-proof-stack {
+    grid-template-columns: repeat(3, minmax(0, max-content));
+  }
+
+  .workflow-score-row {
+    grid-template-columns: minmax(100px, 0.8fr) minmax(100px, 1fr) 48px;
   }
 
   .input-panel,
@@ -5709,6 +5950,34 @@ body[data-mode="enterprise-optimizer"] .workspace {
     overflow: auto;
     border-radius: 18px;
     padding: 16px;
+  }
+
+  .revenue-signal-lab {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .revenue-lab-hero h2 {
+    font-size: 32px;
+  }
+
+  .lab-proof-stack {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-control-panel,
+  .workflow-result-panel,
+  .workflow-timeline-shell {
+    padding: 14px;
+  }
+
+  .workflow-score-row {
+    grid-template-columns: 1fr 48px;
+  }
+
+  .workflow-score-row span,
+  .workflow-score-row small {
+    grid-column: 1 / -1;
   }
 
   .sheet-actions,

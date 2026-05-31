@@ -152,6 +152,12 @@ python scripts/prepare_b2b_profile_model.py --communications-csv consented_expor
 
 See `docs/b2b-profile-platform.md` for the data contract and privacy boundary.
 
+The `/enterprise` screen now includes a Revenue Signal Lab for sandboxing how the profile API would appear inside existing B2B workflow platforms. It can simulate HubSpot, Salesforce, Marketo, Braze, and SendGrid/SES-style actions without live credentials or real users. Run the smoke coverage with:
+
+```bash
+python tests/b2b_workflow_lab_test.py
+```
+
 ## Deployment Notes
 
 This app is currently a Flask service. A production deployment should:

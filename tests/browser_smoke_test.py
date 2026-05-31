@@ -64,6 +64,10 @@ def main() -> int:
         "integrationLab",
         "labOverview",
         "bindNavigation",
+        "revenueSignalLab",
+        "runRevenueSignalSimulation",
+        "loadWorkflowProfileBuilder",
+        "workflowPayload",
         "currentEnterpriseContext",
         "runRenderTest",
         "governanceDashboardPanels",
@@ -134,6 +138,7 @@ def main() -> int:
     assert_true(".enterprise-readiness-panel" in css and ".readiness-grid" in css, "enterprise readiness styling missing")
     assert_true(".rule-family-control-group" in css and ".rule-family-grid" in css, "rule family policy styling missing")
     assert_true(".adapter-simulator" in css and ".adapter-simulator-result" in css, "adapter simulator styling missing")
+    assert_true(".revenue-signal-lab" in css and ".workflow-timeline" in css, "B2B workflow lab styling missing")
     assert_true(".enterprise-nav" in css and ".skip-link" in css and ".legal-shell" in css, "persistent nav and legal page styling missing")
     assert_true(".dashboard-filter-grid" in css and ".trend-chart-grid" in css, "dashboard filters and trend styling missing")
     assert_true(".dashboard-empty-state" in css, "actionable dashboard empty-state styling missing")
