@@ -177,6 +177,10 @@ def connect():
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -593,13 +597,14 @@ def create_pending_signup(email: str, password: str, name: str = "") -> dict[str
     code = verification_code()
     digest = token_digest(code)
     password_hash = generate_password_hash(password)
+    no_new_code = None
     with connect() as conn:
         existing = execute(conn, "SELECT * FROM users WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
         if existing is not None:
             if existing["email_verified_at"]:
-                return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True}
+                return {"email": clean_email, "name": existing["name"], "token": no_new_code, "expires_at": None, "existing": True}
             if existing["verification_token"]:
-                return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True, "already_sent": True}
+                return {"email": clean_email, "name": existing["name"], "token": no_new_code, "expires_at": None, "existing": True, "already_sent": True}
             execute(
                 conn,
                 "UPDATE users SET verification_token = ? WHERE id = ?",
@@ -618,7 +623,7 @@ def create_pending_signup(email: str, password: str, name: str = "") -> dict[str
                 return {
                     "email": clean_email,
                     "name": clean_name,
-                    "token": None,
+                    "token": no_new_code,
                     "expires_at": pending["expires_at"],
                     "existing": False,
                     "already_sent": True,

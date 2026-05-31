@@ -23,6 +23,10 @@ This file is the deploy-time security checklist for the repository owner.
 - `TEXTTRAITS_ALLOWED_PUBLIC_HOSTS=<public-domain>` if you want startup/preflight to reject accidental or malicious base URL changes
 - `TEXTTRAITS_SECURE_COOKIES=true`
 - `TEXTTRAITS_TRUST_PROXY=true` only behind a trusted HTTPS proxy
+- `TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH=true`
+- `TEXTTRAITS_API_KEY_SHA256` or `TEXTTRAITS_API_KEY_HASHES` for server-to-server access; avoid plaintext `TEXTTRAITS_API_KEY` in production
+- `TEXTTRAITS_WEBHOOK_SECRET=<long random webhook signing secret>`
+- `TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP=true`
 - `TEXTTRAITS_ALLOW_DEMO=false`
 - `TEXTTRAITS_DEV_ACCOUNT_LINKS=false`
 - `ENABLE_DEV_TOOLS=false`
@@ -35,6 +39,9 @@ This file is the deploy-time security checklist for the repository owner.
 - Unsafe API requests require a CSRF token.
 - In production, unsafe API requests also require a same-origin `Origin` or `Referer` header.
 - Session cookies are HTTP-only and can be marked secure in production.
+- Enterprise governance and integration read APIs require scoped API keys or authenticated browser sessions in production.
+- Server-to-server API keys can be configured as SHA-256 digests and scoped by workspace/endpoint.
+- Webhook signatures use HMAC-SHA256 and can require fresh timestamps to reduce replay risk.
 - Password reset and email verification tokens are stored as SHA-256 digests.
 - Reset and verification emails send one-time codes instead of tokenized URLs. Legacy local helper links redirect tokens into hash fragments for development only.
 - Account export and account deletion require password confirmation.

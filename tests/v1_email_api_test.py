@@ -428,7 +428,7 @@ def main() -> int:
         json={"workspace_id": "other-workspace", "message": {"subject": "Hello", "text": "Could we review this on Thursday?"}},
         headers={"X-TextTraits-Api-Key": "test-key"},
     )
-    assert_true(scoped_denied.status_code == 419, "scoped API key should not allow mismatched workspace/endpoint without CSRF")
+    assert_true(scoped_denied.status_code == 401, "scoped API key should fail closed on mismatched workspace/endpoint")
     os.environ.pop("TEXTTRAITS_API_KEY_SCOPES", None)
 
     print("v1 email API tests passed.")

@@ -195,9 +195,13 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                 "post": {
                     "tags": ["Governance"],
                     "operationId": "postSendWebhook",
-                    "summary": "Ingest post-send provider events with retry deduplication.",
+                    "summary": "Ingest signed post-send provider events with retry deduplication.",
+                    "parameters": [
+                        {"name": "X-TextTraits-Signature", "in": "header", "required": False, "schema": {"type": "string"}, "description": "HMAC-SHA256 signature using TEXTTRAITS_WEBHOOK_SECRET."},
+                        {"name": "X-TextTraits-Timestamp", "in": "header", "required": False, "schema": {"type": "string"}, "description": "Unix timestamp used in timestamped webhook signatures."},
+                    ],
                     "requestBody": json_request("PostSendWebhookRequest"),
-                    "responses": {"200": json_response("PostSendWebhookResponse"), "202": json_response("PostSendWebhookResponse", "Accepted for retry")},
+                    "responses": {"200": json_response("PostSendWebhookResponse"), "202": json_response("PostSendWebhookResponse", "Accepted for retry"), "401": error_response("Webhook signature verification failed")},
                 }
             },
             "/v1/samples/import": {
@@ -520,8 +524,9 @@ def build_install_kit(base_url: str) -> dict[str, Any]:
         },
         "authentication": {
             "browser": "X-CSRF-Token from /api/session",
-            "server_to_server": "Set TEXTTRAITS_API_KEY and send X-TextTraits-Api-Key.",
-            "workspace_reads": "Governance dashboards, exports, policies, saved mappings, and manifest mapping views require a browser session or scoped API key.",
+            "server_to_server": "Set TEXTTRAITS_API_KEY_SHA256 or TEXTTRAITS_API_KEY_HASHES and send X-TextTraits-Api-Key.",
+            "workspace_reads": "Governance dashboards, exports, policies, saved mappings, and manifest mapping views require an authenticated browser session in production or a scoped API key.",
+            "webhooks": "Set TEXTTRAITS_WEBHOOK_SECRET and send X-TextTraits-Signature plus X-TextTraits-Timestamp when timestamp enforcement is enabled.",
         },
         "endpoints": [{"path": path, "url": f"{public_url}{path.replace('{provider}', 'hubspot')}"} for path in endpoint_paths],
         "provider_manifests": all_manifests(),

@@ -50,6 +50,9 @@ Copy `.env.example` if your deployment system loads environment files.
 - `TEXTTRAITS_ALLOW_DEMO` - keep `false` in production; local developers can set `true` only for clearly labeled mock output.
 - `TEXTTRAITS_DEV_ACCOUNT_LINKS` - keep `false` in production; local developers can set `true` to surface verification/reset helper links when email is not configured.
 - `TEXTTRAITS_SECURE_COOKIES` - set `true` behind HTTPS.
+- `TEXTTRAITS_API_KEY_SHA256` or `TEXTTRAITS_API_KEY_HASHES` - preferred production server-to-server API key configuration.
+- `TEXTTRAITS_WEBHOOK_SECRET` - signs post-send outcome webhooks; pair it with `TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP=true`.
+- `TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH` - keep `true` in production so governance reads require login or a scoped API key.
 
 Public deployments should keep `ENABLE_DEV_TOOLS=false` and run `python3 scripts/preflight.py`.
 

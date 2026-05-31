@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import csv
 import io
+import re
 import time
 import urllib.request
 from html import escape as html_escape
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlencode, urlparse
 
-from flask import Flask, g, jsonify, redirect, render_template, render_template_string, request, session
+from flask import Flask, g, jsonify, make_response, redirect, render_template, render_template_string, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -134,6 +135,7 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
 APP_SECRET = os.getenv("TEXTTRAITS_SECRET_KEY", "dev-texttraits-change-me")
 PUBLIC_BASE_URL = os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", "http://127.0.0.1:5000")
 ALLOW_DEV_ACCOUNT_LINKS = env_flag("TEXTTRAITS_DEV_ACCOUNT_LINKS", False)
+WEBHOOK_SIGNATURE_TOLERANCE_SECONDS = int(os.getenv("TEXTTRAITS_WEBHOOK_SIGNATURE_TOLERANCE_SECONDS", "300"))
 GOOGLE_AUTH_CLIENT_ID = (os.getenv("TEXTTRAITS_GOOGLE_AUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or "").strip()
 TRUSTED_PUBLIC_HOSTS = {
     host.strip().lower()
@@ -217,6 +219,12 @@ def validate_runtime_config() -> None:
             failures.append("TEXTTRAITS_ALLOW_DEMO must be false in production.")
         if ALLOW_DEV_ACCOUNT_LINKS:
             failures.append("TEXTTRAITS_DEV_ACCOUNT_LINKS must be false in production.")
+        if not env_flag("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH", True):
+            failures.append("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH=true is required in production.")
+        if os.getenv("TEXTTRAITS_API_KEY", "").strip() and not (
+            os.getenv("TEXTTRAITS_API_KEY_SHA256", "").strip() or os.getenv("TEXTTRAITS_API_KEY_HASHES", "").strip()
+        ):
+            failures.append("Use TEXTTRAITS_API_KEY_SHA256 or TEXTTRAITS_API_KEY_HASHES instead of plaintext TEXTTRAITS_API_KEY in production.")
         if not env_flag("TEXTTRAITS_SECURE_COOKIES", False):
             failures.append("TEXTTRAITS_SECURE_COOKIES=true is required in production.")
         if database_backend() != "postgres":
@@ -274,6 +282,7 @@ rate_buckets: dict[str, deque[float]] = defaultdict(deque)
 
 def rate_limited(limit: int | None = None) -> Callable:
     max_calls = limit or RATE_LIMIT_PER_MINUTE
+    window_seconds = 60
 
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
@@ -282,12 +291,33 @@ def rate_limited(limit: int | None = None) -> Callable:
             key = f"{identity}:{request.endpoint or fn.__name__}"
             now = time.time()
             bucket = rate_buckets[key]
-            while bucket and now - bucket[0] > 60:
+            while bucket and now - bucket[0] > window_seconds:
                 bucket.popleft()
             if len(bucket) >= max_calls:
-                return jsonify({"error": "Too many requests. Please wait a moment and try again."}), 429
+                retry_after = max(1, int(window_seconds - (now - bucket[0])) + 1)
+                response = jsonify(
+                    {
+                        "error": "Too many requests. Please wait a moment and try again.",
+                        "rate_limit": {
+                            "limit": max_calls,
+                            "remaining": 0,
+                            "window_seconds": window_seconds,
+                            "retry_after_seconds": retry_after,
+                        },
+                    }
+                )
+                response.status_code = 429
+                response.headers["Retry-After"] = str(retry_after)
+                response.headers["X-RateLimit-Limit"] = str(max_calls)
+                response.headers["X-RateLimit-Remaining"] = "0"
+                response.headers["X-RateLimit-Reset"] = str(int(now + retry_after))
+                return response
             bucket.append(now)
-            return fn(*args, **kwargs)
+            response = make_response(fn(*args, **kwargs))
+            response.headers["X-RateLimit-Limit"] = str(max_calls)
+            response.headers["X-RateLimit-Remaining"] = str(max(max_calls - len(bucket), 0))
+            response.headers["X-RateLimit-Reset"] = str(int(bucket[0] + window_seconds))
+            return response
 
         return wrapper
 
@@ -400,7 +430,7 @@ def send_password_reset_email(email: str, token: str) -> dict:
 
 @app.after_request
 def add_security_headers(response):
-    if enterprise_data_read_path():
+    if private_response_path():
         response.headers["Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -441,10 +471,34 @@ def request_origin_allowed() -> bool:
     return supplied.scheme == public_origin.scheme and supplied.netloc in allowed_netlocs
 
 
+def api_key_header_supplied() -> bool:
+    return bool(request.headers.get("X-TextTraits-Api-Key", "").strip())
+
+
+def normalized_sha256_digest(value: str) -> str:
+    clean = value.strip().lower()
+    if clean.startswith("sha256:"):
+        clean = clean.split(":", 1)[1]
+    return clean if re.fullmatch(r"[a-f0-9]{64}", clean) else ""
+
+
+def configured_api_key_hashes() -> tuple[str, ...]:
+    hashes: list[str] = []
+    for env_name in ("TEXTTRAITS_API_KEY_HASHES", "TEXTTRAITS_API_KEY_SHA256"):
+        for item in os.getenv(env_name, "").split(","):
+            digest = normalized_sha256_digest(item)
+            if digest:
+                hashes.append(digest)
+    legacy_key = os.getenv("TEXTTRAITS_API_KEY", "").strip()
+    if legacy_key:
+        hashes.append(hashlib.sha256(legacy_key.encode("utf-8")).hexdigest())
+    return tuple(dict.fromkeys(hashes))
+
+
 def api_key_request_allowed() -> bool:
-    expected = os.getenv("TEXTTRAITS_API_KEY", "").strip()
     supplied = request.headers.get("X-TextTraits-Api-Key", "").strip()
-    if not (expected and supplied and secrets.compare_digest(expected, supplied)):
+    supplied_digest = hashlib.sha256(supplied.encode("utf-8")).hexdigest() if supplied else ""
+    if not (supplied_digest and any(secrets.compare_digest(supplied_digest, expected) for expected in configured_api_key_hashes())):
         return False
     raw_scopes = os.getenv("TEXTTRAITS_API_KEY_SCOPES", "").strip()
     if not raw_scopes:
@@ -473,21 +527,35 @@ def enterprise_data_read_path() -> bool:
     return request.path.startswith("/v1/integrations/") and request.path.endswith(ENTERPRISE_DATA_GET_SUFFIXES)
 
 
+def private_response_path() -> bool:
+    return request.path.startswith("/api/") or request.path.startswith("/v1/")
+
+
 def browser_session_request_allowed() -> bool:
-    return bool(session.get("csrf_token")) and request_origin_allowed()
+    if not (session.get("csrf_token") and request_origin_allowed()):
+        return False
+    if env_flag("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH", PRODUCTION) and not current_user_id():
+        return False
+    return True
 
 
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
     if enterprise_data_read_path():
-        if api_key_request_allowed() or browser_session_request_allowed():
+        if api_key_header_supplied():
+            if api_key_request_allowed():
+                return None
+            return jsonify({"error": "API key is invalid or not scoped for this endpoint."}), 401
+        if browser_session_request_allowed():
             return None
         return jsonify({"error": "Authentication required for enterprise governance and integration data."}), 401
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return None
-    if request.path.startswith("/v1/") and api_key_request_allowed():
-        return None
+    if request.path.startswith("/v1/") and api_key_header_supplied():
+        if api_key_request_allowed():
+            return None
+        return jsonify({"error": "API key is invalid or not scoped for this endpoint."}), 401
     if not request_origin_allowed():
         return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
     expected = session.get("csrf_token")
@@ -1249,16 +1317,55 @@ def webhook_dedupe_key(payload: dict[str, Any]) -> str:
     return "event_hash:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def supplied_webhook_signature() -> str:
+    for header in ("X-TextTraits-Signature", "X-Hub-Signature-256", "X-Signature-SHA256"):
+        value = request.headers.get(header, "").strip()
+        if value:
+            return value if value.lower().startswith("sha256=") else f"sha256={value}"
+    return ""
+
+
+def supplied_webhook_timestamp() -> str:
+    for header in ("X-TextTraits-Timestamp", "X-Webhook-Timestamp", "X-Request-Timestamp"):
+        value = request.headers.get(header, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def webhook_timestamp_valid(timestamp: str) -> str:
+    if not timestamp:
+        return "missing_timestamp" if env_flag("TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP", PRODUCTION) else "not_required"
+    try:
+        supplied = float(timestamp)
+    except ValueError:
+        return "malformed_timestamp"
+    now = time.time()
+    if abs(now - supplied) > max(WEBHOOK_SIGNATURE_TOLERANCE_SECONDS, 1):
+        return "stale_timestamp"
+    return "ok"
+
+
 def webhook_signature_status() -> str:
     secret = os.getenv("TEXTTRAITS_WEBHOOK_SECRET", "").strip()
     if not secret:
         return "not_configured"
-    supplied = request.headers.get("X-TextTraits-Signature", "").strip()
+    supplied = supplied_webhook_signature()
     if not supplied:
         return "missing"
     raw_body = request.get_data(cache=True)
-    expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-    return "verified" if hmac.compare_digest(expected, supplied) else "invalid"
+    timestamp = supplied_webhook_timestamp()
+    timestamp_status = webhook_timestamp_valid(timestamp)
+    if timestamp_status not in {"ok", "not_required"}:
+        return timestamp_status
+    signed_payloads = [raw_body]
+    if timestamp_status == "ok":
+        signed_payloads.insert(0, f"{timestamp}.".encode("utf-8") + raw_body)
+    for signed_payload in signed_payloads:
+        expected = "sha256=" + hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(expected, supplied):
+            return "verified"
+    return "invalid"
 
 
 @app.post("/v1/webhooks/post-send")
@@ -1268,7 +1375,7 @@ def v1_post_send_webhook():
     workspace_id = integration_workspace_id(payload)
     governance_policy = get_governance_policy(workspace_id)
     signature_status = webhook_signature_status()
-    if signature_status in {"invalid", "missing"}:
+    if signature_status in {"invalid", "missing", "missing_timestamp", "malformed_timestamp", "stale_timestamp"}:
         return jsonify({"accepted": False, "retry": False, "error": "Webhook signature verification failed."}), 401
     provider = str(payload.get("provider") or "").strip()
     event_type = str(payload.get("event_type") or payload.get("event") or "").strip()
@@ -1379,6 +1486,28 @@ def stable_import_id(payload: dict[str, Any]) -> str:
     return "import_" + hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
 
 
+def csv_safe_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(scrub_payload(value), separators=(",", ":"), sort_keys=True)
+    else:
+        text = str(value)
+    if text and text[0] in {"=", "+", "-", "@", "\t", "\r", "\n"}:
+        return "'" + text
+    return text
+
+
+def csv_safe_rows(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [{key: csv_safe_cell(value) for key, value in row.items()} for row in rows]
+
+
+def safe_attachment_filename(kind: str, workspace_id: str) -> str:
+    stem = f"texttraits-{kind}-{workspace_id}"
+    clean = re.sub(r"[^A-Za-z0-9_.-]+", "-", stem).strip(".-")[:140]
+    return f"{clean or 'texttraits-export'}.csv"
+
+
 @app.get("/v1/governance/dashboard")
 def v1_governance_dashboard():
     workspace_id = integration_workspace_id()
@@ -1411,9 +1540,9 @@ def v1_governance_export():
         fieldnames = sorted({key for row in rows for key in row.keys()}) or ["empty"]
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(csv_safe_rows(rows))
         response = app.response_class(output.getvalue(), mimetype="text/csv")
-        response.headers["Content-Disposition"] = f"attachment; filename=texttraits-{kind}-{workspace_id}.csv"
+        response.headers["Content-Disposition"] = f'attachment; filename="{safe_attachment_filename(kind, workspace_id)}"'
         return response
     return jsonify({"api_version": "v1", "workspace_id": workspace_id, "type": kind, "rows": rows})
 

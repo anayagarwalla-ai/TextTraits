@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import secrets
+import subprocess  # nosec B404
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -34,7 +36,7 @@ def wait_for_server() -> None:
     deadline = time.time() + 20
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"{BASE}/health", timeout=1) as response:
+            with urllib.request.urlopen(f"{BASE}/health", timeout=1) as response:  # nosec B310
                 if response.status == 200:
                     return
         except Exception:
@@ -56,13 +58,13 @@ def main() -> int:
     env = {
         **os.environ,
         "PORT": str(PORT),
-        "TEXTTRAITS_SECRET_KEY": "visual-regression-local",
+        "TEXTTRAITS_SECRET_KEY": secrets.token_urlsafe(32),
         "TEXTTRAITS_DATABASE_URL": "",
         "DATABASE_URL": "",
-        "TEXTTRAITS_DB_PATH": "/tmp/texttraits-visual-regression.sqlite3",
+        "TEXTTRAITS_DB_PATH": str(Path(tempfile.gettempdir()) / "texttraits-visual-regression.sqlite3"),
     }
     Path(env["TEXTTRAITS_DB_PATH"]).unlink(missing_ok=True)
-    server = subprocess.Popen(
+    server = subprocess.Popen(  # nosec B603
         [sys.executable, "texttraits_app/app.py"],
         cwd=ROOT,
         env=env,
@@ -117,7 +119,7 @@ def main() -> int:
             page.get_by_text("Webhook signing setup", exact=True).scroll_into_view_if_needed()
             page.locator("[data-webhook-secret]").fill("visual-regression-test-secret")
             page.get_by_role("button", name="Run local signature test").click()
-            expect(page.get_by_text("Local signature test passed", exact=False)).to_be_visible(timeout=10000)
+            expect(page.get_by_text("Local timestamped signature test passed", exact=False)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-webhook-signing.png"), full_page=False)
 
             page.locator("#email-subject").fill(EMAIL_SUBJECT)

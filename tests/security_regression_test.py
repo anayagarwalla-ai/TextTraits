@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -20,6 +24,12 @@ os.environ.setdefault("TEXTTRAITS_SECRET_KEY", "test-secret-key")
 
 import app as app_module  # noqa: E402
 import storage as storage_module  # noqa: E402
+
+
+@app_module.app.get("/__test/rate-limit")
+@app_module.rate_limited(1)
+def _test_rate_limited_route():
+    return {"ok": True}
 
 
 def assert_true(condition: bool, message: str) -> None:
@@ -42,6 +52,47 @@ def main() -> int:
 
     missing_csrf = client.post("/api/signup", json={"email": "csrf@example.com", "password": "texttraits-test"})
     assert_true(missing_csrf.status_code == 419, "unsafe requests should require csrf")
+
+    previous_hash = os.environ.get("TEXTTRAITS_API_KEY_SHA256")
+    previous_scopes = os.environ.get("TEXTTRAITS_API_KEY_SCOPES")
+    try:
+        os.environ["TEXTTRAITS_API_KEY_SHA256"] = hashlib.sha256(b"hashed-read-key").hexdigest()
+        os.environ["TEXTTRAITS_API_KEY_SCOPES"] = "*:/v1/governance"
+        api_client = app_module.app.test_client()
+        hashed_key_dashboard = api_client.get("/v1/governance/dashboard", headers={"X-TextTraits-Api-Key": "hashed-read-key"})
+        wrong_key_dashboard = api_client.get("/v1/governance/dashboard", headers={"X-TextTraits-Api-Key": "wrong-key"})
+        assert_true(hashed_key_dashboard.status_code == 200, "hashed API key should allow scoped governance read")
+        assert_true(wrong_key_dashboard.status_code == 401, "invalid API key should fail closed")
+    finally:
+        if previous_hash is None:
+            os.environ.pop("TEXTTRAITS_API_KEY_SHA256", None)
+        else:
+            os.environ["TEXTTRAITS_API_KEY_SHA256"] = previous_hash
+        if previous_scopes is None:
+            os.environ.pop("TEXTTRAITS_API_KEY_SCOPES", None)
+        else:
+            os.environ["TEXTTRAITS_API_KEY_SCOPES"] = previous_scopes
+
+    old_production = app_module.PRODUCTION
+    old_public_url = app_module.PUBLIC_BASE_URL
+    try:
+        app_module.PRODUCTION = True
+        app_module.PUBLIC_BASE_URL = "https://texttraits.example"
+        session_only_client = app_module.app.test_client()
+        session_only_client.get("/api/session")
+        locked_dashboard = session_only_client.get("/v1/governance/dashboard", headers={"Origin": "https://texttraits.example"})
+        assert_true(locked_dashboard.status_code == 401, "production governance reads should require login or scoped API key")
+    finally:
+        app_module.PRODUCTION = old_production
+        app_module.PUBLIC_BASE_URL = old_public_url
+
+    first_rate = client.get("/__test/rate-limit")
+    second_rate = client.get("/__test/rate-limit")
+    assert_true(first_rate.status_code == 200, "rate-limit fixture should allow first request")
+    assert_true(second_rate.status_code == 429, "rate-limit fixture should throttle second request")
+    assert_true(second_rate.headers.get("Retry-After"), "rate-limit responses should include Retry-After")
+    assert_true(second_rate.headers.get("X-RateLimit-Limit") == "1", "rate-limit response should include limit")
+    assert_true(second_rate.get_json()["rate_limit"]["retry_after_seconds"] >= 1, "rate-limit JSON should include retry guidance")
 
     signup = client.post("/api/signup", json={"email": "security@example.com", "password": "texttraits-test"}, headers=csrf_headers(client))
     assert_true(signup.status_code == 200, signup.get_data(as_text=True))
@@ -99,6 +150,62 @@ def main() -> int:
     text_workspace = client.put("/api/workspace", json={"data": {"mode": "explorer", "latestText": "private pasted text"}}, headers=csrf_headers(client))
     assert_true(text_workspace.status_code == 200, "workspace sync should accept allowed keys")
     assert_true(text_workspace.get_json()["workspace"]["data"]["latestText"] == "", "workspace sync should strip raw pasted text")
+
+    csv_analysis = client.post(
+        "/v1/email/analyze",
+        json={
+            "workspace_id": "csv-security",
+            "request_id": "csv-security-001",
+            "subject": "Quarterly renewal checklist",
+            "body": "Hi Maya, the renewal checklist is ready for Thursday and includes the three manager handoff details.",
+            "source_system": "=HYPERLINK(\"https://evil.example\")",
+            "campaign_id": "=HYPERLINK(\"https://evil.example\")",
+        },
+        headers=csrf_headers(client),
+    )
+    assert_true(csv_analysis.status_code == 200, csv_analysis.get_data(as_text=True))
+    csv_export = client.get("/v1/governance/export?workspace_id=csv-security&type=analyses&format=csv")
+    assert_true(csv_export.status_code == 200, "governance CSV export should succeed")
+    assert_true("'=HYPERLINK" in csv_export.get_data(as_text=True), "CSV export should neutralize formula-like cells")
+    assert_true("filename=\"texttraits-analyses-csv-security.csv\"" in csv_export.headers.get("Content-Disposition", ""), "CSV filename should be quoted and sanitized")
+
+    previous_webhook_secret = os.environ.get("TEXTTRAITS_WEBHOOK_SECRET")
+    previous_webhook_timestamp = os.environ.get("TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP")
+    try:
+        secret = "webhook-test-secret"
+        os.environ["TEXTTRAITS_WEBHOOK_SECRET"] = secret
+        os.environ["TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP"] = "true"
+        event = {"event_id": "signed-event-001", "provider": "sendgrid", "event_type": "delivered", "request_id": "csv-security-001"}
+        raw_body = json.dumps(event, separators=(",", ":")).encode("utf-8")
+        timestamp = str(int(time.time()))
+        signature = "sha256=" + hmac.new(secret.encode("utf-8"), f"{timestamp}.".encode("utf-8") + raw_body, hashlib.sha256).hexdigest()
+        signed_webhook = client.post(
+            "/v1/webhooks/post-send",
+            data=raw_body,
+            content_type="application/json",
+            headers={**csrf_headers(client), "X-TextTraits-Signature": signature, "X-TextTraits-Timestamp": timestamp},
+        )
+        assert_true(signed_webhook.status_code == 200, signed_webhook.get_data(as_text=True))
+        assert_true(signed_webhook.get_json()["signature_status"] == "verified", "fresh webhook signature should verify")
+        unsigned_timestamp_event = {"event_id": "signed-event-002", "provider": "sendgrid", "event_type": "delivered"}
+        unsigned_timestamp_body = json.dumps(unsigned_timestamp_event, separators=(",", ":")).encode("utf-8")
+        body_signature = "sha256=" + hmac.new(secret.encode("utf-8"), unsigned_timestamp_body, hashlib.sha256).hexdigest()
+        missing_timestamp = client.post(
+            "/v1/webhooks/post-send",
+            data=unsigned_timestamp_body,
+            content_type="application/json",
+            headers={**csrf_headers(client), "X-TextTraits-Signature": body_signature},
+        )
+        assert_true(missing_timestamp.status_code == 401, "timestamp-required webhooks should reject replayable signatures")
+    finally:
+        if previous_webhook_secret is None:
+            os.environ.pop("TEXTTRAITS_WEBHOOK_SECRET", None)
+        else:
+            os.environ["TEXTTRAITS_WEBHOOK_SECRET"] = previous_webhook_secret
+        if previous_webhook_timestamp is None:
+            os.environ.pop("TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP", None)
+        else:
+            os.environ["TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP"] = previous_webhook_timestamp
 
     client_error = client.post(
         "/api/client-errors",

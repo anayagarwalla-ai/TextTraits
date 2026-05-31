@@ -164,6 +164,7 @@ def main() -> int:
         "vagueTerms",
         "hypeTerms",
         "scoreRing(optimization)",
+        "summarySnippet(value",
         "checkCards(optimization)",
         "modelSignalCard(target, prediction)",
         "modelSignals(predictions)",
@@ -192,6 +193,7 @@ def main() -> int:
         "governanceDashboardPanels(dashboard",
         "dashboardTrendCharts(dashboard",
         "dashboardEmptyState(title)",
+        "analysisGateStatus(item",
         "exportsPanel()",
         "saveExportSchedule()",
         "downloadGovernanceExport(kind",
@@ -238,6 +240,7 @@ def main() -> int:
     )
     for phrase in legacy_implementation:
         assert_true(phrase not in app_js, f"legacy implementation should not run in optimizer branch: {phrase}")
+    assert_true('item.gate_status !== "ready"' not in app_js, "approval queue should read nested gate status from API summaries")
 
     style_requirements = (
         'body[data-mode="enterprise-optimizer"]',

@@ -221,7 +221,7 @@
     {role: "Developer", detail: "Validates payloads, mapping contracts, sandbox adapters, API scopes, and webhook signatures.", permissions: ["Run simulator", "Manage key profiles", "Test webhooks"]},
   ];
   const deploymentChecks = [
-    ["Secrets", "TEXTTRAITS_SECRET_KEY, API keys, webhook signing secrets, and OAuth client secrets are managed outside source control."],
+    ["Secrets", "TEXTTRAITS_SECRET_KEY, hashed API key digests, timestamped webhook signing secrets, and OAuth client secrets are managed outside source control."],
     ["Postgres", "Production uses hosted Postgres with SSL instead of local SQLite."],
     ["HTTPS", "Public base URL is HTTPS and secure cookies are enabled."],
     ["Workers", "Gunicorn or an equivalent WSGI runner is configured behind the hosting platform."],
@@ -265,6 +265,13 @@
   function shortHash(value) {
     const clean = String(value || "");
     return clean.length > 22 ? `${clean.slice(0, 18)}...` : clean || "n/a";
+  }
+
+  function summarySnippet(value, fallback = "Not set") {
+    const clean = String(value || "").replace(/\s+/g, " ").trim();
+    if (!clean) return fallback;
+    const withoutHtmlLikeTags = clean.replace(/<\/?[a-z][^>]{0,80}>/gi, " [HTML tag] ").replace(/\s+/g, " ").trim();
+    return withoutHtmlLikeTags.length > 120 ? `${withoutHtmlLikeTags.slice(0, 117)}...` : withoutHtmlLikeTags;
   }
 
   function cssEscape(value) {
@@ -752,12 +759,16 @@
 
   function aggregateRows(rows, key, fallback = "Not set") {
     return Array.from((rows || []).reduce((map, row) => {
-      const value = String(row?.[key] || fallback);
+      const value = String(key === "gate_status" ? analysisGateStatus(row, fallback) : row?.[key] || fallback);
       map.set(value, (map.get(value) || 0) + 1);
       return map;
     }, new Map()).entries())
       .map(([label, count]) => ({label, count}))
       .sort((a, b) => b.count - a.count);
+  }
+
+  function analysisGateStatus(item, fallback = "unknown") {
+    return item?.gate_status || item?.gate?.status || fallback;
   }
 
   function filterAnalyses(analyses = []) {
@@ -768,7 +779,7 @@
       const created = item.created_at ? Date.parse(item.created_at) : 0;
       const inWindow = !days || !created || now - created <= days * 24 * 60 * 60 * 1000;
       const sourceMatch = filters.source_system === "all" || !filters.source_system || item.source_system === filters.source_system;
-      const gateMatch = filters.gate_status === "all" || !filters.gate_status || item.gate_status === filters.gate_status;
+      const gateMatch = filters.gate_status === "all" || !filters.gate_status || analysisGateStatus(item) === filters.gate_status;
       const campaignMatch = !filters.campaign_id || String(item.campaign_id || "").toLowerCase().includes(filters.campaign_id.toLowerCase());
       const templateMatch = !filters.template_id || String(item.template_id || "").toLowerCase().includes(filters.template_id.toLowerCase());
       return inWindow && sourceMatch && gateMatch && campaignMatch && templateMatch;
@@ -899,7 +910,7 @@
     const analyses = dashboard.recent_analyses || [];
     const filtered = filterAnalyses(analyses);
     const sourceValues = analyses.map((item) => item.source_system).filter(Boolean);
-    const gateValues = analyses.map((item) => item.gate_status).filter(Boolean);
+    const gateValues = analyses.map((item) => analysisGateStatus(item, "")).filter(Boolean);
     return `
       <section class="optimizer-section governance-dashboard" aria-label="Governance dashboard">
         <div class="section-title">
@@ -946,7 +957,7 @@
           ${dashboardList("Trend by source system", trends, (item) => `${displayLabel(item.source_system)} · ${displayLabel(item.gate_status)} · ${item.count || 0} analyses`)}
           ${dashboardList("Outcome joins", joins, (item) => `${displayLabel(item.event_type || item.delivery_status)} · ${shortHash(item.request_id || item.content_hash)} · ${displayLabel(item.source_system || "source unknown")}`)}
           ${dashboardList("Outcome counts", Object.entries(outcomeCounts).map(([event, count]) => ({event, count})), (item) => `${displayLabel(item.event)} · ${item.count} events`)}
-          ${dashboardList("Filtered drilldown", filtered.slice(0, 8), (item) => `${shortHash(item.request_id)} · ${displayLabel(item.gate_status)} · ${Math.round(Number(item.score || 0))}/100 · ${displayLabel(item.source_system || "direct")}`)}
+          ${dashboardList("Filtered drilldown", filtered.slice(0, 8), (item) => `${shortHash(item.request_id)} · ${displayLabel(analysisGateStatus(item))} · ${Math.round(Number(item.score || 0))}/100 · ${displayLabel(item.source_system || "direct")}`)}
         </div>
       </section>
     `;
@@ -1015,7 +1026,7 @@
   }
 
   function approvalQueuePanel(dashboard = {}) {
-    const analyses = (dashboard.recent_analyses || []).filter((item) => item.gate_status !== "ready").slice(0, 8);
+    const analyses = (dashboard.recent_analyses || []).filter((item) => analysisGateStatus(item) !== "ready").slice(0, 8);
     const fallbackRows = analyses.length ? analyses : (dashboard.recent_analyses || []).slice(0, 4);
     return `
       <section class="optimizer-section approval-queue-panel" aria-label="Approval queue">
@@ -1040,7 +1051,7 @@
   function approvalQueueCard(item, index) {
     const key = item.request_id || `analysis-${index}`;
     const action = state.approvalActions[key] || {};
-    const status = action.status || displayLabel(item.gate_status || "needs_review");
+    const status = action.status || displayLabel(analysisGateStatus(item, "needs_review"));
     const owner = action.owner || ownerByCategory[item.highest_severity] || "Reviewer";
     return `
       <article class="approval-card" data-approval-card="${escapeHtml(key)}">
@@ -1574,7 +1585,7 @@
           ${statusBadge(state.webhookConfig.status, state.webhookConfig.status === "Configured" ? "success" : "warning")}
           ${state.webhookConfig.signaturePreview ? statusBadge(state.webhookConfig.signaturePreview, "neutral") : ""}
         </div>
-        <p class="muted">Production validation still requires setting TEXTTRAITS_WEBHOOK_SECRET on the server and sending X-TextTraits-Signature with each provider event.</p>
+        <p class="muted">Production validation requires TEXTTRAITS_WEBHOOK_SECRET plus X-TextTraits-Signature and X-TextTraits-Timestamp on each provider event.</p>
       </section>
     `;
   }
@@ -1811,10 +1822,11 @@
     return Array.from(new Uint8Array(digest)).slice(0, 8).map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
-  async function hmacPreview(secret, payload) {
+  async function hmacPreview(secret, payload, timestamp = "") {
     if (!window.crypto?.subtle) return `sha256=${Math.random().toString(36).slice(2, 14)}`;
     const key = await window.crypto.subtle.importKey("raw", new TextEncoder().encode(secret), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
-    const signature = await window.crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+    const signaturePayload = timestamp ? `${timestamp}.${payload}` : payload;
+    const signature = await window.crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signaturePayload));
     return `sha256=${Array.from(new Uint8Array(signature)).slice(0, 6).map((byte) => byte.toString(16).padStart(2, "0")).join("")}...`;
   }
 
@@ -1833,11 +1845,12 @@
       event_type: state.webhookConfig.eventType || "delivered",
       request_id: state.latestData?.request_id || "local-preview",
     });
+    const timestamp = String(Math.floor(Date.now() / 1000));
     state.webhookConfig.secretDigest = await digestText(secret);
-    state.webhookConfig.signaturePreview = await hmacPreview(secret, payload);
+    state.webhookConfig.signaturePreview = await hmacPreview(secret, payload, timestamp);
     state.webhookConfig.status = "Configured";
     state.webhookConfig.lastTest = new Date().toISOString();
-    state.webhookMessage = `Local signature test passed for ${displayLabel(state.webhookConfig.eventType)}. Store the real secret on the server before production.`;
+    state.webhookMessage = `Local timestamped signature test passed for ${displayLabel(state.webhookConfig.eventType)}. Store the real secret on the server before production.`;
     state.webhookSecretDraft = "";
     persistLocalAdminState();
     renderEmpty();
@@ -2124,7 +2137,7 @@
     }
     if (text.includes("signature")) {
       return [
-        {status: "Webhook signature failure", tone: "danger", title: "Verify HMAC", detail: "Confirm X-TextTraits-Signature uses the server-side webhook secret and raw request body."},
+        {status: "Webhook signature failure", tone: "danger", title: "Verify HMAC", detail: "Confirm X-TextTraits-Signature and X-TextTraits-Timestamp match the server-side webhook secret."},
       ];
     }
     if (text.includes("too many") || text.includes("rate")) {
@@ -2429,7 +2442,7 @@
           <article class="optimizer-context-card">
             <span class="interface-label">Draft context</span>
             <strong>${escapeHtml(state.intent)} for ${escapeHtml(state.audience)}</strong>
-            <p>${escapeHtml(analysis.stats.words)} words, ${escapeHtml(analysis.stats.sentences)} sentences, ${escapeHtml(state.subject.trim() || "no subject line")}.</p>
+            <p>${escapeHtml(analysis.stats.words)} words, ${escapeHtml(analysis.stats.sentences)} sentences, ${escapeHtml(summarySnippet(state.subject, "no subject line"))}.</p>
           </article>
           <article class="optimizer-context-card">
             <span class="interface-label">Workflow decision</span>

@@ -19,6 +19,8 @@ RISK_PATTERNS = (
     (re.compile(r'TEXTTRAITS_DEV_ACCOUNT_LINKS",\s*not\s+PRODUCTION'), "Development account links must default off and be explicitly enabled."),
     (re.compile(r'"client_secret_env"\s*:'), "Public JSON must never expose client secret environment variable names."),
     (re.compile(r'@app\.get\("/api/integrations/<provider>/oauth/start"\)'), "OAuth start must be CSRF-protected POST."),
+    (re.compile(r"writer\.writerows\(rows\)"), "CSV exports must sanitize spreadsheet formula cells before writing rows."),
+    (re.compile(r"return\s+bool\(session\.get\(\"csrf_token\"\)\)\s+and\s+request_origin_allowed\(\)"), "Enterprise browser data reads must require authenticated sessions in production."),
     (re.compile(r"uses:\s*actions/(checkout|setup-python|setup-node)@v[1-5]\b"), "Use Node 24-ready GitHub Actions v6 or newer."),
 )
 
