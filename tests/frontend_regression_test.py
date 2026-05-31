@@ -194,7 +194,7 @@ def main() -> int:
         "dashboardTrendCharts(dashboard",
         "dashboardEmptyState(title)",
         "analysisGateStatus(item",
-        "exportsPanel()",
+        "exportsPanel(dashboard",
         "saveExportSchedule()",
         "downloadGovernanceExport(kind",
         "currentEnterpriseContext()",

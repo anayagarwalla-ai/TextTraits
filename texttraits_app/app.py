@@ -2132,6 +2132,121 @@ def deployment():
     )
 
 
+@app.get("/model-card")
+def model_card():
+    info = public_model_info()
+    metadata = getattr(predictor, "metadata", {}) or {}
+    targets = metadata.get("targets") or []
+    return render_template_string(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TextTraits Model Card</title>
+            <link rel="stylesheet" href="/static/styles.css">
+            <script
+              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+              crossorigin="anonymous"
+            ></script>
+          </head>
+          <body data-mode="enterprise-optimizer">
+        <main class="app-shell legal-shell">
+          <header class="topbar legal-topbar">
+            <div class="brand-block">
+              <p class="eyebrow">TextTraits</p>
+              <h1>Model Card</h1>
+              <p>Enterprise-facing summary of what the current local model bundle does, what it does not do, and what needs validation before a pilot becomes automated workflow gating.</p>
+            </div>
+            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
+          </header>
+          <section class="panel legal-page">
+            <article>
+              <span class="interface-label">Runtime bundle</span>
+              <p>{{ info.name }} is {{ "available" if info.available else "unavailable" }} with {{ info.target_count }} configured text-trait target{{ "" if info.target_count == 1 else "s" }}{% if info.demo %}. Demo predictor mode is active because the trained bundle was not loaded{% endif %}.</p>
+            </article>
+            <article>
+              <span class="interface-label">Signals returned</span>
+              <p>The app exposes confidence, margin, alternatives, cue terms, score components, rule findings, content hashes, policy versions, and workflow routes. These signals are evidence for review decisions and are not generated email copy.</p>
+            </article>
+            <article>
+              <span class="interface-label">Current targets</span>
+              <p>{{ targets|join(", ") if targets else "Target metadata is not available from this runtime bundle." }}</p>
+            </article>
+            <article>
+              <span class="interface-label">Known limits</span>
+              <p>The model is not a legal, consent, deliverability, spam, or truthfulness authority. Rule packs and human review still need to catch unsupported claims, regulated content, consent issues, broken links, and customer-specific policies.</p>
+            </article>
+            <article>
+              <span class="interface-label">Free validation step</span>
+              <p>Before pitching automatic gates, run a free pilot calibration on customer-approved sample messages. Track false passes, false reviews, reviewer agreement, latency, and outcome joins before changing live send paths.</p>
+            </article>
+          </section>
+        </main>
+          </body>
+        </html>
+        """,
+        info=info,
+        targets=targets,
+    )
+
+
+@app.get("/pilot-plan")
+def pilot_plan():
+    return render_template_string(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>TextTraits Pilot Plan</title>
+            <link rel="stylesheet" href="/static/styles.css">
+            <script
+              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
+              crossorigin="anonymous"
+            ></script>
+          </head>
+          <body data-mode="enterprise-optimizer">
+        <main class="app-shell legal-shell">
+          <header class="topbar legal-topbar">
+            <div class="brand-block">
+              <p class="eyebrow">TextTraits</p>
+              <h1>Free Pilot Plan</h1>
+              <p>A no-paid-tools path for proving the enterprise workflow before credentials, SSO, contracts, or production hosting are introduced.</p>
+            </div>
+            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
+          </header>
+          <section class="panel legal-page">
+            <article>
+              <span class="interface-label">Pitch demo</span>
+              <p>Use the analyzer, example dashboard rows, adapter simulator, policy controls, exports, deployment page, security page, and model card to show how TextTraits evaluates existing emails without writing them.</p>
+            </article>
+            <article>
+              <span class="interface-label">Free pilot data</span>
+              <p>Ask the enterprise for a small, approved set of historical or sample messages with no secrets. Import them locally or through the API, then compare score distributions, findings, and reviewer agreement.</p>
+            </article>
+            <article>
+              <span class="interface-label">Workflow proof</span>
+              <p>Paste HubSpot, Salesforce, Braze, Marketo, Iterable, SendGrid/SES, or warehouse-shaped payloads into the simulator and show normalized inputs, outputs, writeback fields, routes, and webhook join behavior.</p>
+            </article>
+            <article>
+              <span class="interface-label">Success metrics</span>
+              <p>Measure review capture rate, blocked-policy issues, template risk, source-system trends, outcome join coverage, median latency, and how often reviewers agree with the gate decision.</p>
+            </article>
+            <article>
+              <span class="interface-label">What not to fake</span>
+              <p>Do not claim live provider connections, SSO, legal approval, production hosting, paid monitoring, or customer-specific policy accuracy until the customer supplies credentials, requirements, and deployment approval.</p>
+            </article>
+          </section>
+        </main>
+          </body>
+        </html>
+        """
+    )
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
     app.run(host=os.getenv("HOST", "127.0.0.1"), port=port, debug=ENABLE_DEV_TOOLS)

@@ -1,12 +1,12 @@
 # TextTraits
 
-TextTraits is a local Flask web app that helps people explore what a writing sample may reveal to a text classifier. It estimates signals such as gender-related language patterns, age-related patterns, MBTI-style dimensions, writing style, and confidence.
+TextTraits is a Flask web app for enterprise email optimization. This branch is non-generative: it scores existing email drafts, returns objective model signals, policy-backed findings, send-readiness gates, content hashes, integration routes, and governance metadata without writing replacement copy.
 
-The app is designed as an educational public-facing tool. It should not be used to make decisions about real people.
+The app is designed as a workflow scoring layer for teams that already use tools such as CRM, marketing automation, warehouse imports, or send-path middleware. It should not be used as the sole authority for legal, consent, deliverability, compliance, hiring, admissions, finance, housing, medical, or other consequential decisions.
 
 ## Responsible Use
 
-These outputs are model-generated guesses from text patterns. They may be wrong. Text can contain misleading signals from topic, community, genre, copied phrasing, or the model's training data. Do not use TextTraits for hiring, admissions, policing, eligibility, finance, housing, medical decisions, or other consequential decisions.
+These outputs are model- and rule-derived signals from text patterns and workflow metadata. They may be wrong. Enterprise teams should validate thresholds, review false passes and false reviews, and keep humans responsible for claims, consent, opt-out handling, regulated content, and customer-specific policy.
 
 ## Repository Layout
 
@@ -16,6 +16,8 @@ These outputs are model-generated guesses from text patterns. They may be wrong.
 - `training/` - Colab/high-RAM training and export scripts.
 - `scripts/` - setup and verification helpers for model files.
 - `tests/` - lightweight smoke tests.
+- `docs/enterprise-pitch-readiness.md` - free pitch script, demo boundaries, and pilot-readiness notes.
+- `docs/enterprise-one-pager.md` - concise enterprise positioning and pilot ask.
 - `accessible-text-inference-app/` - clean portable export guide and standalone model-placement structure.
 
 ## Quick Start
@@ -55,6 +57,16 @@ Copy `.env.example` if your deployment system loads environment files.
 - `TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH` - keep `true` in production so governance reads require login or a scoped API key.
 
 Public deployments should keep `ENABLE_DEV_TOOLS=false` and run `python3 scripts/preflight.py`.
+
+## Enterprise Demo
+
+Fresh workspaces show clearly labeled synthetic example rows in dashboard panels so the workflow can be evaluated without pretending live customer data exists. To seed local demo rows into the SQLite database, run:
+
+```bash
+python3 scripts/seed_enterprise_demo.py --workspace-id demo_enterprise
+```
+
+These rows are synthetic examples only. See `docs/enterprise-pitch-readiness.md` for the free pitch path and the list of claims to avoid until a customer supplies credentials, requirements, and approved sample data.
 
 ## Model Files
 

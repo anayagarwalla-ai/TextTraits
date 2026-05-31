@@ -1,0 +1,72 @@
+TextTraits Free Enterprise Next Steps, Ranked by Priority
+
+Scope:
+These are free next steps we can do ourselves before paying for tools, providers, hosting, legal work, or external enterprise services. Do not claim live integrations, SSO, SOC 2, production hosting, or customer-specific validation until those things are real.
+
+P0 - Do before the next enterprise pitch
+
+1. Practice the core pitch until it is simple:
+   TextTraits optimizes existing enterprise emails by scoring them, routing them, and producing governance evidence. It does not generate replacement email copy.
+
+2. Create a seeded local demo workspace:
+   Run scripts/seed_enterprise_demo.py with a demo workspace ID, then use that workspace for screenshots and walkthroughs. Keep the data clearly described as synthetic demo data.
+
+3. Capture a polished screenshot set:
+   Save screenshots for Analyze, Dashboard, Simulator, Integrations, Admin, Security, Model Card, and Pilot Plan. Use these in a pitch deck or one-pager.
+
+4. Build a 3-minute demo script:
+   Show a ready email, a risky email, dashboard trends, adapter simulation, field mapping, webhook signing, and the model card. Keep every claim tied to what the app actually does.
+
+5. Prepare the honest trust narrative:
+   Be ready to explain privacy, security, deployment readiness, model limitations, no generated copy, no raw-body export, hashes, request IDs, and what still requires a customer pilot.
+
+P1 - Do next to make the pitch stronger
+
+6. Collect 20 to 50 approved sample emails or templates:
+   Use your own messages, approved internal examples, or synthetic examples. Do not use private customer data without permission.
+
+7. Run the sample set through TextTraits:
+   Record score distribution, ready/review/blocked counts, top findings, risky templates, and source-system patterns.
+
+8. Manually score reviewer agreement:
+   For each sample, mark whether a human agrees with the gate decision. Track false passes and false reviews.
+
+9. Pick one first integration story:
+   Choose one target workflow, such as HubSpot, Braze, Marketo, Iterable, SendGrid/SES, Salesforce, or warehouse import. Prepare the expected payload fields and writeback fields for that one workflow.
+
+10. Build a field-mapping reference sheet:
+    List subject, body, campaign_id, journey_id, template_id, locale, headers, consent state, delivery provider, request_id, content_hash, score, gate status, route, and findings.
+
+11. Prepare a free pilot success checklist:
+    Define review capture rate, reviewer agreement, false pass rate, false review rate, template risk, outcome join coverage, and send-path latency.
+
+P2 - Do after the demo story is clean
+
+12. Add more realistic simulator examples:
+    Expand the local example payloads for the first two or three platforms you plan to pitch.
+
+13. Create a short screen recording:
+    Record a clean walkthrough using the seeded demo workspace and the 3-minute script.
+
+14. Tighten the one-pager:
+    Keep the one-pager focused on non-generative optimization, governance, workflow integration, and pilot metrics.
+
+15. Build a frequently asked questions list:
+    Answer what data is stored, whether it writes emails, how scoring works, what the model can and cannot prove, and what is needed for a real pilot.
+
+16. Re-run visual snapshots after demo content changes:
+    Use scripts/visual_regression_snapshots.py and confirm desktop and mobile layouts still look professional.
+
+P3 - Still free, but lower priority
+
+17. Add a small glossary:
+    Define gate, route, finding, policy bundle, request ID, content hash, outcome join, field mapping, and send-path middleware.
+
+18. Make a sample pilot report template:
+    Include summary metrics, top findings, risky templates, recommended policy changes, and next-step requirements.
+
+19. Prepare a risk register:
+    List current limitations honestly: no live provider credentials, no SSO yet, no legal review yet, no paid monitoring yet, and no customer-specific calibration yet.
+
+20. Create a checklist for the first real enterprise conversation:
+    Ask which platform owns email sends, what fields are available, who reviews blocked messages, what policies matter, and what outcomes can be joined back.

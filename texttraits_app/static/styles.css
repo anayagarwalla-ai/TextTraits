@@ -5044,6 +5044,79 @@ body[data-mode="enterprise-optimizer"] .workspace {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.demo-data-notice {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(177, 124, 32, 0.24);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 248, 233, 0.72);
+}
+
+.demo-data-notice p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 780;
+  line-height: 1.45;
+}
+
+.pitch-readiness-panel,
+.outcome-impact-panel {
+  border-top: 1px solid rgba(216, 226, 220, 0.72);
+  padding-top: 18px;
+}
+
+.pitch-readiness-summary,
+.free-proof-grid,
+.impact-grid,
+.model-evidence-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.pitch-readiness-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.free-proof-grid,
+.impact-grid,
+.model-evidence-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pitch-readiness-summary article,
+.free-proof-grid article,
+.impact-grid article,
+.model-evidence-grid article,
+.model-evidence-panel {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(206, 222, 216, 0.82);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.pitch-readiness-summary p,
+.free-proof-grid p,
+.impact-grid p,
+.model-evidence-grid p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.impact-grid strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.model-card-link {
+  width: fit-content;
+}
+
 .governance-dashboard {
   border-top: 1px solid rgba(216, 226, 220, 0.72);
   padding-top: 18px;
@@ -6306,6 +6379,10 @@ body[data-mode="enterprise-optimizer"] .workspace {
   .dashboard-filter-grid,
   .trend-chart-grid,
   .admin-overview-grid,
+  .pitch-readiness-summary,
+  .free-proof-grid,
+  .impact-grid,
+  .model-evidence-grid,
   .score-explanation-grid,
   .trust-grid,
   .deployment-check-grid,

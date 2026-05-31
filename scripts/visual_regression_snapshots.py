@@ -158,6 +158,14 @@ def main() -> int:
             expect(page.get_by_text("Deployment Readiness", exact=True)).to_be_visible(timeout=10000)
             page.screenshot(path=str(OUT / "optimizer-deployment.png"), full_page=False)
 
+            page.goto(f"{BASE}/model-card", wait_until="load")
+            expect(page.get_by_text("Model Card", exact=True)).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-model-card.png"), full_page=False)
+
+            page.goto(f"{BASE}/pilot-plan", wait_until="load")
+            expect(page.get_by_text("Free Pilot Plan", exact=True)).to_be_visible(timeout=10000)
+            page.screenshot(path=str(OUT / "optimizer-pilot-plan.png"), full_page=False)
+
             page.set_viewport_size({"width": 390, "height": 844})
             page.goto(f"{BASE}/?visual=mobile", wait_until="load")
             page.locator("#email-subject").fill(EMAIL_SUBJECT)

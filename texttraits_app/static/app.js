@@ -220,6 +220,14 @@
     {role: "Analyst", detail: "Reads governance dashboards, outcome trends, exports, and model-performance context.", permissions: ["View dashboards", "Download exports", "Inspect trends"]},
     {role: "Developer", detail: "Validates payloads, mapping contracts, sandbox adapters, API scopes, and webhook signatures.", permissions: ["Run simulator", "Manage key profiles", "Test webhooks"]},
   ];
+  const freePitchChecks = [
+    ["Workflow story", "Ready", "Analyze existing messages, return send-readiness decisions, and keep the sending tool in control."],
+    ["Demo evidence", "Ready", "Example workspace rows show campaigns, templates, outcomes, and review queues when a fresh workspace has no data yet."],
+    ["Trust packet", "Ready", "Privacy, terms, security, deployment, and model-card pages are available from the app footer."],
+    ["Integration proof", "Ready", "Adapter simulator, OpenAPI export, setup manifests, and field mappings run without paid third-party accounts."],
+    ["Pilot controls", "Drafted", "Free pilot plan separates what works now from later customer-provided credentials and sample data."],
+    ["Production traffic", "External", "Live provider credentials, hosted infrastructure, SSO, legal review, and customer data are intentionally not mocked."],
+  ];
   const deploymentChecks = [
     ["Secrets", "TEXTTRAITS_SECRET_KEY, hashed API key digests, timestamped webhook signing secrets, and OAuth client secrets are managed outside source control."],
     ["Postgres", "Production uses hosted Postgres with SSL instead of local SQLite."],
@@ -280,6 +288,185 @@
 
   function statusBadge(label, tone = "neutral") {
     return `<span class="status-badge status-${escapeHtml(tone)}">${escapeHtml(label)}</span>`;
+  }
+
+  function daysAgoIso(days) {
+    const date = new Date(Date.now() - Number(days || 0) * 24 * 60 * 60 * 1000);
+    return date.toISOString();
+  }
+
+  function dashboardHasEvidence(dashboard = {}) {
+    return Boolean(
+      Number(dashboard.analysis_volume || 0) ||
+      (dashboard.recent_analyses || []).length ||
+      (dashboard.top_failing_rule_packs || []).length ||
+      (dashboard.risky_templates || []).length ||
+      (dashboard.trend_by_source_system || []).length ||
+      (dashboard.joined_outcomes || []).length ||
+      (dashboard.outcomes || []).length ||
+      (dashboard.sample_imports || []).length
+    );
+  }
+
+  function exampleDashboardSnapshot(base = {}) {
+    const policy = base.policy || {};
+    const recent = [
+      {
+        request_id: "demo_req_braze_renewal_01",
+        content_hash: "demo_hash_renewal_01",
+        source: "adapter_simulator",
+        source_system: "braze",
+        analysis_mode: "pre_send_gate",
+        campaign_id: "cmp_renewal_risk",
+        journey_id: "canvas_q2_expansion",
+        template_id: "tmpl_renewal_manager_handoff",
+        locale: "en-US",
+        score: 84,
+        gate_status: "ready",
+        gate: {status: "ready", send_ready: true, route: "forward_to_provider", highest_severity: "none"},
+        highest_severity: "none",
+        finding_count: 0,
+        created_at: daysAgoIso(1),
+      },
+      {
+        request_id: "demo_req_marketo_claims_02",
+        content_hash: "demo_hash_claims_02",
+        source: "adapter_simulator",
+        source_system: "marketo",
+        analysis_mode: "authoring_lint",
+        campaign_id: "cmp_q2_webinar",
+        journey_id: "program_revops_webinar",
+        template_id: "tmpl_webinar_invite_v3",
+        locale: "en-US",
+        score: 66,
+        gate_status: "needs_review",
+        gate: {status: "needs_review", send_ready: false, route: "human_review_queue", highest_severity: "high"},
+        highest_severity: "high",
+        finding_count: 3,
+        created_at: daysAgoIso(3),
+      },
+      {
+        request_id: "demo_req_iterable_unsub_03",
+        content_hash: "demo_hash_unsub_03",
+        source: "adapter_simulator",
+        source_system: "iterable",
+        analysis_mode: "pre_send_gate",
+        campaign_id: "cmp_product_update",
+        journey_id: "journey_onboarding_nurture",
+        template_id: "tmpl_product_update_v7",
+        locale: "en-US",
+        score: 51,
+        gate_status: "blocked",
+        gate: {status: "blocked", send_ready: false, route: "compliance_or_manager_review", highest_severity: "critical"},
+        highest_severity: "critical",
+        finding_count: 4,
+        created_at: daysAgoIso(5),
+      },
+      {
+        request_id: "demo_req_hubspot_followup_04",
+        content_hash: "demo_hash_followup_04",
+        source: "adapter_simulator",
+        source_system: "hubspot",
+        analysis_mode: "pre_send_gate",
+        campaign_id: "cmp_midmarket_followup",
+        journey_id: "workflow_demo_followup",
+        template_id: "tmpl_followup_fit_check",
+        locale: "en-US",
+        score: 78,
+        gate_status: "ready",
+        gate: {status: "ready", send_ready: true, route: "forward_to_provider", highest_severity: "low"},
+        highest_severity: "low",
+        finding_count: 1,
+        created_at: daysAgoIso(8),
+      },
+      {
+        request_id: "demo_req_sendgrid_cta_05",
+        content_hash: "demo_hash_cta_05",
+        source: "send_path_middleware",
+        source_system: "sendgrid_ses",
+        analysis_mode: "send_path_middleware",
+        campaign_id: "cmp_expansion_offer",
+        journey_id: "transactional_followup",
+        template_id: "tmpl_expansion_offer_v2",
+        locale: "en-US",
+        score: 62,
+        gate_status: "needs_review",
+        gate: {status: "needs_review", send_ready: false, route: "human_review_queue", highest_severity: "medium"},
+        highest_severity: "medium",
+        finding_count: 2,
+        created_at: daysAgoIso(13),
+      },
+    ];
+    return {
+      ...base,
+      __example: true,
+      workspace_id: base.workspace_id || state.workspaceId || "default",
+      policy,
+      analysis_volume: recent.length,
+      average_score: 68.2,
+      gate_counts: {ready: 2, needs_review: 2, blocked: 1},
+      severity_counts: {none: 1, low: 1, medium: 1, high: 1, critical: 1},
+      source_counts: {adapter_simulator: 4, send_path_middleware: 1},
+      route_counts: {forward_to_provider: 2, human_review_queue: 2, compliance_or_manager_review: 1},
+      model_version_counts: {"local-texttraits-bundle": recent.length},
+      webhook_status_counts: {delivered: 3, opened: 2, complained: 1},
+      outcome_counts: {delivered: 3, opened: 2, clicked: 1, complained: 1, unsubscribed: 1},
+      top_failing_rule_packs: [
+        {category: "unsubscribe", rule_id: "unsubscribe.path_missing", severity: "critical", count: 2},
+        {category: "cta", rule_id: "cta.too_many_actions", severity: "high", count: 3},
+        {category: "personalization", rule_id: "template.unresolved_token", severity: "medium", count: 4},
+        {category: "clarity", rule_id: "specificity.low", severity: "medium", count: 5},
+      ],
+      risky_templates: [
+        {template_id: "tmpl_product_update_v7", campaign_id: "cmp_product_update", analysis_count: 4, average_score: 54.5, review_or_block_count: 3},
+        {template_id: "tmpl_webinar_invite_v3", campaign_id: "cmp_q2_webinar", analysis_count: 6, average_score: 66.2, review_or_block_count: 4},
+        {template_id: "tmpl_expansion_offer_v2", campaign_id: "cmp_expansion_offer", analysis_count: 3, average_score: 62.0, review_or_block_count: 2},
+      ],
+      trend_by_source_system: [
+        {source_system: "braze", gate_status: "ready", count: 1, average_score: 84},
+        {source_system: "marketo", gate_status: "needs_review", count: 1, average_score: 66},
+        {source_system: "iterable", gate_status: "blocked", count: 1, average_score: 51},
+        {source_system: "hubspot", gate_status: "ready", count: 1, average_score: 78},
+        {source_system: "sendgrid_ses", gate_status: "needs_review", count: 1, average_score: 62},
+      ],
+      joined_outcomes: [
+        {event_type: "delivered", delivery_status: "delivered", request_id: "demo_req_braze_renewal_01", content_hash: "demo_hash_renewal_01", source_system: "braze"},
+        {event_type: "opened", delivery_status: "opened", request_id: "demo_req_hubspot_followup_04", content_hash: "demo_hash_followup_04", source_system: "hubspot"},
+        {event_type: "complained", delivery_status: "complained", request_id: "demo_req_iterable_unsub_03", content_hash: "demo_hash_unsub_03", source_system: "iterable"},
+      ],
+      policy_bundle_history: [
+        {policy_environment: policy.policy_environment || "production", version: "2026.05.25", created_at: daysAgoIso(9), updated_at: daysAgoIso(2)},
+        {policy_environment: "staging", version: "2026.05.18", created_at: daysAgoIso(16), updated_at: daysAgoIso(12)},
+      ],
+      recent_analyses: recent,
+      webhook_events: [
+        {event_type: "delivered", delivery_status: "delivered", dedupe_key: "demo_event_delivered_01", first_seen_at: daysAgoIso(1), last_seen_at: daysAgoIso(1)},
+        {event_type: "complained", delivery_status: "complained", dedupe_key: "demo_event_complained_03", first_seen_at: daysAgoIso(4), last_seen_at: daysAgoIso(4)},
+      ],
+      outcomes: [
+        {event_type: "delivered", delivery_status: "delivered", request_id: "demo_req_braze_renewal_01", event_timestamp: daysAgoIso(1)},
+        {event_type: "opened", delivery_status: "opened", request_id: "demo_req_hubspot_followup_04", event_timestamp: daysAgoIso(2)},
+        {event_type: "complained", delivery_status: "complained", request_id: "demo_req_iterable_unsub_03", event_timestamp: daysAgoIso(4)},
+      ],
+      sample_imports: [
+        {import_id: "demo_import_q2_templates", accepted: 25, rejected: 0, average_score: 71.4, blocked_or_review: 9, created_at: daysAgoIso(6)},
+      ],
+    };
+  }
+
+  function displayDashboardSnapshot(dashboard = {}) {
+    if (dashboardHasEvidence(dashboard)) return {...dashboard, __example: false};
+    return exampleDashboardSnapshot(dashboard);
+  }
+
+  function dashboardDataNotice(dashboard = {}) {
+    if (!dashboard.__example) return "";
+    return `
+      <div class="demo-data-notice" role="note">
+        ${statusBadge("Example data", "warning")}
+        <p>This workspace has no saved governance rows yet, so the dashboard is showing clearly labeled synthetic examples. Run analyses, imports, or webhooks to replace this with real workspace data.</p>
+      </div>
+    `;
   }
 
   function readLocalSetting(key, fallback) {
@@ -798,7 +985,8 @@
     const manifests = state.labData?.manifests || [];
     const mappings = state.labData?.fieldMappings || [];
     const installKit = state.labData?.installKit || {};
-    const dashboard = state.labData?.dashboard || {};
+    const rawDashboard = state.labData?.dashboard || {};
+    const dashboard = displayDashboardSnapshot(rawDashboard);
     const plan = state.labData?.integrationPlan || {};
     const policy = state.labData?.policy || dashboard.policy || {};
     const gateCounts = dashboard.gate_counts || {};
@@ -807,7 +995,7 @@
       ["Contract export", `${installKit.endpoints?.length || 12} endpoints`, "OpenAPI JSON, manifests, setup sequence"],
       ["Sandbox adapters", `${flows.length || 4} flows`, "HubSpot, Salesforce, SendGrid/SES, webhooks"],
       ["Setup manifests", `${manifests.length || 4} providers`, `${mappings.length} saved field mapping${mappings.length === 1 ? "" : "s"}`],
-      ["Governance ledger", `${dashboard.analysis_volume ?? 0} analyses`, `${gateCounts.ready || 0} Ready / ${gateCounts.needs_review || 0} Needs review / ${gateCounts.blocked || 0} Blocked`],
+      ["Governance ledger", `${dashboard.analysis_volume ?? 0} ${dashboard.__example ? "example rows" : "analyses"}`, `${gateCounts.ready || 0} Ready / ${gateCounts.needs_review || 0} Needs review / ${gateCounts.blocked || 0} Blocked`],
       ["Sample imports", `${(dashboard.sample_imports || []).length} recent`, "Warehouse-style batch review"],
       ["Policy controls", `${policy.min_ready_score ?? 72} minimum score`, `${displayLabel(policy.content_storage_mode || "hash_only")} storage / ${policy.retention_days ?? 180} day retention`],
       ["Research targets", `${(plan.targets || []).length || manifests.length} targets`, plan.recommendation?.primary_target || "journey workflow gate"],
@@ -828,15 +1016,91 @@
             </article>
           `).join("")}
         </div>
+        ${dashboardDataNotice(dashboard)}
+        ${pitchReadinessPanel({flows, manifests, mappings, installKit, dashboard, policy})}
         ${enterpriseReadinessChecklist({flows, manifests, mappings, installKit, dashboard, policy})}
+        ${outcomeImpactPanel(dashboard)}
         ${governanceDashboardPanels(dashboard)}
         ${approvalQueuePanel(dashboard)}
-        ${exportsPanel()}
+        ${exportsPanel(dashboard)}
         ${governancePolicyControls(policy)}
         ${adapterSimulator(plan, manifests)}
         ${setupContracts(manifests, mappings)}
         ${adminSettingsPanel({policy, manifests, mappings, dashboard, installKit})}
         ${trustAndDeploymentPanel(policy)}
+      </section>
+    `;
+  }
+
+  function pitchReadinessPanel({flows = [], manifests = [], mappings = [], installKit = {}, dashboard = {}} = {}) {
+    const readyCount = [
+      Boolean(installKit.openapi_url || installKit.endpoints?.length),
+      flows.length >= 4,
+      manifests.length >= 4,
+      dashboard.analysis_volume > 0,
+      Boolean(state.labData?.integrationPlan),
+    ].filter(Boolean).length;
+    return `
+      <section class="optimizer-section pitch-readiness-panel" aria-label="Enterprise pitch readiness">
+        <div class="section-title">
+          <span class="label">Pitch readiness</span>
+          <strong>Free proof points available before paid infrastructure</strong>
+        </div>
+        <div class="pitch-readiness-summary">
+          <article>
+            ${statusBadge(`${readyCount}/5 proof points`, readyCount >= 4 ? "success" : "warning")}
+            <strong>Enterprise workflow story is demoable now</strong>
+            <p>TextTraits sits beside existing email platforms, scores the draft, returns policy findings, and writes decision fields back to the workflow.</p>
+          </article>
+          <article>
+            ${statusBadge(dashboard.__example ? "Example mode" : "Workspace data", dashboard.__example ? "warning" : "success")}
+            <strong>${dashboard.__example ? "Synthetic rows are labeled" : "Governance rows are live"}</strong>
+            <p>${dashboard.__example ? "Use the example view for pitch walkthroughs, then run real analyses during a customer pilot." : "The dashboard is populated from saved analyses, findings, outcomes, and policy history."}</p>
+          </article>
+        </div>
+        <div class="free-proof-grid">
+          ${freePitchChecks.map(([label, status, detail]) => `
+            <article>
+              ${statusBadge(status, status === "Ready" ? "success" : status === "External" ? "neutral" : "warning")}
+              <strong>${escapeHtml(label)}</strong>
+              <p>${escapeHtml(detail)}</p>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function outcomeImpactPanel(dashboard = {}) {
+    const gateCounts = dashboard.gate_counts || {};
+    const total = Number(dashboard.analysis_volume || 0);
+    const reviewOrBlocked = Number(gateCounts.needs_review || 0) + Number(gateCounts.blocked || 0);
+    const reviewRate = total ? Math.round((reviewOrBlocked / total) * 100) : 0;
+    const outcomeTotal = Object.values(dashboard.outcome_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+    const joins = (dashboard.joined_outcomes || []).length;
+    return `
+      <section class="optimizer-section outcome-impact-panel" aria-label="Operational impact summary">
+        <div class="section-title">
+          <span class="label">Operational impact</span>
+          <strong>What an enterprise pilot can measure for free</strong>
+        </div>
+        <div class="impact-grid">
+          <article>
+            <span class="interface-label">Review capture rate</span>
+            <strong>${escapeHtml(reviewRate)}%</strong>
+            <p>${escapeHtml(reviewOrBlocked)} of ${escapeHtml(total)} ${dashboard.__example ? "example" : "workspace"} messages would pause for owner review.</p>
+          </article>
+          <article>
+            <span class="interface-label">Outcome joinability</span>
+            <strong>${escapeHtml(joins)} joins</strong>
+            <p>${escapeHtml(outcomeTotal)} outcome events can connect to request IDs or content hashes.</p>
+          </article>
+          <article>
+            <span class="interface-label">Average policy score</span>
+            <strong>${escapeHtml(Math.round(Number(dashboard.average_score || 0)))}/100</strong>
+            <p>Use this as a baseline before changing campaigns, templates, or rule-family behavior.</p>
+          </article>
+        </div>
       </section>
     `;
   }
@@ -1082,13 +1346,14 @@
     `;
   }
 
-  function exportsPanel() {
+  function exportsPanel(dashboard = {}) {
     return `
       <section id="exports-section" class="optimizer-section export-center" aria-label="Governance exports">
         <div class="section-title">
           <span class="label">Exports</span>
           <strong>Download normalized governance data</strong>
         </div>
+        ${dashboard.__example ? `<p class="setup-message">Exports always download real workspace records. Example dashboard rows are never included in export files.</p>` : ""}
         ${state.exportMessage ? `<p class="setup-message">${escapeHtml(state.exportMessage)}</p>` : ""}
         <div class="setup-action-row export-action-row">
           ${["analyses", "findings", "outcomes", "joins"].map((kind) => `
@@ -1454,6 +1719,8 @@
   }
 
   function adminSettingsPanel({policy = {}, manifests = [], mappings = [], dashboard = {}, installKit = {}} = {}) {
+    const analysisCount = Number(dashboard.analysis_volume || 0);
+    const volumeLabel = dashboard.__example ? `${analysisCount} example rows` : `${analysisCount} ${analysisCount === 1 ? "analysis" : "analyses"}`;
     return `
       <section id="admin-section" class="optimizer-section admin-settings-panel" aria-label="Enterprise admin settings">
         <div class="section-title">
@@ -1465,7 +1732,7 @@
           <article class="dashboard-panel">
             <span class="interface-label">Workspace</span>
             <strong>${escapeHtml(state.workspaceId || "default")}</strong>
-            <p>${escapeHtml(displayLabel(state.policyEnvironment))} environment · ${escapeHtml(mappings.length)} saved mappings · ${escapeHtml(dashboard.analysis_volume || 0)} analyses.</p>
+            <p>${escapeHtml(displayLabel(state.policyEnvironment))} environment · ${escapeHtml(mappings.length)} saved mappings · ${escapeHtml(volumeLabel)}.</p>
           </article>
           <article class="dashboard-panel">
             <span class="interface-label">API access</span>
@@ -1679,7 +1946,39 @@
             </article>
           `).join("")}
         </div>
+        ${modelEvidencePanel()}
       </section>
+    `;
+  }
+
+  function modelEvidencePanel() {
+    const publicModel = window.TEXTTRAITS_CONFIG?.publicModel || {};
+    const targetCount = publicModel.target_count ?? "n/a";
+    return `
+      <div class="model-evidence-panel">
+        <div class="section-title">
+          <span class="label">Model card summary</span>
+          <strong>Evidence buyers can inspect before a pilot</strong>
+        </div>
+        <div class="model-evidence-grid">
+          <article>
+            ${statusBadge(publicModel.demo ? "Demo predictor" : "Model loaded", publicModel.demo ? "warning" : "success")}
+            <strong>${escapeHtml(publicModel.name || "Local inference model")}</strong>
+            <p>${escapeHtml(targetCount)} text-trait targets expose confidence, margin, alternatives, and cue terms where available.</p>
+          </article>
+          <article>
+            ${statusBadge("Objective signals", "success")}
+            <strong>No generated copy path</strong>
+            <p>Scoring combines local model outputs, explicit policy rules, content hashes, and workflow metadata instead of rewriting the message.</p>
+          </article>
+          <article>
+            ${statusBadge("Validation required", "warning")}
+            <strong>Pilot calibration is still required</strong>
+            <p>Before automatic gating, compare scores against a free customer-provided sample set and document acceptable false-review and false-pass rates.</p>
+          </article>
+        </div>
+        <a class="button-secondary model-card-link" href="/model-card">Open full model card</a>
+      </div>
     `;
   }
 
