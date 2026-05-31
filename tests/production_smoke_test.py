@@ -124,6 +124,48 @@ def main() -> int:
     oauth_start = client.post("/api/integrations/hubspot/oauth/start", headers=csrf_headers(client))
     assert_true(oauth_start.status_code == 409, "OAuth start should require configured provider credentials")
 
+    old_exchange = app_module.exchange_oauth_code
+    app_module.exchange_oauth_code = lambda entry, redirect_uri, code: {
+        "hub_id": 246356639,
+        "hub_domain": "simsayer.com",
+        "token_type": "bearer",
+        "expires_in": 1800,
+        "scope": "crm.objects.contacts.read",
+    }
+    try:
+        marketplace_callback = client.get("/api/integrations/hubspot/oauth/callback?code=sample-code&state=hubspot-install-state")
+    finally:
+        app_module.exchange_oauth_code = old_exchange
+    assert_true(marketplace_callback.status_code == 200, marketplace_callback.get_data(as_text=True))
+    assert_true("HubSpot app installed" in marketplace_callback.get_data(as_text=True), "HubSpot marketplace callback should not require TextTraits login")
+
+    crm_card = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Renewal follow-up",
+                "body": "Hi Brian, following up on the renewal timing and next steps for your team.",
+            },
+        },
+    )
+    assert_true(crm_card.status_code == 200, crm_card.get_data(as_text=True))
+    crm_payload = crm_card.get_json()
+    assert_true(crm_payload["workflow"] == "hubspot_crm_card", "HubSpot CRM card endpoint should return the card workflow")
+    assert_true("texttraits_score" in crm_payload["outputFields"], "HubSpot CRM card endpoint should return writeback fields")
+
+    workflow_action = client.post(
+        "/v1/integrations/hubspot/workflow-actions/analyze-email",
+        json={
+            "inputFields": {
+                "subject": "Renewal workflow follow-up",
+                "body": "Check this message before the automated renewal sequence continues.",
+            },
+        },
+    )
+    assert_true(workflow_action.status_code == 200, workflow_action.get_data(as_text=True))
+    assert_true(workflow_action.get_json()["workflow"] == "hubspot_workflow_action", "HubSpot workflow action endpoint should remain available")
+
     export = client.post("/api/account/export", json={"password": "texttraits-test-updated"}, headers=csrf_headers(client))
     assert_true(export.status_code == 200, "account export failed")
     assert_true(export.get_json()["workspace"]["name"] == "QA workspace", "account export missing workspace")

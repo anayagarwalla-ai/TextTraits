@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -110,6 +111,10 @@ TRUSTED_PUBLIC_HOSTS = {
 }
 UNSPECIFIED_IPV4 = ".".join(("0", "0", "0", "0"))
 LOCAL_PUBLIC_HOSTS = {"localhost", "127.0.0.1", "::1", UNSPECIFIED_IPV4}
+HUBSPOT_PUBLIC_INGRESS_PATHS = {
+    "/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "/v1/integrations/hubspot/crm-card/analyze-email",
+}
 ALLOWED_WORKSPACE_KEYS = {
     "mode",
     "latestText",
@@ -322,6 +327,55 @@ def public_url(path: str) -> str:
     return f"{PUBLIC_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
 
 
+def oauth_completion_page(title: str, message: str, status: int = 200):
+    return (
+        render_template_string(
+            """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>{{ title }}</title>
+                <link rel="stylesheet" href="/static/styles.css">
+              </head>
+              <body>
+                <main class="legal-page">
+                  <h1>{{ title }}</h1>
+                  <p>{{ message }}</p>
+                  <p>You can close this tab and return to HubSpot.</p>
+                </main>
+              </body>
+            </html>
+            """,
+            title=title,
+            message=message,
+        ),
+        status,
+    )
+
+
+def marketplace_install_user(entry, token_payload: dict, state: str) -> dict:
+    portal_id = str(token_payload.get("hub_id") or token_payload.get("hub_domain") or state or "unknown").strip()
+    safe_portal_id = "".join(ch for ch in portal_id if ch.isalnum() or ch in {"-", "_"})[:80] or "unknown"
+    user = upsert_oauth_user(
+        f"hubspot-install-{safe_portal_id}@integrations.texttraits.local",
+        f"HubSpot install {safe_portal_id}",
+        provider=entry.name,
+    )
+    config = {
+        "connected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "marketplace_install": True,
+        "hubspot_portal_id": token_payload.get("hub_id"),
+        "hubspot_domain": token_payload.get("hub_domain"),
+        "token_type": token_payload.get("token_type"),
+        "expires_in": token_payload.get("expires_in"),
+        "scope": token_payload.get("scope"),
+        "tokens_stored": bool(os.getenv("TEXTTRAITS_STORE_OAUTH_TOKENS", "").strip().lower() in {"1", "true", "yes", "on"}),
+    }
+    return upsert_integration(user["id"], entry.name, "connected", config)
+
+
 def send_verification_email(user: dict, token: str | None) -> dict:
     if not token:
         return {"sent": False, "provider": "already_verified"}
@@ -395,10 +449,16 @@ def request_origin_allowed() -> bool:
     return supplied.scheme == public_origin.scheme and supplied.netloc in allowed_netlocs
 
 
+def hubspot_public_ingress_path() -> bool:
+    return request.method in {"POST", "OPTIONS"} and request.path in HUBSPOT_PUBLIC_INGRESS_PATHS
+
+
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if hubspot_public_ingress_path():
         return None
     if not request_origin_allowed():
         return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
@@ -467,6 +527,30 @@ def verify_google_identity_token(credential: str) -> dict[str, str]:
 def public_prediction_payload(predictions: dict) -> dict:
     """Remove raw model internals from the default public API response."""
     return scrub_public_value(predictions)
+
+
+def prediction_confidences(value) -> list[float]:
+    if isinstance(value, dict):
+        values = []
+        if isinstance(value.get("confidence"), (int, float)):
+            values.append(float(value["confidence"]))
+        for child in value.values():
+            values.extend(prediction_confidences(child))
+        return values
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            values.extend(prediction_confidences(item))
+        return values
+    return []
+
+
+def hubspot_gate_from_score(score: int) -> tuple[str, str]:
+    if score >= 70:
+        return "ready", "sending_system"
+    if score >= 55:
+        return "needs_review", "marketing_review"
+    return "blocked", "compliance_review"
 
 
 def scrub_public_value(value):
@@ -554,6 +638,74 @@ def evaluate():
         )
     except RuntimeError as error:
         return jsonify({"error": str(error)}), 503
+
+
+def hubspot_analysis_response(payload: dict, workflow: str):
+    input_fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
+    subject = str(input_fields.get("subject", "")).strip()
+    body = str(input_fields.get("body") or input_fields.get("text") or "").strip()
+    text = f"{subject}\n\n{body}".strip()
+    if not text:
+        return jsonify({"error": "Enter an email subject or body to analyze."}), 400
+    if len(text.split()) > MAX_TEXT_WORDS:
+        return jsonify({"error": f"Please keep samples under {MAX_TEXT_WORDS} words for this workspace."}), 413
+    try:
+        predictions = predictor.predict(text)
+    except RuntimeError as error:
+        return jsonify({"error": str(error)}), 503
+
+    confidences = prediction_confidences(predictions)
+    average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+    score = int(round(max(0.0, min(1.0, average_confidence)) * 100))
+    gate, route = hubspot_gate_from_score(score)
+    request_id = f"{workflow}-{secrets.token_urlsafe(12)}"
+    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    log_event(
+        current_user_id(),
+        workflow,
+        {
+            "words": len(text.split()),
+            "score": score,
+            "gate": gate,
+            "workspace_id": str(payload.get("workspace_id", ""))[:120],
+        },
+    )
+    return jsonify(
+        {
+            "workflow": workflow,
+            "outputFields": {
+                "texttraits_request_id": request_id,
+                "texttraits_content_hash": content_hash,
+                "texttraits_score": score,
+                "texttraits_gate": gate,
+                "texttraits_route": route,
+                "texttraits_send_ready": gate == "ready",
+            },
+            "analysis": {
+                "request_id": request_id,
+                "content_hash": content_hash,
+                "score": score,
+                "gate": gate,
+                "route": route,
+                "word_count": len(text.split()),
+                "average_model_confidence": round(average_confidence, 4),
+                "demo": bool(getattr(predictor, "is_demo", False)),
+                "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
+            },
+        }
+    )
+
+
+@app.post("/v1/integrations/hubspot/crm-card/analyze-email")
+@rate_limited(60)
+def hubspot_crm_card_analyze_email():
+    return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_crm_card")
+
+
+@app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
+@rate_limited(60)
+def hubspot_workflow_action_analyze_email():
+    return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_workflow_action")
 
 
 @app.get("/api/session")
@@ -876,20 +1028,41 @@ def api_integration_oauth_start(provider: str):
 @app.get("/api/integrations/<provider>/oauth/callback")
 @rate_limited(20)
 def api_integration_oauth_callback(provider: str):
-    user_id, error = require_user()
-    if error:
-        return error
     entry = get_provider(provider)
     if not entry:
         return jsonify({"error": "Unsupported integration provider."}), 404
     code = request.args.get("code", "")
     state = request.args.get("state", "")
-    if not code or not state:
-        return jsonify({"error": "OAuth callback is missing code or state."}), 400
+    if not code:
+        return jsonify({"error": "OAuth callback is missing code."}), 400
     try:
-        decoded = decoded_state(state)
+        decoded = decoded_state(state) if state else None
     except Exception:
+        decoded = None
+
+    if decoded is None and provider_slug(entry.name) == "hubspot":
+        redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
+        try:
+            token_payload = exchange_oauth_code(entry, redirect_uri, code)
+            marketplace_install_user(entry, token_payload, state)
+        except Exception:
+            logging.exception("hubspot_marketplace_oauth_exchange_failed")
+            return oauth_completion_page(
+                "HubSpot install reached TextTraits",
+                "TextTraits received the HubSpot install callback, but the token exchange failed. Check the deployed HubSpot client ID, client secret, and redirect URL before trying again.",
+                502,
+            )
+        return oauth_completion_page(
+            "HubSpot app installed",
+            "The HubSpot account was connected to TextTraits. Return to HubSpot and add the TextTraits email fit card from record customization.",
+        )
+
+    if decoded is None:
         return jsonify({"error": "OAuth state is invalid."}), 400
+
+    user_id, error = require_user()
+    if error:
+        return error
     expected_nonce = session.get(f"oauth_nonce_{provider_slug(entry.name)}")
     if decoded.get("user_id") != user_id or decoded.get("provider") != entry.name or decoded.get("nonce") != expected_nonce:
         return jsonify({"error": "OAuth state did not match this session."}), 400
