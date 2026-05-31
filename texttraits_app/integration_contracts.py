@@ -50,6 +50,12 @@ MANIFESTS: dict[str, dict[str, Any]] = {
         "entrypoint": "/v1/integrations/hubspot/workflow-actions/analyze-email",
         "install_surface": "HubSpot workflow custom action",
         "auth": "OAuth app or private app proxy",
+        "platform_surfaces": {
+            "developer_project": "hubspot-platform/",
+            "crm_app_card": "/v1/integrations/hubspot/crm-card",
+            "crm_card_analyze": "/v1/integrations/hubspot/crm-card/analyze-email",
+            "platform_config": "/v1/integrations/hubspot/platform-config",
+        },
         "required_inputs": {
             "subject": {"type": "string", "hubspot_property": "email_subject", "description": "Subject or workflow email title."},
             "body": {"type": "string", "hubspot_property": "email_body", "description": "Existing email body to score."},

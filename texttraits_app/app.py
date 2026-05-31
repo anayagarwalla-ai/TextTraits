@@ -52,6 +52,12 @@ from integration_contracts import (
     provider_manifest,
     validate_field_mapping,
 )
+from hubspot_platform import (
+    build_hubspot_crm_card,
+    build_hubspot_platform_config,
+    env_flag as hubspot_env_flag,
+    flask_hubspot_signature_status,
+)
 from openapi_contract import build_install_kit, build_openapi_spec
 from observability import configure_logging, init_error_reporting
 from predictor import DEFAULT_MODEL_PATH, TextTraitsPredictor
@@ -539,6 +545,14 @@ def browser_session_request_allowed() -> bool:
     return True
 
 
+def hubspot_platform_request_allowed() -> bool:
+    if not request.path.startswith("/v1/integrations/hubspot/"):
+        return False
+    status = flask_hubspot_signature_status(request)
+    g.hubspot_signature = status
+    return bool(status.get("valid"))
+
+
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
@@ -556,6 +570,8 @@ def protect_unsafe_requests():
         if api_key_request_allowed():
             return None
         return jsonify({"error": "API key is invalid or not scoped for this endpoint."}), 401
+    if request.path.startswith("/v1/integrations/hubspot/") and hubspot_platform_request_allowed():
+        return None
     if not request_origin_allowed():
         return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
     expected = session.get("csrf_token")
@@ -809,6 +825,88 @@ def v1_install_kit():
     return jsonify(build_install_kit(PUBLIC_BASE_URL))
 
 
+def hubspot_signature_status() -> dict[str, Any]:
+    status = getattr(g, "hubspot_signature", None)
+    if isinstance(status, dict):
+        return status
+    status = flask_hubspot_signature_status(request)
+    g.hubspot_signature = status
+    return status
+
+
+def hubspot_signature_required_response() -> tuple | None:
+    status = hubspot_signature_status()
+    if hubspot_env_flag("HUBSPOT_REQUIRE_SIGNATURE", PRODUCTION) and not status.get("valid"):
+        return jsonify({"error": "HubSpot request signature verification failed.", "signature": status}), 401
+    return None
+
+
+@app.get("/v1/integrations/hubspot/platform-config")
+def v1_hubspot_platform_config():
+    return jsonify({"api_version": "v1", "hubspot": build_hubspot_platform_config(PUBLIC_BASE_URL)})
+
+
+@app.get("/v1/integrations/hubspot/crm-card")
+def v1_hubspot_crm_card():
+    blocked = hubspot_signature_required_response()
+    if blocked:
+        return blocked
+    workspace_id = integration_workspace_id()
+    return jsonify(
+        {
+            "api_version": "v1",
+            "card": build_hubspot_crm_card(request.args, PUBLIC_BASE_URL, workspace_id, hubspot_signature_status()),
+        }
+    )
+
+
+@app.post("/v1/integrations/hubspot/crm-card/analyze-email")
+@rate_limited()
+def v1_hubspot_crm_card_analyze_email():
+    blocked = hubspot_signature_required_response()
+    if blocked:
+        return blocked
+    payload = request.get_json(silent=True) or {}
+    fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
+    workspace_id = integration_workspace_id(payload)
+    analysis_payload = {
+        "workspace_id": workspace_id,
+        "subject": fields.get("subject") or fields.get("email_subject") or fields.get("hs_email_subject"),
+        "body": fields.get("body") or fields.get("email_body") or fields.get("message") or fields.get("hs_email_text"),
+        "audience": fields.get("audience") or fields.get("lifecyclestage") or fields.get("persona") or "HubSpot CRM record",
+        "intent": fields.get("intent") or fields.get("workflow_name") or fields.get("pipeline") or "CRM outreach review",
+        "channel": "hubspot_crm_card",
+        "source": "hubspot_crm_card",
+        "source_system": "hubspot",
+    }
+    try:
+        analysis = analyze_email_payload(analysis_payload, payload.get("requestId") or payload.get("request_id"))
+    except Exception as error:
+        return analysis_error_response(error)
+    gate = analysis["policy"]["gate"]
+    return jsonify(
+        {
+            "card": "hubspot_crm_card",
+            "workspace_id": workspace_id,
+            "signature": hubspot_signature_status(),
+            "outputFields": {
+                "texttraits_request_id": analysis["request_id"],
+                "texttraits_content_hash": analysis["content_hash"],
+                "texttraits_score": analysis["scores"]["overall"],
+                "texttraits_gate": gate["status"],
+                "texttraits_route": gate["route"],
+                "texttraits_send_ready": gate["send_ready"],
+            },
+            "analysis": compact_analysis(analysis),
+            "hubspot_next_steps": [
+                "Write request_id and content_hash back to the CRM object or workflow enrollment record.",
+                "Branch ready messages toward send or scheduling.",
+                "Route needs_review and blocked messages to a human review queue before sending.",
+            ],
+        }
+    )
+
+
 @app.get("/v1/integrations/sandbox-flows")
 def v1_sandbox_integration_flows():
     return jsonify({"api_version": "v1", "flows": integration_flow_catalog()})
@@ -990,6 +1088,9 @@ def v1_integration_field_mapping_save(provider: str):
 @app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
 @rate_limited()
 def v1_hubspot_workflow_action():
+    blocked = hubspot_signature_required_response()
+    if blocked:
+        return blocked
     payload = request.get_json(silent=True) or {}
     workspace_id = integration_workspace_id(payload)
     mapping_record = get_integration_field_mapping(workspace_id, "hubspot")
@@ -1020,6 +1121,7 @@ def v1_hubspot_workflow_action():
         {
             "workflow": "hubspot_workflow_action",
             "workspace_id": workspace_id,
+            "signature": hubspot_signature_status(),
             "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
             "outputFields": mapped_outputs(analysis, mapping_record, default_outputs),
             "analysis": compact_analysis(analysis),

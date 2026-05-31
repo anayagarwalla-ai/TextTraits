@@ -1,0 +1,10 @@
+{
+  "workspace_id": "demo_hubspot",
+  "requestId": "hubspot-crm-card-demo-001",
+  "inputFields": {
+    "subject": "Renewal workflow follow-up",
+    "body": "Hi Maya, thanks for walking through the renewal workflow on Tuesday. The strongest gap I heard was that managers see risk after the forecast is already under pressure. Would Thursday afternoon work for a quick fit check?",
+    "audience": "Lifecycle stage: opportunity",
+    "intent": "CRM follow-up"
+  }
+}

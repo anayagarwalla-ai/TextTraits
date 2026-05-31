@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "texttraits_app"
 sys.path.insert(0, str(APP_DIR))
 
-tmpdir = tempfile.TemporaryDirectory()
-os.environ["TEXTTRAITS_DB_PATH"] = str(Path(tmpdir.name) / "workspace.sqlite3")
+tmpdir = Path(tempfile.mkdtemp(prefix="texttraits_security_regression_"))
+os.environ["TEXTTRAITS_DB_PATH"] = str(tmpdir / "workspace.sqlite3")
 os.environ["DATABASE_URL"] = ""
 os.environ["TEXTTRAITS_DATABASE_URL"] = ""
 os.environ["TEXTTRAITS_EMAIL_PROVIDER"] = ""

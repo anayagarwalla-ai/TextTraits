@@ -1,0 +1,133 @@
+{
+  "uid": "texttraits_score_email_workflow_action",
+  "type": "workflow-action",
+  "config": {
+    "actionUrl": "__TEXTTRAITS_PUBLIC_BASE_URL__/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "supportedClients": [
+      {
+        "client": "WORKFLOWS"
+      }
+    ],
+    "labels": {
+      "en": {
+        "actionName": "Score email with TextTraits",
+        "actionDescription": "Send an existing HubSpot workflow email subject and body to TextTraits and return score, gate, route, request ID, and content hash fields.",
+        "appDisplayName": "TextTraits",
+        "actionCardContent": "TextTraits scores the draft and returns workflow branch fields.",
+        "inputFieldLabels": {
+          "email_subject": "Email subject",
+          "email_body": "Email body",
+          "lifecyclestage": "Lifecycle stage",
+          "workflow_name": "Workflow name"
+        },
+        "inputFieldDescriptions": {
+          "email_subject": "Subject or workflow email title to score.",
+          "email_body": "Existing email body to score. TextTraits does not generate or send replacement copy.",
+          "lifecyclestage": "Optional recipient stage or segment context.",
+          "workflow_name": "Optional workflow or campaign name."
+        },
+        "outputFieldLabels": {
+          "texttraits_score": "TextTraits score",
+          "texttraits_gate": "TextTraits gate",
+          "texttraits_route": "TextTraits route",
+          "texttraits_request_id": "TextTraits request ID",
+          "texttraits_content_hash": "TextTraits content hash",
+          "texttraits_send_ready": "TextTraits send ready"
+        }
+      }
+    },
+    "inputFields": [
+      {
+        "typeDefinition": {
+          "name": "email_subject",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": [
+          "STATIC_VALUE"
+        ],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "email_body",
+          "type": "string",
+          "fieldType": "textarea"
+        },
+        "supportedValueTypes": [
+          "STATIC_VALUE"
+        ],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "lifecyclestage",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": [
+          "STATIC_VALUE"
+        ],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "workflow_name",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": [
+          "STATIC_VALUE"
+        ],
+        "isRequired": false
+      }
+    ],
+    "outputFields": [
+      {
+        "typeDefinition": {
+          "name": "texttraits_score",
+          "type": "number",
+          "fieldType": "number"
+        }
+      },
+      {
+        "typeDefinition": {
+          "name": "texttraits_gate",
+          "type": "string",
+          "fieldType": "text"
+        }
+      },
+      {
+        "typeDefinition": {
+          "name": "texttraits_route",
+          "type": "string",
+          "fieldType": "text"
+        }
+      },
+      {
+        "typeDefinition": {
+          "name": "texttraits_request_id",
+          "type": "string",
+          "fieldType": "text"
+        }
+      },
+      {
+        "typeDefinition": {
+          "name": "texttraits_content_hash",
+          "type": "string",
+          "fieldType": "text"
+        }
+      },
+      {
+        "typeDefinition": {
+          "name": "texttraits_send_ready",
+          "type": "bool",
+          "fieldType": "booleancheckbox"
+        }
+      }
+    ],
+    "objectTypes": [
+      "CONTACT"
+    ]
+  }
+}

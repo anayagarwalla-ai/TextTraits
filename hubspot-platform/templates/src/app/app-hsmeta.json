@@ -1,0 +1,36 @@
+{
+  "uid": "texttraits_email_fit_app",
+  "type": "app",
+  "config": {
+    "name": "TextTraits Email Fit",
+    "description": "Score existing HubSpot outreach and marketing emails before workflow or send routing. TextTraits returns decision-support signals and governance fields; it does not generate or send email.",
+    "distribution": "marketplace",
+    "auth": {
+      "type": "oauth",
+      "redirectUrls": [
+        "__TEXTTRAITS_PUBLIC_BASE_URL__/api/integrations/hubspot/oauth/callback"
+      ],
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.companies.read",
+        "crm.objects.deals.read"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [
+        "__TEXTTRAITS_PUBLIC_BASE_URL__"
+      ],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "__TEXTTRAITS_SUPPORT_EMAIL__",
+      "documentationUrl": "__TEXTTRAITS_DOCUMENTATION_URL__",
+      "supportUrl": "__TEXTTRAITS_SUPPORT_URL__",
+      "supportPhone": "+18005550100"
+    }
+  }
+}

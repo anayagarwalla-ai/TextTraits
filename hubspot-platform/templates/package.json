@@ -1,0 +1,17 @@
+{
+  "name": "texttraits-hubspot-platform",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "hs project dev",
+    "upload": "hs project upload",
+    "validate": "hs project validate"
+  },
+  "dependencies": {
+    "@hubspot/ui-extensions": "latest",
+    "react": "latest"
+  },
+  "devDependencies": {
+    "@hubspot/cli": "latest"
+  }
+}

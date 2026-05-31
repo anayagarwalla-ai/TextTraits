@@ -16,7 +16,9 @@ These outputs are model- and rule-derived signals from text patterns and workflo
 - `training/` - Colab/high-RAM training and export scripts.
 - `scripts/` - setup and verification helpers for model files.
 - `tests/` - lightweight smoke tests.
+- `hubspot-platform/` - HubSpot developer-platform templates for the Enterprise-Only integration path.
 - `docs/enterprise-pitch-readiness.md` - free pitch script, demo boundaries, and pilot-readiness notes.
+- `docs/hubspot-platform-integration.md` - HubSpot setup, callbacks, request-signature handling, and CLI flow.
 - `docs/enterprise-one-pager.md` - concise enterprise positioning and pilot ask.
 - `accessible-text-inference-app/` - clean portable export guide and standalone model-placement structure.
 
@@ -55,8 +57,20 @@ Copy `.env.example` if your deployment system loads environment files.
 - `TEXTTRAITS_API_KEY_SHA256` or `TEXTTRAITS_API_KEY_HASHES` - preferred production server-to-server API key configuration.
 - `TEXTTRAITS_WEBHOOK_SECRET` - signs post-send outcome webhooks; pair it with `TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP=true`.
 - `TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH` - keep `true` in production so governance reads require login or a scoped API key.
+- `HUBSPOT_CLIENT_ID` and `HUBSPOT_CLIENT_SECRET` - HubSpot developer app OAuth credentials; use `python scripts/setup_hubspot_env.py`.
+- `HUBSPOT_REQUIRE_SIGNATURE` - set `true` before accepting live HubSpot platform callbacks.
 
 Public deployments should keep `ENABLE_DEV_TOOLS=false` and run `python3 scripts/preflight.py`.
+
+## HubSpot Integration
+
+The Enterprise-Only branch now includes a HubSpot platform scaffold. Render it after you have a public TextTraits HTTPS URL:
+
+```bash
+python scripts/render_hubspot_project.py --base-url https://your-public-texttraits-domain.example --support-email support@example.com
+```
+
+See `docs/hubspot-platform-integration.md` for the developer-account flow and the backend endpoints.
 
 ## Enterprise Demo
 

@@ -8,6 +8,7 @@ This branch is positioned as a non-generative email optimization layer for compa
 - Governance: inspect campaign, template, source-system, finding, policy, and outcome panels.
 - Simulator: paste provider-shaped payloads for HubSpot, Salesforce, Braze, Marketo, Iterable, SendGrid/SES, or warehouse feedback.
 - Integrations: save recommended field mappings and export the OpenAPI contract.
+- HubSpot scaffold: render a developer-platform project template for a CRM app card and custom workflow action once a public TextTraits HTTPS URL and HubSpot developer credentials exist.
 - Admin: show role scaffolding, scoped API-key planning, webhook signing tests, policy history, and audit events.
 - Trust: show Privacy, Terms, Security, Deployment, Model Card, and Pilot Plan pages.
 - Demo data: empty dashboards show clearly labeled synthetic examples only; real workspace rows replace them after analyses/imports/webhooks run.
@@ -46,5 +47,6 @@ These rows are sample data only. Do not present them as customer data.
 ## Do not claim yet
 
 - Live HubSpot, Salesforce, Braze, Marketo, Iterable, SendGrid, SES, or warehouse connections without credentials.
+- A verified HubSpot install until the rendered project has been uploaded through an authenticated HubSpot developer account.
 - SSO/SAML, enterprise legal approval, production hosting, SOC 2, DPA, SLA, paid monitoring, or customer-specific compliance signoff.
 - Automatic production send gates until the customer has validated policy thresholds and model behavior on approved samples.

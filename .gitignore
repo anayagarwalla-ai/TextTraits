@@ -36,3 +36,6 @@ texttraits_app/models/*
 accessible-text-inference-app/models/*
 !accessible-text-inference-app/models/.gitkeep
 !accessible-text-inference-app/models/README.md
+
+# Rendered HubSpot developer-project files can contain local domain/account details.
+hubspot-platform/rendered/

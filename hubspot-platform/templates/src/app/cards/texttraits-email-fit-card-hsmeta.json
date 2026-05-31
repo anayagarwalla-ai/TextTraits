@@ -1,0 +1,15 @@
+{
+  "uid": "texttraits_email_fit_card",
+  "type": "card",
+  "config": {
+    "name": "TextTraits email fit",
+    "description": "Score an existing outreach or marketing email draft and return decision-support fields for review and routing.",
+    "location": "crm.record.sidebar",
+    "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+    "objectTypes": [
+      "CONTACT",
+      "COMPANY",
+      "DEALS"
+    ]
+  }
+}

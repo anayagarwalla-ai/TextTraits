@@ -110,6 +110,33 @@ def build_openapi_spec(base_url: str) -> dict[str, Any]:
                     "responses": {"200": json_response("SandboxFlowsResponse")},
                 }
             },
+            "/v1/integrations/hubspot/platform-config": {
+                "get": {
+                    "tags": ["Integration setup"],
+                    "operationId": "getHubSpotPlatformConfig",
+                    "summary": "Return HubSpot developer-platform endpoints, env requirements, and local scaffold guidance.",
+                    "security": [],
+                    "responses": {"200": json_response("HubSpotPlatformConfigResponse")},
+                }
+            },
+            "/v1/integrations/hubspot/crm-card": {
+                "get": {
+                    "tags": ["Integration setup"],
+                    "operationId": "getHubSpotCrmCard",
+                    "summary": "Return a safe HubSpot CRM app-card context for invoking TextTraits from a CRM record.",
+                    "security": [],
+                    "responses": {"200": json_response("HubSpotCrmCardResponse"), "401": error_response("HubSpot signature verification failed")},
+                }
+            },
+            "/v1/integrations/hubspot/crm-card/analyze-email": {
+                "post": {
+                    "tags": ["Sandbox adapters"],
+                    "operationId": "hubspotCrmCardAnalyzeEmail",
+                    "summary": "Analyze an existing email draft invoked from a HubSpot CRM app card.",
+                    "requestBody": json_request("HubSpotCrmCardAnalyzeRequest"),
+                    "responses": {"200": json_response("HubSpotCrmCardAnalyzeResponse"), "401": error_response("HubSpot signature verification failed")},
+                }
+            },
             "/v1/integrations/hubspot/workflow-actions/analyze-email": {
                 "post": {
                     "tags": ["Sandbox adapters"],
@@ -449,6 +476,10 @@ def schemas() -> dict[str, Any]:
             },
         },
         "SandboxFlowsResponse": {"type": "object"},
+        "HubSpotPlatformConfigResponse": {"type": "object"},
+        "HubSpotCrmCardResponse": {"type": "object"},
+        "HubSpotCrmCardAnalyzeRequest": {"type": "object"},
+        "HubSpotCrmCardAnalyzeResponse": {"type": "object"},
         "HubSpotWorkflowRequest": {"type": "object"},
         "HubSpotWorkflowResponse": {"type": "object"},
         "SalesforceJourneyRequest": {"type": "object"},
@@ -496,6 +527,9 @@ def build_install_kit(base_url: str) -> dict[str, Any]:
         "/v1/integrations/{provider}/field-mapping/validate",
         "/v1/integrations/{provider}/field-mapping",
         "/v1/integrations/sandbox-flows",
+        "/v1/integrations/hubspot/platform-config",
+        "/v1/integrations/hubspot/crm-card",
+        "/v1/integrations/hubspot/crm-card/analyze-email",
         "/v1/integrations/hubspot/workflow-actions/analyze-email",
         "/v1/integrations/salesforce/journey-builder/activity",
         "/v1/integrations/sendgrid-ses/middleware",
@@ -532,6 +566,7 @@ def build_install_kit(base_url: str) -> dict[str, Any]:
         "provider_manifests": all_manifests(),
         "sample_payloads": [
             "samples/v1-email-analyze-request.json",
+            "samples/hubspot-crm-card-analyze-request.json",
             "samples/hubspot-workflow-action-request.json",
             "samples/hubspot-field-mapping-request.json",
             "samples/post-send-webhook-event.json",
