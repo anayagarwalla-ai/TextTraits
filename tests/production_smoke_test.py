@@ -153,6 +153,32 @@ def main() -> int:
     crm_payload = crm_card.get_json()
     assert_true(crm_payload["workflow"] == "hubspot_crm_card", "HubSpot CRM card endpoint should return the card workflow")
     assert_true("texttraits_score" in crm_payload["outputFields"], "HubSpot CRM card endpoint should return writeback fields")
+    assert_true("email_quality" in crm_payload["analysis"], "HubSpot CRM card endpoint should return email-quality checks")
+    assert_true(crm_payload["analysis"]["email_quality"]["score_source"].startswith("Weighted email-quality checks"), "score source should be explicit")
+    assert_true(crm_payload["outputFields"]["texttraits_score"] == crm_payload["analysis"]["email_quality"]["score"], "writeback score should use email-quality score")
+    assert_true("decision" in crm_payload["analysis"], "HubSpot CRM card endpoint should return decision metadata")
+
+    clear_email = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Factory tour checklist",
+                "body": (
+                    "Hi Brian, I wanted to confirm whether Wednesday still works for the factory tour. "
+                    "If it does, reply by Friday and I will send the short checklist your team can review before the visit."
+                ),
+            },
+        },
+    ).get_json()
+    assert_true(clear_email["outputFields"]["texttraits_gate"] == "ready", "clear email should be ready to route")
+
+    unclear_email = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={"inputFields": {"subject": "Checking", "body": "Thoughts?"}},
+    ).get_json()
+    assert_true(unclear_email["outputFields"]["texttraits_gate"] == "blocked", "unclear email should be blocked by quality checks")
+    assert_true(unclear_email["analysis"]["email_quality"]["findings"], "unclear email should include actionable findings")
 
     workflow_action = client.post(
         "/v1/integrations/hubspot/workflow-actions/analyze-email",

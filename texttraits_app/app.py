@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import urllib.request
@@ -150,6 +151,53 @@ COMMON_PASSWORDS = {
     "qwerty123",
     "letmein123",
 }
+WORD_RE = re.compile(r"\b[\w'-]+\b")
+SENTENCE_RE = re.compile(r"[.!?]+")
+EMAIL_PLACEHOLDER_RE = re.compile(r"({{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])")
+EMAIL_GREETING_RE = re.compile(r"\b(?:hi|hello|dear)\s+([A-Z][a-z]{1,30}|{{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])")
+EMAIL_DATE_RE = re.compile(
+    r"\b(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|this week|"
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|"
+    r"sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
+    re.IGNORECASE,
+)
+EMAIL_TIME_RE = re.compile(r"\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)\b", re.IGNORECASE)
+EMAIL_NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?%?\b")
+EMAIL_PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{2,}\b")
+EMAIL_CTA_PATTERNS = {
+    "reply": re.compile(r"\b(reply|respond|let me know|tell me)\b", re.IGNORECASE),
+    "confirm": re.compile(r"\b(confirm|approve|review|check|verify)\b", re.IGNORECASE),
+    "schedule": re.compile(r"\b(schedule|book|meet|call|demo|visit)\b", re.IGNORECASE),
+    "send": re.compile(r"\b(send|share|forward|attach|provide)\b", re.IGNORECASE),
+    "choose": re.compile(r"\b(choose|select|pick|decide)\b", re.IGNORECASE),
+}
+EMAIL_VAGUE_PHRASES = (
+    "just checking",
+    "touch base",
+    "circle back",
+    "things",
+    "stuff",
+    "some time",
+    "soon",
+    "maybe",
+    "kind of",
+    "sort of",
+    "asap",
+    "when you get a chance",
+)
+EMAIL_RISK_PHRASES = (
+    "guaranteed",
+    "guarantee",
+    "risk-free",
+    "no risk",
+    "act now",
+    "urgent",
+    "final notice",
+    "limited time",
+    "100%",
+    "no strings attached",
+    "free money",
+)
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
@@ -545,12 +593,387 @@ def prediction_confidences(value) -> list[float]:
     return []
 
 
-def hubspot_gate_from_score(score: int) -> tuple[str, str]:
-    if score >= 70:
-        return "ready", "sending_system"
-    if score >= 55:
-        return "needs_review", "marketing_review"
-    return "blocked", "compliance_review"
+def email_word_count(text: str) -> int:
+    return len(WORD_RE.findall(text or ""))
+
+
+def email_sentence_count(text: str) -> int:
+    fragments = [fragment.strip() for fragment in SENTENCE_RE.split(text or "") if fragment.strip()]
+    return max(1, len(fragments)) if text.strip() else 0
+
+
+def email_phrase_hits(text: str, phrases: tuple[str, ...]) -> list[str]:
+    lowered = f" {text.lower()} "
+    return [phrase for phrase in phrases if phrase in lowered]
+
+
+def email_cta_hits(text: str) -> list[str]:
+    return [label for label, pattern in EMAIL_CTA_PATTERNS.items() if pattern.search(text or "")]
+
+
+def email_specific_anchors(text: str) -> list[str]:
+    anchors: list[str] = []
+    anchors.extend(match.group(0) for match in EMAIL_DATE_RE.finditer(text or ""))
+    anchors.extend(match.group(0) for match in EMAIL_TIME_RE.finditer(text or ""))
+    anchors.extend(match.group(0) for match in EMAIL_NUMBER_RE.finditer(text or ""))
+    for match in EMAIL_PROPER_NOUN_RE.finditer(text or ""):
+        token = match.group(0)
+        if token.lower() not in {"hi", "hello", "dear", "thanks", "thank", "best"}:
+            anchors.append(token)
+    deduped: list[str] = []
+    for anchor in anchors:
+        clean = anchor.strip()
+        if clean and clean.lower() not in {item.lower() for item in deduped}:
+            deduped.append(clean)
+    return deduped[:12]
+
+
+def email_personalization_hits(subject: str, body: str) -> list[str]:
+    text = f"{subject}\n{body}"
+    hits: list[str] = []
+    if EMAIL_GREETING_RE.search(body or ""):
+        hits.append("named greeting")
+    if EMAIL_PLACEHOLDER_RE.search(text):
+        hits.append("personalization token")
+    if re.search(r"\b(your|you|your team|for your)\b", text, re.IGNORECASE):
+        hits.append("recipient-focused wording")
+    return hits
+
+
+def email_finding(
+    finding_id: str,
+    severity: str,
+    title: str,
+    detail: str,
+    evidence: list[str],
+    next_step: str,
+    owner_queue: str,
+    blocker_level: str,
+    action: str,
+) -> dict[str, Any]:
+    return {
+        "id": finding_id,
+        "severity": severity,
+        "title": title,
+        "detail": detail,
+        "evidence": evidence,
+        "next_step": next_step,
+        "owner_queue": owner_queue,
+        "blocker_level": blocker_level,
+        "action": action,
+    }
+
+
+def email_check(
+    check_id: str,
+    label: str,
+    weight: int,
+    score: int,
+    evidence: list[str],
+    finding: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    bounded_score = max(0, min(weight, int(round(score))))
+    if finding and finding["severity"] == "high":
+        status = "blocked"
+    elif bounded_score >= weight * 0.8 and finding is None:
+        status = "pass"
+    elif bounded_score >= weight * 0.5:
+        status = "needs_review"
+    else:
+        status = "blocked" if weight >= 15 else "needs_review"
+    return {
+        "id": check_id,
+        "label": label,
+        "weight": weight,
+        "score": bounded_score,
+        "status": status,
+        "evidence": evidence,
+        "finding_id": finding["id"] if finding else None,
+    }
+
+
+def email_subject_check(subject: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    subject_words = email_word_count(subject)
+    subject_chars = len(subject.strip())
+    if not subject.strip():
+        finding = email_finding(
+            "subject_missing",
+            "high",
+            "Subject is missing",
+            "The draft cannot be routed safely without a subject line.",
+            ["No subject text was provided."],
+            "Add a short subject that matches the body.",
+            "Marketing review",
+            "High",
+            "Write a concrete subject before running the draft again.",
+        )
+        return email_check("subject_clarity", "Subject clarity", 15, 0, ["Missing subject."], finding), finding
+    if subject_words < 2 or subject_chars < 8:
+        finding = email_finding(
+            "subject_thin",
+            "medium",
+            "Subject is too thin",
+            "The subject gives reviewers little information about why the email is being sent.",
+            [f"{subject_words} subject word{'s' if subject_words != 1 else ''}."],
+            "Make the subject name the topic or requested decision.",
+            "Marketing review",
+            "Medium",
+            "Expand the subject with the concrete topic of the message.",
+        )
+        return email_check("subject_clarity", "Subject clarity", 15, 8, [f"{subject_words} words, {subject_chars} characters."], finding), finding
+    if subject_words > 14 or subject_chars > 90:
+        finding = email_finding(
+            "subject_long",
+            "medium",
+            "Subject may be too long",
+            "Long subjects can be harder to scan in CRM and inbox workflows.",
+            [f"{subject_words} words, {subject_chars} characters."],
+            "Shorten the subject to the main topic and action.",
+            "Marketing review",
+            "Medium",
+            "Trim the subject before routing this draft.",
+        )
+        return email_check("subject_clarity", "Subject clarity", 15, 10, [f"{subject_words} words, {subject_chars} characters."], finding), finding
+    return email_check("subject_clarity", "Subject clarity", 15, 15, [f"{subject_words} words, {subject_chars} characters."]), None
+
+
+def email_body_check(body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    words = email_word_count(body)
+    if not body.strip():
+        finding = email_finding(
+            "body_missing",
+            "high",
+            "Body is missing",
+            "The draft cannot be evaluated as an email without body text.",
+            ["No body text was provided."],
+            "Paste the existing email body before routing.",
+            "Marketing review",
+            "High",
+            "Add body copy, then run TextTraits again.",
+        )
+        return email_check("body_completeness", "Body completeness", 15, 0, ["Missing body."], finding), finding
+    if words < 25:
+        severity = "high" if words < 8 else "medium"
+        finding = email_finding(
+            "body_too_short",
+            severity,
+            "Body is too short for a reliable routing decision",
+            "Very short drafts often omit context, reason, or next step.",
+            [f"{words} body words."],
+            "Add context and one clear next step.",
+            "Marketing review",
+            "High" if severity == "high" else "Medium",
+            "Add the reason for the email and the action you want the recipient to take.",
+        )
+        return email_check("body_completeness", "Body completeness", 15, 5 if severity == "high" else 9, [f"{words} body words."], finding), finding
+    if words > 220:
+        finding = email_finding(
+            "body_too_long",
+            "medium",
+            "Body may be too long for CRM outreach",
+            "Long drafts can bury the decision or requested action.",
+            [f"{words} body words."],
+            "Shorten the draft around the reason, context, and next step.",
+            "Marketing review",
+            "Medium",
+            "Cut nonessential detail before routing.",
+        )
+        return email_check("body_completeness", "Body completeness", 15, 10, [f"{words} body words."], finding), finding
+    return email_check("body_completeness", "Body completeness", 15, 15, [f"{words} body words."]), None
+
+
+def email_next_step_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    cta_hits = email_cta_hits(text)
+    time_hits = EMAIL_DATE_RE.findall(text or "") + EMAIL_TIME_RE.findall(text or "")
+    if not cta_hits:
+        finding = email_finding(
+            "next_step_missing",
+            "high",
+            "No clear next step detected",
+            "The draft does not include an explicit ask or routing action.",
+            ["No reply, confirm, schedule, review, send, or choose cue was detected."],
+            "Add one direct sentence that says what the recipient should do next.",
+            "Marketing review",
+            "High",
+            "Add a concrete ask such as confirming a time, replying with approval, or reviewing a linked item.",
+        )
+        return email_check("next_step_clarity", "Next-step clarity", 20, 0, ["No CTA pattern detected."], finding), finding
+    score = 20 if time_hits else 17
+    evidence = [f"Detected action cue: {', '.join(cta_hits[:3])}."]
+    if time_hits:
+        evidence.append(f"Detected timing cue: {', '.join(str(item) for item in time_hits[:3])}.")
+    else:
+        evidence.append("No timing cue detected; action is present but not time-bound.")
+    return email_check("next_step_clarity", "Next-step clarity", 20, score, evidence), None
+
+
+def email_specificity_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    anchors = email_specific_anchors(text)
+    vague_hits = email_phrase_hits(text, EMAIL_VAGUE_PHRASES)
+    if len(anchors) >= 2 and not vague_hits:
+        return email_check("specificity", "Specificity", 20, 20, [f"Concrete anchors: {', '.join(anchors[:5])}."]), None
+    if len(anchors) >= 1 and len(vague_hits) <= 1:
+        return email_check("specificity", "Specificity", 20, 16, [f"Concrete anchors: {', '.join(anchors[:5])}."]), None
+    finding = email_finding(
+        "specificity_low",
+        "medium",
+        "Draft needs more concrete detail",
+        "The message has too few concrete anchors or too many vague phrases.",
+        [
+            f"{len(anchors)} concrete anchor{'s' if len(anchors) != 1 else ''} detected.",
+            f"Vague phrases: {', '.join(vague_hits[:5]) if vague_hits else 'none detected'}.",
+        ],
+        "Add a concrete date, topic, deliverable, person, or decision.",
+        "Marketing review",
+        "Medium",
+        "Name the specific thing this email is about before routing.",
+    )
+    score = 7 if len(vague_hits) >= 2 else 10
+    return email_check("specificity", "Specificity", 20, score, [f"{len(anchors)} concrete anchors.", f"{len(vague_hits)} vague phrases."], finding), finding
+
+
+def email_personalization_check(subject: str, body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    hits = email_personalization_hits(subject, body)
+    if hits:
+        return email_check("personalization", "Personalization", 10, 10, [f"Detected: {', '.join(hits)}."]), None
+    finding = email_finding(
+        "personalization_missing",
+        "medium",
+        "No personalization signal detected",
+        "The draft does not include a named greeting, token, or recipient-focused wording.",
+        ["No named greeting, personalization token, or recipient-focused wording was detected."],
+        "Add the recipient name or one recipient-specific reference.",
+        "Marketing review",
+        "Medium",
+        "Personalize the draft before adding it to an automated workflow.",
+    )
+    return email_check("personalization", "Personalization", 10, 4, ["No personalization signal detected."], finding), finding
+
+
+def email_readability_check(body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    words = email_word_count(body)
+    sentences = email_sentence_count(body)
+    avg_sentence_words = words / sentences if sentences else 0
+    if not body.strip():
+        return email_check("readability", "Readability", 10, 0, ["No body text."]), None
+    if avg_sentence_words > 32:
+        finding = email_finding(
+            "sentences_long",
+            "medium",
+            "Sentences are too long to scan quickly",
+            "Long average sentence length can make the email harder to review or act on.",
+            [f"{avg_sentence_words:.1f} words per sentence on average."],
+            "Break the draft into shorter sentences.",
+            "Marketing review",
+            "Medium",
+            "Split long sentences before routing.",
+        )
+        return email_check("readability", "Readability", 10, 5, [f"{avg_sentence_words:.1f} words per sentence."], finding), finding
+    if avg_sentence_words > 24:
+        finding = email_finding(
+            "sentences_dense",
+            "low",
+            "Sentences are a little dense",
+            "The draft is readable, but shorter sentences would be easier to scan.",
+            [f"{avg_sentence_words:.1f} words per sentence on average."],
+            "Shorten one long sentence if this goes to a broad audience.",
+            "Marketing review",
+            "Low",
+            "Make the copy easier to scan.",
+        )
+        return email_check("readability", "Readability", 10, 8, [f"{avg_sentence_words:.1f} words per sentence."], finding), finding
+    return email_check("readability", "Readability", 10, 10, [f"{avg_sentence_words:.1f} words per sentence."]), None
+
+
+def email_risk_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    risk_hits = email_phrase_hits(text, EMAIL_RISK_PHRASES)
+    if not risk_hits:
+        return email_check("risk_terms", "Risk terms", 10, 10, ["No configured risk phrases detected."]), None
+    severity = "high" if any(item in {"guaranteed", "guarantee", "100%"} for item in risk_hits) or len(risk_hits) >= 2 else "medium"
+    finding = email_finding(
+        "risk_terms_detected",
+        severity,
+        "Risky claim or pressure phrase detected",
+        "The draft contains wording that may need legal, compliance, or brand review.",
+        [f"Detected phrase{'s' if len(risk_hits) != 1 else ''}: {', '.join(risk_hits[:5])}."],
+        "Review or soften the claim before sending.",
+        "Compliance review",
+        "High" if severity == "high" else "Medium",
+        "Remove or qualify risky language before routing.",
+    )
+    return email_check("risk_terms", "Risk terms", 10, 2 if severity == "high" else 5, [f"Risk phrases: {', '.join(risk_hits[:5])}."], finding), finding
+
+
+def email_decision_from_quality(score: int, findings: list[dict[str, Any]]) -> dict[str, Any]:
+    high_findings = [item for item in findings if item.get("severity") == "high"]
+    medium_findings = [item for item in findings if item.get("severity") == "medium"]
+    top_finding = high_findings[0] if high_findings else medium_findings[0] if medium_findings else findings[0] if findings else None
+    if high_findings or score < 50:
+        gate = "blocked"
+        route = top_finding.get("owner_queue", "Compliance review") if top_finding else "Compliance review"
+        label = "Blocked"
+        score_meaning = "Blocked by a high-priority email-quality issue"
+        blocker_level = top_finding.get("blocker_level", "High") if top_finding else "High"
+    elif score >= 78 and not medium_findings:
+        gate = "ready"
+        route = "Sending system"
+        label = "Ready to route"
+        score_meaning = "Meets current email-quality checks"
+        blocker_level = "None"
+    else:
+        gate = "needs_review"
+        route = top_finding.get("owner_queue", "Marketing review") if top_finding else "Marketing review"
+        label = "Needs review"
+        score_meaning = "Needs one or more quality fixes"
+        blocker_level = top_finding.get("blocker_level", "Medium") if top_finding else "Medium"
+    if top_finding:
+        next_step = top_finding["next_step"]
+        action = top_finding["action"]
+        reason = top_finding["title"]
+    else:
+        next_step = "Proceed through the normal send path."
+        action = "No configured email-quality issue was detected."
+        reason = "All configured checks passed."
+    return {
+        "gate": gate,
+        "label": label,
+        "route": route,
+        "owner_queue": route,
+        "blocker_level": blocker_level,
+        "next_step": next_step,
+        "action": action,
+        "score_meaning": score_meaning,
+        "reason": reason,
+    }
+
+
+def build_hubspot_email_quality(subject: str, body: str, text: str) -> dict[str, Any]:
+    check_builders = (
+        lambda: email_subject_check(subject),
+        lambda: email_body_check(body),
+        lambda: email_next_step_check(text),
+        lambda: email_specificity_check(text),
+        lambda: email_personalization_check(subject, body),
+        lambda: email_readability_check(body),
+        lambda: email_risk_check(text),
+    )
+    checks: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    for builder in check_builders:
+        check, finding = builder()
+        checks.append(check)
+        if finding:
+            findings.append(finding)
+    score = sum(item["score"] for item in checks)
+    decision = email_decision_from_quality(score, findings)
+    return {
+        "score": score,
+        "score_source": "Weighted email-quality checks, not generated copy or a generic model-confidence average.",
+        "weights": {item["id"]: item["weight"] for item in checks},
+        "checks": checks,
+        "findings": findings,
+        "decision": decision,
+    }
 
 
 def scrub_public_value(value):
@@ -656,8 +1079,11 @@ def hubspot_analysis_response(payload: dict, workflow: str):
 
     confidences = prediction_confidences(predictions)
     average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-    score = int(round(max(0.0, min(1.0, average_confidence)) * 100))
-    gate, route = hubspot_gate_from_score(score)
+    email_quality = build_hubspot_email_quality(subject, body, text)
+    decision = email_quality["decision"]
+    score = email_quality["score"]
+    gate = decision["gate"]
+    route = decision["route"]
     request_id = f"{workflow}-{secrets.token_urlsafe(12)}"
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     log_event(
@@ -680,6 +1106,9 @@ def hubspot_analysis_response(payload: dict, workflow: str):
                 "texttraits_gate": gate,
                 "texttraits_route": route,
                 "texttraits_send_ready": gate == "ready",
+                "texttraits_next_step": decision["next_step"],
+                "texttraits_owner_queue": decision["owner_queue"],
+                "texttraits_blocker_level": decision["blocker_level"],
             },
             "analysis": {
                 "request_id": request_id,
@@ -689,6 +1118,8 @@ def hubspot_analysis_response(payload: dict, workflow: str):
                 "route": route,
                 "word_count": len(text.split()),
                 "average_model_confidence": round(average_confidence, 4),
+                "decision": decision,
+                "email_quality": email_quality,
                 "demo": bool(getattr(predictor, "is_demo", False)),
                 "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
             },
