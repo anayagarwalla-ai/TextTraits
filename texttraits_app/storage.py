@@ -299,10 +299,95 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_policy_versions (
+                  id BIGSERIAL PRIMARY KEY,
+                  workspace_id TEXT NOT NULL,
+                  environment TEXT NOT NULL DEFAULT 'production',
+                  version TEXT NOT NULL DEFAULT '',
+                  policy TEXT NOT NULL DEFAULT '{}',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_checks (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  check_id TEXT NOT NULL,
+                  label TEXT NOT NULL DEFAULT '',
+                  weight INTEGER NOT NULL DEFAULT 0,
+                  score INTEGER NOT NULL DEFAULT 0,
+                  status TEXT NOT NULL DEFAULT '',
+                  penalty INTEGER NOT NULL DEFAULT 0,
+                  evidence TEXT NOT NULL DEFAULT '[]',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_findings (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  finding_id TEXT NOT NULL,
+                  severity TEXT NOT NULL DEFAULT '',
+                  title TEXT NOT NULL DEFAULT '',
+                  owner_queue TEXT NOT NULL DEFAULT '',
+                  blocker_level TEXT NOT NULL DEFAULT '',
+                  next_step TEXT NOT NULL DEFAULT '',
+                  action TEXT NOT NULL DEFAULT '',
+                  evidence TEXT NOT NULL DEFAULT '[]',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_review_states (
+                  request_id TEXT PRIMARY KEY,
+                  status TEXT NOT NULL DEFAULT 'open',
+                  assigned_to TEXT NOT NULL DEFAULT '',
+                  owner_queue TEXT NOT NULL DEFAULT '',
+                  blocker_level TEXT NOT NULL DEFAULT '',
+                  sla_due_at TEXT NOT NULL DEFAULT '',
+                  resolved_at TEXT NOT NULL DEFAULT '',
+                  notes TEXT NOT NULL DEFAULT '',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_outcome_events (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL DEFAULT '',
+                  content_hash TEXT NOT NULL DEFAULT '',
+                  workspace_id TEXT NOT NULL DEFAULT '',
+                  tenant_id TEXT NOT NULL DEFAULT '',
+                  source_system TEXT NOT NULL DEFAULT '',
+                  event_type TEXT NOT NULL,
+                  event_id TEXT NOT NULL DEFAULT '',
+                  payload TEXT NOT NULL DEFAULT '{}',
+                  occurred_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_checks_request ON hubspot_email_checks (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_findings_request ON hubspot_email_findings (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_request ON hubspot_email_outcome_events (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_hash ON hubspot_email_outcome_events (content_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_policy_versions_workspace ON hubspot_policy_versions (workspace_id, environment)")
         else:
             conn.executescript(
                 """
@@ -414,10 +499,80 @@ def init_db() -> None:
               UNIQUE(workspace_id, environment)
             );
 
+            CREATE TABLE IF NOT EXISTS hubspot_policy_versions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workspace_id TEXT NOT NULL,
+              environment TEXT NOT NULL DEFAULT 'production',
+              version TEXT NOT NULL DEFAULT '',
+              policy TEXT NOT NULL DEFAULT '{}',
+              updated_by TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_checks (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              check_id TEXT NOT NULL,
+              label TEXT NOT NULL DEFAULT '',
+              weight INTEGER NOT NULL DEFAULT 0,
+              score INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT '',
+              penalty INTEGER NOT NULL DEFAULT 0,
+              evidence TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_findings (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              finding_id TEXT NOT NULL,
+              severity TEXT NOT NULL DEFAULT '',
+              title TEXT NOT NULL DEFAULT '',
+              owner_queue TEXT NOT NULL DEFAULT '',
+              blocker_level TEXT NOT NULL DEFAULT '',
+              next_step TEXT NOT NULL DEFAULT '',
+              action TEXT NOT NULL DEFAULT '',
+              evidence TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_review_states (
+              request_id TEXT PRIMARY KEY,
+              status TEXT NOT NULL DEFAULT 'open',
+              assigned_to TEXT NOT NULL DEFAULT '',
+              owner_queue TEXT NOT NULL DEFAULT '',
+              blocker_level TEXT NOT NULL DEFAULT '',
+              sla_due_at TEXT NOT NULL DEFAULT '',
+              resolved_at TEXT NOT NULL DEFAULT '',
+              notes TEXT NOT NULL DEFAULT '',
+              updated_by TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_outcome_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL DEFAULT '',
+              content_hash TEXT NOT NULL DEFAULT '',
+              workspace_id TEXT NOT NULL DEFAULT '',
+              tenant_id TEXT NOT NULL DEFAULT '',
+              source_system TEXT NOT NULL DEFAULT '',
+              event_type TEXT NOT NULL,
+              event_id TEXT NOT NULL DEFAULT '',
+              payload TEXT NOT NULL DEFAULT '{}',
+              occurred_at TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_checks_request ON hubspot_email_checks (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_findings_request ON hubspot_email_findings (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_request ON hubspot_email_outcome_events (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_hash ON hubspot_email_outcome_events (content_hash);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_policy_versions_workspace ON hubspot_policy_versions (workspace_id, environment);
             """
             )
         ensure_schema_version(conn)
@@ -914,6 +1069,126 @@ def _hubspot_analysis_from_row(row) -> dict[str, Any]:
     }
 
 
+def save_hubspot_analysis_artifacts(request_id: str, checks: list[dict[str, Any]], findings: list[dict[str, Any]], created_at: str) -> None:
+    clean_request_id = str(request_id or "").strip()[:160]
+    if not clean_request_id:
+        return
+    with connect() as conn:
+        execute(conn, "DELETE FROM hubspot_email_checks WHERE request_id = ?", (clean_request_id,))
+        execute(conn, "DELETE FROM hubspot_email_findings WHERE request_id = ?", (clean_request_id,))
+        for check in checks[:100]:
+            execute(
+                conn,
+                """
+                INSERT INTO hubspot_email_checks (
+                  request_id, check_id, label, weight, score, status, penalty, evidence, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_request_id,
+                    str(check.get("id", ""))[:120],
+                    str(check.get("label", ""))[:160],
+                    int(check.get("weight") or 0),
+                    int(check.get("score") or 0),
+                    str(check.get("status", ""))[:80],
+                    int(check.get("penalty") or 0),
+                    _json_dump(check.get("evidence") or []),
+                    created_at,
+                ),
+            )
+        for finding in findings[:100]:
+            execute(
+                conn,
+                """
+                INSERT INTO hubspot_email_findings (
+                  request_id, finding_id, severity, title, owner_queue, blocker_level,
+                  next_step, action, evidence, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_request_id,
+                    str(finding.get("id", ""))[:120],
+                    str(finding.get("severity", ""))[:80],
+                    str(finding.get("title", ""))[:240],
+                    str(finding.get("owner_queue", ""))[:160],
+                    str(finding.get("blocker_level", ""))[:80],
+                    str(finding.get("next_step", ""))[:500],
+                    str(finding.get("action", ""))[:500],
+                    _json_dump(finding.get("evidence") or []),
+                    created_at,
+                ),
+            )
+
+
+def list_hubspot_normalized_findings(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "finding_id", "severity", "owner_queue", "blocker_level"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_findings {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "finding_id": row["finding_id"],
+            "severity": row["severity"],
+            "title": row["title"],
+            "owner_queue": row["owner_queue"],
+            "blocker_level": row["blocker_level"],
+            "next_step": row["next_step"],
+            "action": row["action"],
+            "evidence": _json_load(row["evidence"], []),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def list_hubspot_normalized_checks(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "check_id", "status"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_checks {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "check_id": row["check_id"],
+            "label": row["label"],
+            "weight": int(row["weight"] or 0),
+            "score": int(row["score"] or 0),
+            "status": row["status"],
+            "penalty": int(row["penalty"] or 0),
+            "evidence": _json_load(row["evidence"], []),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
 def save_hubspot_email_analysis(record: dict[str, Any]) -> dict[str, Any]:
     now = record.get("created_at") or utc_now()
     values = {
@@ -994,6 +1269,7 @@ def save_hubspot_email_analysis(record: dict[str, Any]) -> dict[str, Any]:
             """,
             tuple(values[key] for key in values),
         )
+    save_hubspot_analysis_artifacts(values["request_id"], record.get("checks") or [], record.get("findings") or [], now)
     return values
 
 
@@ -1019,17 +1295,18 @@ def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None
 
 def save_hubspot_review_event(request_id: str, action: str, payload: dict[str, Any] | None = None, actor_id: str = "", status: str = "recorded") -> dict[str, Any]:
     clean_action = SAFE_EVENT_TYPE_RE.sub("_", str(action or "")).strip("_")[:80]
-    if clean_action not in {"copy_recommendation", "mark_reviewed", "send_to_marketing_review", "rerun_analysis"}:
+    if clean_action not in {"copy_recommendation", "mark_reviewed", "send_to_marketing_review", "rerun_analysis", "assign_reviewer", "resolve_review", "add_review_note"}:
         raise ValueError("Unsupported HubSpot review action.")
     clean_request_id = str(request_id or "").strip()[:160]
     if not clean_request_id:
         raise ValueError("HubSpot review action requires a request_id.")
+    clean_payload = scrub_payload(payload or {})
     event = {
         "request_id": clean_request_id,
         "action": clean_action,
         "actor_id": str(actor_id or "")[:160],
         "status": str(status or "recorded")[:80],
-        "payload": scrub_payload(payload or {}),
+        "payload": clean_payload,
         "created_at": utc_now(),
     }
     with connect() as conn:
@@ -1038,7 +1315,117 @@ def save_hubspot_review_event(request_id: str, action: str, payload: dict[str, A
             "INSERT INTO hubspot_email_review_events (request_id, action, actor_id, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (event["request_id"], event["action"], event["actor_id"], event["status"], _json_dump(event["payload"]), event["created_at"]),
         )
+    upsert_hubspot_review_state_from_event(event)
     return event
+
+
+def upsert_hubspot_review_state_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    action = str(event.get("action") or "")
+    now = utc_now()
+    request_id = str(event.get("request_id") or "")[:160]
+    status = str(payload.get("review_status") or payload.get("status") or "open")[:80]
+    resolved_at = ""
+    if action == "send_to_marketing_review":
+        status = "queued"
+    elif action == "assign_reviewer":
+        status = "assigned"
+    elif action in {"mark_reviewed", "resolve_review"}:
+        status = "resolved"
+        resolved_at = now
+    elif action == "rerun_analysis":
+        status = "rerun_requested"
+    elif action == "copy_recommendation":
+        status = "open"
+    notes = str(payload.get("notes") or payload.get("recommendation") or "")[:1000]
+    state = {
+        "request_id": request_id,
+        "status": status,
+        "assigned_to": str(payload.get("assigned_to") or payload.get("reviewer") or "")[:160],
+        "owner_queue": str(payload.get("owner_queue") or payload.get("route") or "")[:160],
+        "blocker_level": str(payload.get("blocker_level") or "")[:80],
+        "sla_due_at": str(payload.get("sla_due_at") or "")[:80],
+        "resolved_at": resolved_at,
+        "notes": notes,
+        "updated_by": str(event.get("actor_id") or "")[:160],
+        "created_at": now,
+        "updated_at": now,
+    }
+    with connect() as conn:
+        existing = execute(conn, "SELECT created_at, resolved_at FROM hubspot_email_review_states WHERE request_id = ?", (request_id,)).fetchone()
+        created_at = existing["created_at"] if existing else now
+        resolved_value = resolved_at or (existing["resolved_at"] if existing else "")
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_email_review_states (
+              request_id, status, assigned_to, owner_queue, blocker_level, sla_due_at,
+              resolved_at, notes, updated_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+              status = excluded.status,
+              assigned_to = COALESCE(NULLIF(excluded.assigned_to, ''), hubspot_email_review_states.assigned_to),
+              owner_queue = COALESCE(NULLIF(excluded.owner_queue, ''), hubspot_email_review_states.owner_queue),
+              blocker_level = COALESCE(NULLIF(excluded.blocker_level, ''), hubspot_email_review_states.blocker_level),
+              sla_due_at = COALESCE(NULLIF(excluded.sla_due_at, ''), hubspot_email_review_states.sla_due_at),
+              resolved_at = excluded.resolved_at,
+              notes = COALESCE(NULLIF(excluded.notes, ''), hubspot_email_review_states.notes),
+              updated_by = excluded.updated_by,
+              updated_at = excluded.updated_at
+            """,
+            (
+                request_id,
+                state["status"],
+                state["assigned_to"],
+                state["owner_queue"],
+                state["blocker_level"],
+                state["sla_due_at"],
+                resolved_value,
+                state["notes"],
+                state["updated_by"],
+                created_at,
+                now,
+            ),
+        )
+    state["created_at"] = created_at
+    state["resolved_at"] = resolved_value
+    return state
+
+
+def list_hubspot_review_states(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "status", "owner_queue", "assigned_to"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_review_states {where} ORDER BY updated_at DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "status": row["status"],
+            "assigned_to": row["assigned_to"],
+            "owner_queue": row["owner_queue"],
+            "blocker_level": row["blocker_level"],
+            "sla_due_at": row["sla_due_at"],
+            "resolved_at": row["resolved_at"],
+            "notes": row["notes"],
+            "updated_by": row["updated_by"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
 
 
 def list_hubspot_review_events(request_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -1088,6 +1475,7 @@ def save_hubspot_policy_config(workspace_id: str, environment: str, policy: dict
     clean_workspace = str(workspace_id or "default")[:160]
     clean_environment = str(environment or "production")[:80]
     clean_policy = scrub_payload(policy or {})
+    clean_updated_by = str(updated_by or "")[:160]
     with connect() as conn:
         execute(
             conn,
@@ -1097,26 +1485,162 @@ def save_hubspot_policy_config(workspace_id: str, environment: str, policy: dict
             ON CONFLICT(workspace_id, environment)
             DO UPDATE SET policy = excluded.policy, updated_by = excluded.updated_by, updated_at = excluded.updated_at
             """,
-            (clean_workspace, clean_environment, _json_dump(clean_policy), str(updated_by or "")[:160], now),
+            (clean_workspace, clean_environment, _json_dump(clean_policy), clean_updated_by, now),
+        )
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_policy_versions (workspace_id, environment, version, policy, updated_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                clean_workspace,
+                clean_environment,
+                str(clean_policy.get("version", ""))[:80],
+                _json_dump(clean_policy),
+                clean_updated_by,
+                now,
+            ),
         )
     return {
         "workspace_id": clean_workspace,
         "environment": clean_environment,
         "policy": clean_policy,
-        "updated_by": str(updated_by or "")[:160],
+        "updated_by": clean_updated_by,
         "updated_at": now,
     }
 
 
+def list_hubspot_policy_versions(workspace_id: str = "", environment: str = "", limit: int = 100) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    clean_workspace = str(workspace_id or "").strip()
+    clean_environment = str(environment or "").strip()
+    if clean_workspace:
+        clauses.append("workspace_id = ?")
+        params.append(clean_workspace[:160])
+    if clean_environment:
+        clauses.append("environment = ?")
+        params.append(clean_environment[:80])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT workspace_id, environment, version, policy, updated_by, created_at FROM hubspot_policy_versions {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "workspace_id": row["workspace_id"],
+            "environment": row["environment"],
+            "version": row["version"],
+            "policy": _json_load(row["policy"], {}),
+            "updated_by": row["updated_by"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def save_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
+    event = {
+        "request_id": str(record.get("request_id", ""))[:160],
+        "content_hash": str(record.get("content_hash", ""))[:128],
+        "workspace_id": str(record.get("workspace_id", ""))[:160],
+        "tenant_id": str(record.get("tenant_id", ""))[:160],
+        "source_system": str(record.get("source_system", "hubspot"))[:80],
+        "event_type": SAFE_EVENT_TYPE_RE.sub("_", str(record.get("event_type") or "")).strip("_")[:80],
+        "event_id": str(record.get("event_id", ""))[:160],
+        "payload": scrub_payload(record.get("payload") if isinstance(record.get("payload"), dict) else {}),
+        "occurred_at": str(record.get("occurred_at") or utc_now())[:80],
+        "created_at": utc_now(),
+    }
+    if not event["event_type"]:
+        raise ValueError("Outcome event requires an event_type.")
+    if not event["request_id"] and not event["content_hash"]:
+        raise ValueError("Outcome event requires a request_id or content_hash.")
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_email_outcome_events (
+              request_id, content_hash, workspace_id, tenant_id, source_system,
+              event_type, event_id, payload, occurred_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["request_id"],
+                event["content_hash"],
+                event["workspace_id"],
+                event["tenant_id"],
+                event["source_system"],
+                event["event_type"],
+                event["event_id"],
+                _json_dump(event["payload"]),
+                event["occurred_at"],
+                event["created_at"],
+            ),
+        )
+    return event
+
+
+def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "content_hash", "workspace_id", "tenant_id", "source_system", "event_type"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value[:160])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_outcome_events {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "content_hash": row["content_hash"],
+            "workspace_id": row["workspace_id"],
+            "tenant_id": row["tenant_id"],
+            "source_system": row["source_system"],
+            "event_type": row["event_type"],
+            "event_id": row["event_id"],
+            "payload": _json_load(row["payload"], {}),
+            "occurred_at": row["occurred_at"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
 def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
     analyses = list_hubspot_email_analyses(limit=limit)
+    outcomes = list_hubspot_outcome_events(limit=limit)
     total = len(analyses)
     gates: dict[str, int] = {}
     source_scores: dict[str, list[int]] = {}
     failed_checks: dict[str, int] = {}
     route_counts: dict[str, int] = {}
+    outcome_counts: dict[str, int] = {}
     blocked = []
+    outcomes_by_request: dict[str, list[dict[str, Any]]] = {}
+    outcomes_by_hash: dict[str, list[dict[str, Any]]] = {}
+    for event in outcomes:
+        outcome_counts[event["event_type"]] = outcome_counts.get(event["event_type"], 0) + 1
+        if event["request_id"]:
+            outcomes_by_request.setdefault(event["request_id"], []).append(event)
+        if event["content_hash"]:
+            outcomes_by_hash.setdefault(event["content_hash"], []).append(event)
     for item in analyses:
+        item_outcomes = outcomes_by_request.get(item["request_id"], []) + outcomes_by_hash.get(item["content_hash"], [])
+        item["outcomes"] = item_outcomes[:20]
         gates[item["gate"]] = gates.get(item["gate"], 0) + 1
         route_counts[item["route"]] = route_counts.get(item["route"], 0) + 1
         source = item["source_system"] or "unknown"
@@ -1136,6 +1660,7 @@ def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
         "total_analyses": total,
         "gate_counts": gates,
         "route_counts": route_counts,
+        "outcome_counts": outcome_counts,
         "average_score_by_source": average_by_source,
         "top_failed_checks": [
             {"check": check, "count": count}

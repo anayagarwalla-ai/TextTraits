@@ -13,12 +13,16 @@ The action accepts the same payload shape as the CRM card:
   "analysis_mode": "send_path_gate",
   "campaign_id": "renewal-q3",
   "template_id": "renewal-follow-up-v2",
+  "idempotency_key": "workflow-123:email-456",
   "inputFields": {
-    "subject": "Renewal workflow follow-up",
-    "body": "Existing email draft body"
+    "email_subject": "Renewal workflow follow-up",
+    "email_body": "Existing email draft body",
+    "workflow_name": "Renewal workflow"
   }
 }
 ```
+
+HubSpot workflow subject/body inputs are configured as mapped object-property fields. Use enrolled-record properties or prior action outputs for real send-path routing; keep `workflow_name` as the static label for the workflow/campaign.
 
 The response includes workflow output fields:
 
@@ -30,6 +34,8 @@ The response includes workflow output fields:
 - `texttraits_owner_queue`
 - `texttraits_blocker_level`
 - `texttraits_policy_version`
+- `texttraits_request_id`
+- `texttraits_content_hash`
 
 Recommended workflow branches:
 
@@ -40,3 +46,42 @@ Recommended workflow branches:
 
 Task creation and field-writeback should be configured in HubSpot using these output fields. TextTraits does not create HubSpot tasks by itself unless a future private-app token and workspace policy explicitly allow that action.
 
+## Template Testing
+
+Use `POST /v1/integrations/hubspot/template-test` to render Liquid/Handlebars-style tokens against sample recipient context before routing:
+
+```json
+{
+  "sample_context": {
+    "first_name": "Brian",
+    "company": "HubSpot",
+    "unsubscribe_link": "https://example.com/unsubscribe"
+  },
+  "headers": {
+    "from": "marketing@example.com",
+    "reply_to": "sales@example.com"
+  },
+  "inputFields": {
+    "email_subject": "Hi {{first_name}}",
+    "email_body": "Please review {{company}} before Friday. {{unsubscribe_link}}"
+  }
+}
+```
+
+The response reports rendered subject/body, unresolved tokens, links, unsubscribe state, and header checks.
+
+## Outcome Joins
+
+Send systems can report outcomes back to TextTraits with `POST /v1/integrations/hubspot/outcomes`:
+
+```json
+{
+  "request_id": "hubspot_workflow_action-abc123",
+  "content_hash": "sha256...",
+  "workspace_id": "hubspot_246356639",
+  "event_type": "opened",
+  "event_id": "provider-event-id"
+}
+```
+
+Outcomes are queryable in admin dashboards and exports by request ID or content hash.
