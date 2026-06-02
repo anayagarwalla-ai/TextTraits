@@ -4,7 +4,7 @@ TextTraits Email Fit scores an existing draft as a routing and governance signal
 
 ## Score Inputs
 
-The raw checklist score is a 0-100 weighted checklist:
+The score starts with a 0-100 weighted checklist:
 
 - Subject clarity, 15 points: subject exists, is scannable, and names the topic.
 - Body completeness, 15 points: body has enough context without exceeding the configured CRM outreach length.
@@ -14,7 +14,7 @@ The raw checklist score is a 0-100 weighted checklist:
 - Readability, 10 points: checks average sentence length.
 - Risk terms, 10 points: detects configured risky claims or pressure language.
 
-The visible score is policy-aligned. If a configured policy blocks or routes a draft to review, TextTraits caps the visible score so the number matches the routing decision. For example, a draft can have a high raw checklist score for structure and specificity, but a high-risk compliance phrase caps the visible score into the blocked range.
+Risk terms also apply explicit scoring penalties during the score calculation. Medium-risk language subtracts 25 points. High-risk language, such as `guaranteed`, `guarantee`, or `100%`, subtracts 45 points. That means a draft with strong structure can still receive a low score when the text itself contains risky claims.
 
 Model confidence is shown as supporting evidence only. It is not averaged into the score.
 

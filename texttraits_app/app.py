@@ -777,8 +777,10 @@ def email_check(
     score: int,
     evidence: list[str],
     finding: dict[str, Any] | None = None,
+    penalty: int = 0,
 ) -> dict[str, Any]:
     bounded_score = max(0, min(weight, int(round(score))))
+    bounded_penalty = max(0, int(round(penalty)))
     if finding and finding["severity"] == "high":
         status = "blocked"
     elif bounded_score >= weight * 0.8 and finding is None:
@@ -795,6 +797,7 @@ def email_check(
         "status": status,
         "evidence": evidence,
         "finding_id": finding["id"] if finding else None,
+        "penalty": bounded_penalty,
     }
 
 
@@ -999,18 +1002,30 @@ def email_risk_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     if not risk_hits:
         return email_check("risk_terms", "Risk terms", 10, 10, ["No configured risk phrases detected."]), None
     severity = "high" if any(item in {"guaranteed", "guarantee", "100%"} for item in risk_hits) or len(risk_hits) >= 2 else "medium"
+    risk_penalty = 45 if severity == "high" else 25
     finding = email_finding(
         "risk_terms_detected",
         severity,
         "Risky claim or pressure phrase detected",
         "The draft contains wording that may need legal, compliance, or brand review.",
-        [f"Detected phrase{'s' if len(risk_hits) != 1 else ''}: {', '.join(risk_hits[:5])}."],
+        [
+            f"Detected phrase{'s' if len(risk_hits) != 1 else ''}: {', '.join(risk_hits[:5])}.",
+            f"Risk scoring penalty: {risk_penalty} points.",
+        ],
         "Review or soften the claim before sending.",
         "Compliance review",
         "High" if severity == "high" else "Medium",
         "Remove or qualify risky language before routing.",
     )
-    return email_check("risk_terms", "Risk terms", 10, 2 if severity == "high" else 5, [f"Risk phrases: {', '.join(risk_hits[:5])}."], finding), finding
+    return email_check(
+        "risk_terms",
+        "Risk terms",
+        10,
+        0 if severity == "high" else 2,
+        [f"Risk phrases: {', '.join(risk_hits[:5])}.", f"Risk penalty: {risk_penalty} points."],
+        finding,
+        penalty=risk_penalty,
+    ), finding
 
 
 def email_decision_from_quality(score: int, findings: list[dict[str, Any]], checks: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
@@ -1079,46 +1094,6 @@ def email_decision_from_quality(score: int, findings: list[dict[str, Any]], chec
     }
 
 
-def policy_aligned_score(raw_score: int, findings: list[dict[str, Any]], checks: list[dict[str, Any]], policy: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    ready_threshold = int(policy.get("ready_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["ready_score_threshold"]))
-    block_threshold = int(policy.get("block_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["block_score_threshold"]))
-    review_cap = max(block_threshold, ready_threshold - 1)
-    block_cap = max(0, block_threshold - 1)
-    high_findings = [item for item in findings if item.get("severity") == "high"]
-    medium_findings = [item for item in findings if item.get("severity") == "medium"]
-    risk_finding = next((item for item in findings if item.get("id") == "risk_terms_detected"), None)
-    cta_finding = next((item for item in findings if item.get("id") == "next_step_missing"), None)
-    personalization_check = next((item for item in checks if item.get("id") == "personalization"), {})
-    reasons: list[str] = []
-    adjusted = raw_score
-    if risk_finding and bool(policy.get("compliance_review_on_risk_terms", True)):
-        if risk_finding.get("severity") == "high":
-            adjusted = min(adjusted, block_cap)
-            reasons.append("High-risk compliance language caps the visible score in the blocked range.")
-        else:
-            adjusted = min(adjusted, review_cap)
-            reasons.append("Compliance-risk language caps the visible score below the ready threshold.")
-    if cta_finding and bool(policy.get("block_if_no_cta", True)):
-        adjusted = min(adjusted, block_cap)
-        reasons.append("Missing next-step policy caps the visible score in the blocked range.")
-    if high_findings and bool(policy.get("block_high_severity_findings", True)):
-        adjusted = min(adjusted, block_cap)
-        reasons.append("High-severity findings cap the visible score in the blocked range.")
-    elif medium_findings:
-        adjusted = min(adjusted, review_cap)
-        reasons.append("Medium-severity findings cap the visible score below the ready threshold.")
-    if bool(policy.get("require_personalization")) and personalization_check.get("status") != "pass":
-        adjusted = min(adjusted, review_cap)
-        reasons.append("Personalization policy caps the visible score below the ready threshold.")
-    adjustment = {
-        "applied": adjusted != raw_score,
-        "raw_checklist_score": raw_score,
-        "visible_score": adjusted,
-        "reason": " ".join(reasons) if reasons else "No policy score cap applied.",
-    }
-    return adjusted, adjustment
-
-
 def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = normalized_hubspot_email_policy(policy)
     check_builders = (
@@ -1138,13 +1113,29 @@ def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict
         if finding:
             findings.append(finding)
     raw_score = sum(item["score"] for item in checks)
-    score, score_adjustment = policy_aligned_score(raw_score, findings, checks, policy)
+    scoring_penalties = [
+        {
+            "check_id": item["id"],
+            "label": item["label"],
+            "points": int(item.get("penalty", 0)),
+            "evidence": item.get("evidence", []),
+        }
+        for item in checks
+        if int(item.get("penalty", 0)) > 0
+    ]
+    total_penalty = sum(item["points"] for item in scoring_penalties)
+    score = max(0, min(100, raw_score - total_penalty))
     decision = email_decision_from_quality(score, findings, checks, policy)
     return {
         "score": score,
         "raw_checklist_score": raw_score,
-        "score_adjustment": score_adjustment,
-        "score_source": "Weighted email-quality checks with policy caps for blocked or review-required drafts; not generated copy or a generic model-confidence average.",
+        "score_factors": {
+            "checklist_points": raw_score,
+            "total_penalty": total_penalty,
+            "penalties": scoring_penalties,
+            "final_score": score,
+        },
+        "score_source": "Weighted email-quality checks plus explicit risk penalties; not generated copy or a generic model-confidence average.",
         "weights": {item["id"]: item["weight"] for item in checks},
         "checks": checks,
         "findings": findings,

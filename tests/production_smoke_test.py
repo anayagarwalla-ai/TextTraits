@@ -207,8 +207,8 @@ def main() -> int:
     assert_true(risky_email["outputFields"]["texttraits_gate"] == "blocked", "risky email should be blocked by compliance policy")
     assert_true(risky_email["outputFields"]["texttraits_route"] == "Compliance review", "risky email should route to compliance review")
     assert_true(risky_email["outputFields"]["texttraits_score"] < 50, "blocked risky email should not show a ready-looking score")
-    assert_true(risky_email["analysis"]["email_quality"]["raw_checklist_score"] > risky_email["analysis"]["email_quality"]["score"], "risky email should preserve raw checklist score and visible score cap")
-    assert_true(risky_email["analysis"]["email_quality"]["score_adjustment"]["applied"] is True, "risky email should explain score cap")
+    assert_true(risky_email["analysis"]["email_quality"]["raw_checklist_score"] > risky_email["analysis"]["email_quality"]["score"], "risky email should preserve checklist points before penalties")
+    assert_true(risky_email["analysis"]["email_quality"]["score_factors"]["total_penalty"] >= 45, "risky email should be lowered by risk scoring penalties")
 
     policy_update = client.put(
         "/api/enterprise/hubspot/policy",
