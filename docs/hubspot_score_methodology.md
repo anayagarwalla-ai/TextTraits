@@ -4,7 +4,7 @@ TextTraits Email Fit scores an existing draft as a routing and governance signal
 
 ## Score Inputs
 
-The score is a 0-100 weighted checklist:
+The raw checklist score is a 0-100 weighted checklist:
 
 - Subject clarity, 15 points: subject exists, is scannable, and names the topic.
 - Body completeness, 15 points: body has enough context without exceeding the configured CRM outreach length.
@@ -13,6 +13,8 @@ The score is a 0-100 weighted checklist:
 - Personalization, 10 points: detects named greetings, merge tokens, recipient-focused wording, and supplied CRM contact/company context.
 - Readability, 10 points: checks average sentence length.
 - Risk terms, 10 points: detects configured risky claims or pressure language.
+
+The visible score is policy-aligned. If a configured policy blocks or routes a draft to review, TextTraits caps the visible score so the number matches the routing decision. For example, a draft can have a high raw checklist score for structure and specificity, but a high-risk compliance phrase caps the visible score into the blocked range.
 
 Model confidence is shown as supporting evidence only. It is not averaged into the score.
 
@@ -47,4 +49,3 @@ Admins can configure policy with `PUT /api/enterprise/hubspot/policy`:
 - `max_body_words`
 
 Saved policy affects future HubSpot CRM-card and workflow-action analyses for the configured workspace/environment.
-

@@ -195,6 +195,21 @@ def main() -> int:
     assert_true(unclear_email["analysis"]["email_quality"]["findings"], "unclear email should include actionable findings")
     assert_true(unclear_email["analysis"]["email_quality"]["findings"][0]["evidence"], "findings should show failed-check evidence")
 
+    risky_email = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "inputFields": {
+                "subject": "Guaranteed renewal savings",
+                "body": "Hi Brian, this renewal is guaranteed to save 100% of the time your team spends on the process. Please approve today.",
+            },
+        },
+    ).get_json()
+    assert_true(risky_email["outputFields"]["texttraits_gate"] == "blocked", "risky email should be blocked by compliance policy")
+    assert_true(risky_email["outputFields"]["texttraits_route"] == "Compliance review", "risky email should route to compliance review")
+    assert_true(risky_email["outputFields"]["texttraits_score"] < 50, "blocked risky email should not show a ready-looking score")
+    assert_true(risky_email["analysis"]["email_quality"]["raw_checklist_score"] > risky_email["analysis"]["email_quality"]["score"], "risky email should preserve raw checklist score and visible score cap")
+    assert_true(risky_email["analysis"]["email_quality"]["score_adjustment"]["applied"] is True, "risky email should explain score cap")
+
     policy_update = client.put(
         "/api/enterprise/hubspot/policy",
         json={

@@ -1079,6 +1079,46 @@ def email_decision_from_quality(score: int, findings: list[dict[str, Any]], chec
     }
 
 
+def policy_aligned_score(raw_score: int, findings: list[dict[str, Any]], checks: list[dict[str, Any]], policy: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    ready_threshold = int(policy.get("ready_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["ready_score_threshold"]))
+    block_threshold = int(policy.get("block_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["block_score_threshold"]))
+    review_cap = max(block_threshold, ready_threshold - 1)
+    block_cap = max(0, block_threshold - 1)
+    high_findings = [item for item in findings if item.get("severity") == "high"]
+    medium_findings = [item for item in findings if item.get("severity") == "medium"]
+    risk_finding = next((item for item in findings if item.get("id") == "risk_terms_detected"), None)
+    cta_finding = next((item for item in findings if item.get("id") == "next_step_missing"), None)
+    personalization_check = next((item for item in checks if item.get("id") == "personalization"), {})
+    reasons: list[str] = []
+    adjusted = raw_score
+    if risk_finding and bool(policy.get("compliance_review_on_risk_terms", True)):
+        if risk_finding.get("severity") == "high":
+            adjusted = min(adjusted, block_cap)
+            reasons.append("High-risk compliance language caps the visible score in the blocked range.")
+        else:
+            adjusted = min(adjusted, review_cap)
+            reasons.append("Compliance-risk language caps the visible score below the ready threshold.")
+    if cta_finding and bool(policy.get("block_if_no_cta", True)):
+        adjusted = min(adjusted, block_cap)
+        reasons.append("Missing next-step policy caps the visible score in the blocked range.")
+    if high_findings and bool(policy.get("block_high_severity_findings", True)):
+        adjusted = min(adjusted, block_cap)
+        reasons.append("High-severity findings cap the visible score in the blocked range.")
+    elif medium_findings:
+        adjusted = min(adjusted, review_cap)
+        reasons.append("Medium-severity findings cap the visible score below the ready threshold.")
+    if bool(policy.get("require_personalization")) and personalization_check.get("status") != "pass":
+        adjusted = min(adjusted, review_cap)
+        reasons.append("Personalization policy caps the visible score below the ready threshold.")
+    adjustment = {
+        "applied": adjusted != raw_score,
+        "raw_checklist_score": raw_score,
+        "visible_score": adjusted,
+        "reason": " ".join(reasons) if reasons else "No policy score cap applied.",
+    }
+    return adjusted, adjustment
+
+
 def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = normalized_hubspot_email_policy(policy)
     check_builders = (
@@ -1097,11 +1137,14 @@ def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict
         checks.append(check)
         if finding:
             findings.append(finding)
-    score = sum(item["score"] for item in checks)
+    raw_score = sum(item["score"] for item in checks)
+    score, score_adjustment = policy_aligned_score(raw_score, findings, checks, policy)
     decision = email_decision_from_quality(score, findings, checks, policy)
     return {
         "score": score,
-        "score_source": "Weighted email-quality checks, not generated copy or a generic model-confidence average.",
+        "raw_checklist_score": raw_score,
+        "score_adjustment": score_adjustment,
+        "score_source": "Weighted email-quality checks with policy caps for blocked or review-required drafts; not generated copy or a generic model-confidence average.",
         "weights": {item["id"]: item["weight"] for item in checks},
         "checks": checks,
         "findings": findings,
