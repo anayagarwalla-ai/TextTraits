@@ -74,6 +74,11 @@ def utc_now() -> str:
 
 
 SENSITIVE_PAYLOAD_KEYS = ("password", "secret", "token", "api_key", "apikey", "authorization", "credential")
+NON_SECRET_TOKEN_FIELD_KEYS = {
+    "required_template_tokens",
+    "missing_required_tokens",
+    "unresolved_tokens",
+}
 SENSITIVE_VALUE_RE = re.compile(
     r"(?i)\b(password|token|secret|api[_-]?key|authorization|credential|reset_token|verify_token|access_token|refresh_token|client_secret)=([^&\s]+)"
 )
@@ -112,7 +117,7 @@ def contains_sensitive_key(value: Any, depth: int = 0) -> bool:
     if isinstance(value, dict):
         for key, child in value.items():
             clean_key = str(key).lower()
-            if any(marker in clean_key for marker in SENSITIVE_PAYLOAD_KEYS):
+            if clean_key not in NON_SECRET_TOKEN_FIELD_KEYS and any(marker in clean_key for marker in SENSITIVE_PAYLOAD_KEYS):
                 return True
             if contains_sensitive_key(child, depth + 1):
                 return True
@@ -128,7 +133,7 @@ def scrub_payload(value: Any, depth: int = 0) -> Any:
         cleaned = {}
         for key, child in value.items():
             clean_key = str(key)
-            if any(marker in clean_key.lower() for marker in SENSITIVE_PAYLOAD_KEYS):
+            if clean_key.lower() not in NON_SECRET_TOKEN_FIELD_KEYS and any(marker in clean_key.lower() for marker in SENSITIVE_PAYLOAD_KEYS):
                 cleaned[clean_key] = "[redacted]"
             else:
                 cleaned[clean_key] = scrub_payload(child, depth + 1)

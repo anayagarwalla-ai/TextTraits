@@ -101,5 +101,14 @@
       method: "POST",
       body: JSON.stringify({provider, status, config}),
     }),
+    hubspotDashboard: (query = "") => request(`/api/enterprise/hubspot/dashboard${query}`),
+    hubspotPolicy: (query = "") => request(`/api/enterprise/hubspot/policy${query}`),
+    saveHubspotPolicy: (payload) => request("/api/enterprise/hubspot/policy", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+    hubspotFindings: (query = "") => request(`/api/enterprise/hubspot/findings${query}`),
+    hubspotOutcomes: (query = "") => request(`/api/enterprise/hubspot/outcomes${query}`),
+    hubspotReviewStates: (query = "") => request(`/api/enterprise/hubspot/review-states${query}`),
   };
 })();

@@ -255,6 +255,7 @@ def main() -> int:
             "environment": "production",
             "policy": {
                 "version": "qa-policy",
+                "rule_pack": "finance",
                 "ready_score_threshold": 75,
                 "review_score_threshold": 60,
                 "block_score_threshold": 20,
@@ -264,6 +265,10 @@ def main() -> int:
                 "require_personalization": False,
                 "min_body_words": 20,
                 "max_body_words": 240,
+                "custom_risk_phrases": ["nonrefundable"],
+                "custom_vague_phrases": ["next-level"],
+                "required_template_tokens": ["first_name", "unsubscribe_link"],
+                "required_headers": ["from", "reply_to"],
             },
         },
         headers=csrf_headers(client),
@@ -271,6 +276,25 @@ def main() -> int:
     assert_true(policy_update.status_code == 200, policy_update.get_data(as_text=True))
     policy_get = client.get("/api/enterprise/hubspot/policy?workspace_id=hubspot_246356639")
     assert_true(policy_get.get_json()["policy"]["version"] == "qa-policy", "HubSpot policy should persist")
+    assert_true(policy_get.get_json()["policy"]["rule_pack"] == "finance", "HubSpot policy should persist rule pack")
+    assert_true("finance" in {item["id"] for item in policy_get.get_json()["rule_packs"]}, "policy response should expose supported rule packs")
+
+    template_policy_check = client.post(
+        "/v1/integrations/hubspot/template-test",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Renewal plan",
+                "body": "Please review the renewal plan. {{unsubscribe_link}}",
+            },
+            "sample_context": {"unsubscribe_link": "https://example.com/unsubscribe"},
+            "headers": {"from": "qa@example.com", "reply_to": "sales@example.com"},
+        },
+    )
+    assert_true(template_policy_check.status_code == 200, template_policy_check.get_data(as_text=True))
+    template_policy_json = template_policy_check.get_json()["template_test"]
+    assert_true(template_policy_json["ready"] is False, "template test should enforce policy-required tokens")
+    assert_true("first_name" in template_policy_json["missing_required_tokens"], "finance policy token requirement should be visible")
 
     policy_routed = client.post(
         "/v1/integrations/hubspot/crm-card/analyze-email",
@@ -288,6 +312,19 @@ def main() -> int:
     ).get_json()
     assert_true(policy_routed["analysis"]["policy"]["version"] == "qa-policy", "analysis should use saved policy")
     assert_true(policy_routed["outputFields"]["texttraits_gate"] == "ready", "saved policy should affect routing thresholds")
+
+    finance_risky = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Investment review",
+                "body": "Hi Brian, this is a risk-free investment with no downside for your team. Please review the plan by Friday.",
+            },
+        },
+    ).get_json()
+    assert_true(finance_risky["outputFields"]["texttraits_gate"] == "blocked", "finance rule pack should block financial risk language")
+    assert_true(finance_risky["analysis"]["policy"]["rule_pack_label"] == "Financial services", "analysis should expose active rule-pack label")
 
     workflow_action = client.post(
         "/v1/integrations/hubspot/workflow-actions/analyze-email",

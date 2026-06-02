@@ -222,8 +222,64 @@ EMAIL_RISK_PHRASES = (
     "no strings attached",
     "free money",
 )
+HUBSPOT_HIGH_RISK_PHRASES = {
+    "guaranteed",
+    "guarantee",
+    "100%",
+    "guaranteed return",
+    "risk-free investment",
+    "approval guaranteed",
+    "cure",
+    "diagnose",
+    "hipaa compliant",
+}
+HUBSPOT_EMAIL_RULE_PACKS = {
+    "general": {
+        "label": "General B2B",
+        "risk_phrases": EMAIL_RISK_PHRASES,
+        "vague_phrases": EMAIL_VAGUE_PHRASES,
+        "required_template_tokens": ("unsubscribe_link",),
+        "required_headers": ("from", "reply_to"),
+    },
+    "sales": {
+        "label": "Sales outreach",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("instant roi", "guaranteed pipeline", "limited seats", "exclusive offer"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("quick sync", "touch base", "checking in"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+    "marketing": {
+        "label": "Marketing campaign",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("blast", "guaranteed results", "no obligation", "exclusive deal"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("exciting update", "game changer", "value add"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+    "customer_success": {
+        "label": "Customer success",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("no effort", "set and forget", "perfect adoption", "guaranteed renewal"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("circle back", "quick check", "touch base"),
+        "required_template_tokens": ("first_name",),
+        "required_headers": ("from", "reply_to"),
+    },
+    "healthcare": {
+        "label": "Healthcare outreach",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("cure", "diagnose", "treat", "hipaa compliant", "clinical guarantee"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("better outcomes", "patient impact", "workflow improvement"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+    "finance": {
+        "label": "Financial services",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("guaranteed return", "risk-free investment", "no downside", "approval guaranteed"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("financial upside", "strong return", "market advantage"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+}
 DEFAULT_HUBSPOT_EMAIL_POLICY = {
     "version": "2026-06-01.default",
+    "rule_pack": "general",
     "ready_score_threshold": 78,
     "review_score_threshold": 70,
     "block_score_threshold": 50,
@@ -233,6 +289,10 @@ DEFAULT_HUBSPOT_EMAIL_POLICY = {
     "require_personalization": False,
     "min_body_words": 25,
     "max_body_words": 220,
+    "custom_risk_phrases": [],
+    "custom_vague_phrases": [],
+    "required_template_tokens": ["unsubscribe_link"],
+    "required_headers": ["from", "reply_to"],
 }
 HUBSPOT_POLICY_BOOLEAN_KEYS = {
     "block_if_no_cta",
@@ -246,6 +306,12 @@ HUBSPOT_POLICY_INTEGER_BOUNDS = {
     "block_score_threshold": (0, 100),
     "min_body_words": (0, 500),
     "max_body_words": (1, 1200),
+}
+HUBSPOT_POLICY_LIST_KEYS = {
+    "custom_risk_phrases",
+    "custom_vague_phrases",
+    "required_template_tokens",
+    "required_headers",
 }
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
@@ -696,6 +762,27 @@ def clamp_int(value: Any, low: int, high: int, fallback: int) -> int:
     return max(low, min(high, number))
 
 
+def normalized_policy_list(value: Any, fallback: Any = (), limit: int = 40) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = list(fallback or [])
+    items: list[str] = []
+    for raw_item in raw_items:
+        clean = re.sub(r"\s+", " ", str(raw_item or "").strip().lower())[:80]
+        if clean and clean not in items:
+            items.append(clean)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def combined_policy_phrases(base: Any, custom: Any, limit: int = 80) -> list[str]:
+    return normalized_policy_list([*normalized_policy_list(base, limit=limit), *normalized_policy_list(custom, limit=limit)], limit=limit)
+
+
 def normalized_hubspot_email_policy(raw_policy: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = dict(DEFAULT_HUBSPOT_EMAIL_POLICY)
     env_policy = os.getenv("TEXTTRAITS_HUBSPOT_EMAIL_POLICY_JSON", "").strip()
@@ -709,10 +796,30 @@ def normalized_hubspot_email_policy(raw_policy: dict[str, Any] | None = None) ->
     if isinstance(raw_policy, dict):
         policy.update(raw_policy)
     clean: dict[str, Any] = {"version": str(policy.get("version") or DEFAULT_HUBSPOT_EMAIL_POLICY["version"])[:80]}
+    rule_pack = re.sub(r"[^a-z0-9_]+", "_", str(policy.get("rule_pack") or "general").strip().lower())[:80]
+    if rule_pack not in HUBSPOT_EMAIL_RULE_PACKS:
+        rule_pack = "general"
+    pack = HUBSPOT_EMAIL_RULE_PACKS[rule_pack]
+    clean["rule_pack"] = rule_pack
+    clean["rule_pack_label"] = pack["label"]
     for key in HUBSPOT_POLICY_BOOLEAN_KEYS:
         clean[key] = bool(policy.get(key, DEFAULT_HUBSPOT_EMAIL_POLICY[key]))
     for key, (low, high) in HUBSPOT_POLICY_INTEGER_BOUNDS.items():
         clean[key] = clamp_int(policy.get(key), low, high, DEFAULT_HUBSPOT_EMAIL_POLICY[key])
+    clean["custom_risk_phrases"] = normalized_policy_list(policy.get("custom_risk_phrases"), (), limit=30)
+    clean["custom_vague_phrases"] = normalized_policy_list(policy.get("custom_vague_phrases"), (), limit=30)
+    clean["risk_phrases"] = combined_policy_phrases(pack.get("risk_phrases"), clean["custom_risk_phrases"], limit=90)
+    clean["vague_phrases"] = combined_policy_phrases(pack.get("vague_phrases"), clean["custom_vague_phrases"], limit=90)
+    clean["required_template_tokens"] = normalized_policy_list(
+        policy.get("required_template_tokens"),
+        pack.get("required_template_tokens", ()),
+        limit=20,
+    )
+    clean["required_headers"] = normalized_policy_list(
+        policy.get("required_headers"),
+        pack.get("required_headers", ()),
+        limit=20,
+    )
     if clean["max_body_words"] <= clean["min_body_words"]:
         clean["max_body_words"] = min(1200, clean["min_body_words"] + 1)
     if clean["ready_score_threshold"] < clean["review_score_threshold"]:
@@ -961,13 +1068,15 @@ def email_next_step_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | N
     return email_check("next_step_clarity", "Next-step clarity", 20, score, evidence), None
 
 
-def email_specificity_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def email_specificity_check(text: str, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    policy = policy or DEFAULT_HUBSPOT_EMAIL_POLICY
     anchors = email_specific_anchors(text)
-    vague_hits = email_phrase_hits(text, EMAIL_VAGUE_PHRASES)
+    vague_hits = email_phrase_hits(text, tuple(policy.get("vague_phrases") or EMAIL_VAGUE_PHRASES))
+    rule_pack_label = str(policy.get("rule_pack_label") or "General B2B")
     if len(anchors) >= 2 and not vague_hits:
-        return email_check("specificity", "Specificity", 20, 20, [f"Concrete anchors: {', '.join(anchors[:5])}."]), None
+        return email_check("specificity", "Specificity", 20, 20, [f"Concrete anchors: {', '.join(anchors[:5])}.", f"Rule pack: {rule_pack_label}."]), None
     if len(anchors) >= 1 and len(vague_hits) <= 1:
-        return email_check("specificity", "Specificity", 20, 16, [f"Concrete anchors: {', '.join(anchors[:5])}."]), None
+        return email_check("specificity", "Specificity", 20, 16, [f"Concrete anchors: {', '.join(anchors[:5])}.", f"Rule pack: {rule_pack_label}."]), None
     finding = email_finding(
         "specificity_low",
         "medium",
@@ -976,6 +1085,7 @@ def email_specificity_check(text: str) -> tuple[dict[str, Any], dict[str, Any] |
         [
             f"{len(anchors)} concrete anchor{'s' if len(anchors) != 1 else ''} detected.",
             f"Vague phrases: {', '.join(vague_hits[:5]) if vague_hits else 'none detected'}.",
+            f"Rule pack: {rule_pack_label}.",
         ],
         "Add a concrete date, topic, deliverable, person, or decision.",
         "Marketing review",
@@ -983,7 +1093,7 @@ def email_specificity_check(text: str) -> tuple[dict[str, Any], dict[str, Any] |
         "Name the specific thing this email is about before routing.",
     )
     score = 7 if len(vague_hits) >= 2 else 10
-    return email_check("specificity", "Specificity", 20, score, [f"{len(anchors)} concrete anchors.", f"{len(vague_hits)} vague phrases."], finding), finding
+    return email_check("specificity", "Specificity", 20, score, [f"{len(anchors)} concrete anchors.", f"{len(vague_hits)} vague phrases.", f"Rule pack: {rule_pack_label}."], finding), finding
 
 
 def email_personalization_check(subject: str, body: str, context: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -1039,11 +1149,13 @@ def email_readability_check(body: str) -> tuple[dict[str, Any], dict[str, Any] |
     return email_check("readability", "Readability", 10, 10, [f"{avg_sentence_words:.1f} words per sentence."]), None
 
 
-def email_risk_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    risk_hits = email_phrase_hits(text, EMAIL_RISK_PHRASES)
+def email_risk_check(text: str, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    policy = policy or DEFAULT_HUBSPOT_EMAIL_POLICY
+    risk_hits = email_phrase_hits(text, tuple(policy.get("risk_phrases") or EMAIL_RISK_PHRASES))
+    rule_pack_label = str(policy.get("rule_pack_label") or "General B2B")
     if not risk_hits:
-        return email_check("risk_terms", "Risk terms", 10, 10, ["No configured risk phrases detected."]), None
-    severity = "high" if any(item in {"guaranteed", "guarantee", "100%"} for item in risk_hits) or len(risk_hits) >= 2 else "medium"
+        return email_check("risk_terms", "Risk terms", 10, 10, [f"No configured risk phrases detected for {rule_pack_label}."]), None
+    severity = "high" if any(item in HUBSPOT_HIGH_RISK_PHRASES for item in risk_hits) or len(risk_hits) >= 2 else "medium"
     risk_penalty = 45 if severity == "high" else 25
     finding = email_finding(
         "risk_terms_detected",
@@ -1052,6 +1164,7 @@ def email_risk_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         "The draft contains wording that may need legal, compliance, or brand review.",
         [
             f"Detected phrase{'s' if len(risk_hits) != 1 else ''}: {', '.join(risk_hits[:5])}.",
+            f"Rule pack: {rule_pack_label}.",
             f"Risk scoring penalty: {risk_penalty} points.",
         ],
         "Review or soften the claim before sending.",
@@ -1064,7 +1177,7 @@ def email_risk_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         "Risk terms",
         10,
         0 if severity == "high" else 2,
-        [f"Risk phrases: {', '.join(risk_hits[:5])}.", f"Risk penalty: {risk_penalty} points."],
+        [f"Risk phrases: {', '.join(risk_hits[:5])}.", f"Rule pack: {rule_pack_label}.", f"Risk penalty: {risk_penalty} points."],
         finding,
         penalty=risk_penalty,
     ), finding
@@ -1142,10 +1255,10 @@ def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict
         lambda: email_subject_check(subject),
         lambda: email_body_check(body, policy),
         lambda: email_next_step_check(text),
-        lambda: email_specificity_check(text),
+        lambda: email_specificity_check(text, policy),
         lambda: email_personalization_check(subject, body, context),
         lambda: email_readability_check(body),
-        lambda: email_risk_check(text),
+        lambda: email_risk_check(text, policy),
     )
     checks: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
@@ -1358,7 +1471,18 @@ def render_template_text(template: str, sample_context: dict[str, Any]) -> tuple
     return TEMPLATE_TOKEN_RE.sub(replace, template or ""), unresolved
 
 
-def hubspot_template_test_result(subject: str, body: str, sample_context: dict[str, Any], headers: dict[str, Any] | None = None) -> dict[str, Any]:
+def template_contains_token(template_text: str, token: str) -> bool:
+    clean_token = re.escape(token)
+    patterns = (
+        rf"{{{{\s*{clean_token}\s*}}}}",
+        rf"%\s*{clean_token}\s*%",
+        rf"\[\[\s*{clean_token}\s*\]\]",
+    )
+    return any(re.search(pattern, template_text, re.IGNORECASE) for pattern in patterns)
+
+
+def hubspot_template_test_result(subject: str, body: str, sample_context: dict[str, Any], headers: dict[str, Any] | None = None, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    policy = normalized_hubspot_email_policy(policy)
     rendered_subject, subject_unresolved = render_template_text(subject, sample_context)
     rendered_body, body_unresolved = render_template_text(body, sample_context)
     unresolved = subject_unresolved + [token for token in body_unresolved if token not in subject_unresolved]
@@ -1370,11 +1494,20 @@ def hubspot_template_test_result(subject: str, body: str, sample_context: dict[s
     )
     header_warnings: list[str] = []
     clean_headers = scrub_payload(headers or {})
-    for required in ("from", "reply_to"):
+    required_headers = normalized_policy_list(policy.get("required_headers"), ("from", "reply_to"), limit=20)
+    for required in required_headers:
         if required not in {str(key).lower() for key in clean_headers.keys()}:
             header_warnings.append(f"Missing {required.replace('_', '-')} header.")
+    original_template = f"{subject}\n{body}"
+    required_tokens = normalized_policy_list(policy.get("required_template_tokens"), ("unsubscribe_link",), limit=20)
+    missing_required_tokens = [
+        token
+        for token in required_tokens
+        if not template_contains_token(original_template, token) and not (token == "unsubscribe_link" and unsubscribe_present)
+    ]
     checks = [
         {"id": "tokens_resolved", "label": "Merge tokens resolved", "ok": not unresolved, "detail": "All supplied tokens rendered." if not unresolved else f"Unresolved tokens: {', '.join(unresolved[:8])}."},
+        {"id": "required_tokens_present", "label": "Required tokens", "ok": not missing_required_tokens, "detail": "Required rule-pack tokens are present." if not missing_required_tokens else f"Missing required token{'s' if len(missing_required_tokens) != 1 else ''}: {', '.join(missing_required_tokens[:8])}."},
         {"id": "unsubscribe_present", "label": "Unsubscribe state", "ok": unsubscribe_present, "detail": "Unsubscribe wording or token is present." if unsubscribe_present else "Add an unsubscribe token or link before automated routing."},
         {"id": "links_detected", "label": "Link inventory", "ok": True, "detail": f"{len(links)} link{'s' if len(links) != 1 else ''} detected."},
         {"id": "headers_present", "label": "Header context", "ok": not header_warnings, "detail": "Required sender headers supplied." if not header_warnings else " ".join(header_warnings)},
@@ -1383,8 +1516,16 @@ def hubspot_template_test_result(subject: str, body: str, sample_context: dict[s
         "rendered_subject": rendered_subject,
         "rendered_body": rendered_body,
         "unresolved_tokens": unresolved,
+        "missing_required_tokens": missing_required_tokens,
         "links": links[:25],
         "headers": clean_headers,
+        "policy": {
+            "version": policy.get("version"),
+            "rule_pack": policy.get("rule_pack"),
+            "rule_pack_label": policy.get("rule_pack_label"),
+            "required_template_tokens": required_tokens,
+            "required_headers": required_headers,
+        },
         "checks": checks,
         "ready": all(item["ok"] for item in checks),
     }
@@ -1577,7 +1718,11 @@ def hubspot_template_test():
     headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else input_fields.get("headers") if isinstance(input_fields.get("headers"), dict) else {}
     if not subject and not body:
         return jsonify({"error": "Enter a template subject or body to test."}), 400
-    result = hubspot_template_test_result(subject, body, scrub_payload(sample_context), scrub_payload(headers))
+    context = hubspot_context_from_payload(payload, input_fields)
+    if context.get("_validation_error"):
+        return jsonify({"error": context["_validation_error"]}), 403
+    policy = hubspot_policy_for_request(payload, context)
+    result = hubspot_template_test_result(subject, body, scrub_payload(sample_context), scrub_payload(headers), policy)
     return jsonify({"template_test": result})
 
 
@@ -1799,7 +1944,18 @@ def api_enterprise_hubspot_policy_get():
     saved = get_hubspot_policy_config(workspace_id, environment)
     policy = normalized_hubspot_email_policy(saved["policy"] if saved else {})
     history = list_hubspot_policy_versions(workspace_id=workspace_id, environment=environment, limit=25)
-    return jsonify({"workspace_id": workspace_id, "environment": environment, "policy": policy, "source": "saved" if saved else "default", "updated_at": saved["updated_at"] if saved else "", "history": history})
+    rule_packs = [
+        {
+            "id": key,
+            "label": value["label"],
+            "risk_phrase_count": len(value.get("risk_phrases", ())),
+            "vague_phrase_count": len(value.get("vague_phrases", ())),
+            "required_template_tokens": list(value.get("required_template_tokens", ())),
+            "required_headers": list(value.get("required_headers", ())),
+        }
+        for key, value in HUBSPOT_EMAIL_RULE_PACKS.items()
+    ]
+    return jsonify({"workspace_id": workspace_id, "environment": environment, "policy": policy, "rule_packs": rule_packs, "source": "saved" if saved else "default", "updated_at": saved["updated_at"] if saved else "", "history": history})
 
 
 @app.get("/api/enterprise/hubspot/policy/history")
@@ -1829,7 +1985,7 @@ def api_enterprise_hubspot_policy_put():
     raw_policy = payload.get("policy")
     if not isinstance(raw_policy, dict):
         return jsonify({"error": "Policy must be an object."}), 400
-    allowed_keys = {"version", *HUBSPOT_POLICY_BOOLEAN_KEYS, *HUBSPOT_POLICY_INTEGER_BOUNDS.keys()}
+    allowed_keys = {"version", "rule_pack", *HUBSPOT_POLICY_BOOLEAN_KEYS, *HUBSPOT_POLICY_INTEGER_BOUNDS.keys(), *HUBSPOT_POLICY_LIST_KEYS}
     unsupported = sorted(set(raw_policy.keys()) - allowed_keys)
     if unsupported:
         return jsonify({"error": "Policy contains unsupported fields.", "fields": unsupported[:10]}), 400

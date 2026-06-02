@@ -159,6 +159,20 @@ const state = {
     retention: "90 days",
     auditLog: "Enabled",
   },
+  hubspotAdmin: {
+    workspaceId: "default",
+    environment: "production",
+    loading: false,
+    error: "",
+    lastLoaded: "",
+    dashboard: null,
+    policy: null,
+    history: [],
+    rulePacks: [],
+    findings: [],
+    outcomes: [],
+    reviewStates: [],
+  },
   tabScroll: {},
   hiddenSensitive: false,
   technicalVisible: false,
@@ -417,6 +431,97 @@ async function syncWorkspace(payload = workspacePayload()) {
 
 function trackEvent(eventType, payload = {}) {
   apiClient.event(eventType, {mode: state.mode, ...payload}).catch(() => {});
+}
+
+function readHubspotAdminFilters() {
+  const workspace = document.querySelector("#hubspot-admin-workspace")?.value?.trim();
+  const environment = document.querySelector("#hubspot-admin-environment")?.value?.trim();
+  if (workspace) state.hubspotAdmin.workspaceId = workspace;
+  if (environment) state.hubspotAdmin.environment = environment;
+}
+
+async function loadHubspotAdminConsole({silent = false} = {}) {
+  readHubspotAdminFilters();
+  state.hubspotAdmin.loading = true;
+  state.hubspotAdmin.error = "";
+  if (!silent && state.latestData) renderEnterpriseResult(state.latestData);
+  try {
+    const query = hubspotAdminQuery();
+    const limitedQuery = `${query}&limit=25`;
+    const [dashboard, policy, findings, outcomes, reviewStates] = await Promise.all([
+      apiClient.hubspotDashboard("?limit=500"),
+      apiClient.hubspotPolicy(query),
+      apiClient.hubspotFindings("?limit=25"),
+      apiClient.hubspotOutcomes(limitedQuery),
+      apiClient.hubspotReviewStates("?limit=25"),
+    ]);
+    state.hubspotAdmin.dashboard = dashboard.dashboard || null;
+    state.hubspotAdmin.policy = policy.policy || null;
+    state.hubspotAdmin.history = policy.history || [];
+    state.hubspotAdmin.rulePacks = policy.rule_packs || [];
+    state.hubspotAdmin.findings = findings.findings || [];
+    state.hubspotAdmin.outcomes = outcomes.events || [];
+    state.hubspotAdmin.reviewStates = reviewStates.review_states || [];
+    state.hubspotAdmin.lastLoaded = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  } catch (error) {
+    state.hubspotAdmin.error = error.status === 401
+      ? "Sign in before loading enterprise governance data."
+      : error.status === 403
+        ? "Your account is not on the enterprise admin allowlist for this deployment."
+        : error.message || "Could not load HubSpot governance data.";
+  } finally {
+    state.hubspotAdmin.loading = false;
+    if (state.latestData) renderEnterpriseResult(state.latestData);
+  }
+}
+
+function numberPolicyValue(id, fallback) {
+  const value = Number(document.querySelector(id)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function hubspotPolicyPayloadFromForm() {
+  readHubspotAdminFilters();
+  return {
+    workspace_id: state.hubspotAdmin.workspaceId || "default",
+    environment: state.hubspotAdmin.environment || "production",
+    policy: {
+      version: document.querySelector("#hubspot-policy-version")?.value?.trim() || "admin-ui-policy",
+      rule_pack: document.querySelector("#hubspot-policy-rule-pack")?.value || "general",
+      ready_score_threshold: numberPolicyValue("#hubspot-policy-ready", 78),
+      review_score_threshold: numberPolicyValue("#hubspot-policy-review", 70),
+      block_score_threshold: numberPolicyValue("#hubspot-policy-block", 50),
+      min_body_words: numberPolicyValue("#hubspot-policy-min-words", 25),
+      max_body_words: numberPolicyValue("#hubspot-policy-max-words", 220),
+      required_template_tokens: parsePolicyList(document.querySelector("#hubspot-policy-required-tokens")?.value || ""),
+      required_headers: parsePolicyList(document.querySelector("#hubspot-policy-required-headers")?.value || ""),
+      custom_risk_phrases: parsePolicyList(document.querySelector("#hubspot-policy-risk")?.value || ""),
+      custom_vague_phrases: parsePolicyList(document.querySelector("#hubspot-policy-vague")?.value || ""),
+      block_if_no_cta: Boolean(document.querySelector("#hubspot-policy-block_if_no_cta")?.checked),
+      block_high_severity_findings: Boolean(document.querySelector("#hubspot-policy-block_high_severity_findings")?.checked),
+      compliance_review_on_risk_terms: Boolean(document.querySelector("#hubspot-policy-compliance_review_on_risk_terms")?.checked),
+      require_personalization: Boolean(document.querySelector("#hubspot-policy-require_personalization")?.checked),
+    },
+  };
+}
+
+async function saveHubspotPolicyFromConsole(button) {
+  const payload = hubspotPolicyPayloadFromForm();
+  state.hubspotAdmin.loading = true;
+  state.hubspotAdmin.error = "";
+  if (state.latestData) renderEnterpriseResult(state.latestData);
+  try {
+    const saved = await apiClient.saveHubspotPolicy(payload);
+    state.hubspotAdmin.policy = saved.policy || state.hubspotAdmin.policy;
+    state.hubspotAdmin.lastLoaded = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    await loadHubspotAdminConsole({silent: true});
+    showToast(button || document.body, "HubSpot policy saved and history updated.");
+  } catch (error) {
+    state.hubspotAdmin.error = error.message || "Could not save HubSpot policy.";
+  } finally {
+    state.hubspotAdmin.loading = false;
+    if (state.latestData) renderEnterpriseResult(state.latestData);
+  }
 }
 
 window.addEventListener("error", (event) => {
@@ -3389,6 +3494,12 @@ function renderEnterpriseResult(data) {
     state.lastActionNote = "Connect Gmail or Outlook before reply triage.";
     renderEnterpriseResult(data);
   });
+  els.outputPanel.querySelector("[data-load-hubspot-admin]")?.addEventListener("click", () => {
+    loadHubspotAdminConsole();
+  });
+  els.outputPanel.querySelector("[data-save-hubspot-policy]")?.addEventListener("click", (event) => {
+    saveHubspotPolicyFromConsole(event.currentTarget);
+  });
   els.outputPanel.querySelector("[data-toggle-inputs]").addEventListener("click", () => {
     state.enterpriseInputsCollapsed = !state.enterpriseInputsCollapsed;
     render();
@@ -4400,6 +4511,160 @@ function integrationSetupCards() {
   `;
 }
 
+function hubspotAdminQuery() {
+  const params = new URLSearchParams({
+    workspace_id: state.hubspotAdmin.workspaceId || "default",
+    environment: state.hubspotAdmin.environment || "production",
+  });
+  return `?${params.toString()}`;
+}
+
+function textareaList(value) {
+  if (Array.isArray(value)) return value.join("\n");
+  return String(value || "");
+}
+
+function parsePolicyList(value) {
+  return String(value || "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((item, index, items) => items.indexOf(item) === index);
+}
+
+function objectCountRows(object = {}, fallback = "No rows yet.") {
+  const entries = Object.entries(object || {});
+  if (!entries.length) return `<p class="muted tiny-copy">${escapeHtml(fallback)}</p>`;
+  return `
+    <div class="admin-count-list">
+      ${entries.map(([label, value]) => `<span><strong>${escapeHtml(displayAdminLabel(label))}</strong>${escapeHtml(String(value))}</span>`).join("")}
+    </div>
+  `;
+}
+
+function displayAdminLabel(value) {
+  return String(value || "unknown").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function compactRows(rows, columns, fallback = "No rows yet.") {
+  if (!Array.isArray(rows) || !rows.length) return `<p class="muted tiny-copy">${escapeHtml(fallback)}</p>`;
+  return `
+    <div class="admin-table" role="table">
+      ${rows.slice(0, 5).map((row) => `
+        <article role="row">
+          ${columns.map(([label, key]) => `<span><b>${escapeHtml(label)}</b>${escapeHtml(String(row[key] ?? "Not available"))}</span>`).join("")}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function hubspotRulePackOptions(rulePacks, selected) {
+  const packs = rulePacks?.length ? rulePacks : [
+    {id: "general", label: "General B2B"},
+    {id: "sales", label: "Sales outreach"},
+    {id: "marketing", label: "Marketing campaign"},
+    {id: "customer_success", label: "Customer success"},
+    {id: "healthcare", label: "Healthcare outreach"},
+    {id: "finance", label: "Financial services"},
+  ];
+  return packs.map((pack) => `<option value="${escapeHtml(pack.id)}" ${pack.id === selected ? "selected" : ""}>${escapeHtml(pack.label || pack.id)}</option>`).join("");
+}
+
+function hubspotAdminConsole() {
+  const admin = state.hubspotAdmin;
+  const dashboard = admin.dashboard || {};
+  const policy = admin.policy || {};
+  const exportQuery = hubspotAdminQuery();
+  return `
+    <article class="strategy-card enterprise-admin-console">
+      <div class="section-title">
+        <div>
+          <span class="strength">Live HubSpot governance</span>
+          <strong>Admin console</strong>
+        </div>
+        <span class="demo-badge">${admin.lastLoaded ? `Loaded ${escapeHtml(admin.lastLoaded)}` : "Endpoint-backed"}</span>
+      </div>
+      <p>Use this surface to inspect policy, failing checks, review queues, outcomes, and exports from the same backend endpoints the HubSpot card and workflow action use.</p>
+
+      <div class="enterprise-field-grid admin-filters">
+        <label class="field"><span>Workspace</span><input id="hubspot-admin-workspace" value="${escapeHtml(admin.workspaceId)}" placeholder="hubspot_246356639"></label>
+        <label class="field"><span>Environment</span><select id="hubspot-admin-environment">
+          ${["sandbox", "staging", "production"].map((env) => `<option value="${env}" ${env === admin.environment ? "selected" : ""}>${escapeHtml(displayAdminLabel(env))}</option>`).join("")}
+        </select></label>
+      </div>
+      <div class="result-actions">
+        <button type="button" data-load-hubspot-admin>${admin.loading ? "Loading governance" : "Load governance"}</button>
+        <button class="button-secondary" type="button" data-save-hubspot-policy ${admin.loading ? "disabled" : ""}>Save policy</button>
+        <a class="button-secondary" href="/api/enterprise/hubspot/exports/analyses.csv${exportQuery}" download>CSV export</a>
+        <a class="button-secondary" href="/api/enterprise/hubspot/exports/analyses.json${exportQuery}" download>JSON export</a>
+      </div>
+      ${admin.error ? `<p class="admin-error">${escapeHtml(admin.error)}</p>` : ""}
+
+      <div class="admin-grid live-admin-grid">
+        ${summaryItem("Analyses", String(dashboard.total_analyses ?? "Load data"))}
+        ${summaryItem("Rule pack", policy.rule_pack_label || "Load policy")}
+        ${summaryItem("Policy version", policy.version || "Load policy")}
+        ${summaryItem("Blocked drafts", String((dashboard.gate_counts || {}).blocked || 0))}
+        ${summaryItem("Review queue", String(admin.reviewStates?.length || 0))}
+        ${summaryItem("Outcome events", String(Object.values(dashboard.outcome_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)))}
+      </div>
+
+      <details class="analytics-section" open>
+        <summary>Policy controls</summary>
+        <div class="policy-form-grid">
+          <label class="field"><span>Policy version</span><input id="hubspot-policy-version" value="${escapeHtml(policy.version || "2026-06-01.default")}"></label>
+          <label class="field"><span>Rule pack</span><select id="hubspot-policy-rule-pack">${hubspotRulePackOptions(admin.rulePacks, policy.rule_pack || "general")}</select></label>
+          <label class="field"><span>Ready threshold</span><input id="hubspot-policy-ready" type="number" min="0" max="100" value="${escapeHtml(policy.ready_score_threshold ?? 78)}"></label>
+          <label class="field"><span>Review threshold</span><input id="hubspot-policy-review" type="number" min="0" max="100" value="${escapeHtml(policy.review_score_threshold ?? 70)}"></label>
+          <label class="field"><span>Block threshold</span><input id="hubspot-policy-block" type="number" min="0" max="100" value="${escapeHtml(policy.block_score_threshold ?? 50)}"></label>
+          <label class="field"><span>Minimum body words</span><input id="hubspot-policy-min-words" type="number" min="0" max="500" value="${escapeHtml(policy.min_body_words ?? 25)}"></label>
+          <label class="field"><span>Maximum body words</span><input id="hubspot-policy-max-words" type="number" min="1" max="1200" value="${escapeHtml(policy.max_body_words ?? 220)}"></label>
+          <label class="field"><span>Required template tokens</span><textarea id="hubspot-policy-required-tokens" class="compact-textarea">${escapeHtml(textareaList(policy.required_template_tokens || ["unsubscribe_link"]))}</textarea></label>
+          <label class="field"><span>Required headers</span><textarea id="hubspot-policy-required-headers" class="compact-textarea">${escapeHtml(textareaList(policy.required_headers || ["from", "reply_to"]))}</textarea></label>
+          <label class="field"><span>Custom risk phrases</span><textarea id="hubspot-policy-risk" class="compact-textarea">${escapeHtml(textareaList(policy.custom_risk_phrases || []))}</textarea></label>
+          <label class="field"><span>Custom vague phrases</span><textarea id="hubspot-policy-vague" class="compact-textarea">${escapeHtml(textareaList(policy.custom_vague_phrases || []))}</textarea></label>
+        </div>
+        <div class="admin-toggle-grid">
+          ${[
+            ["block_if_no_cta", "Block missing next step"],
+            ["block_high_severity_findings", "Block high-severity findings"],
+            ["compliance_review_on_risk_terms", "Route risk terms to compliance"],
+            ["require_personalization", "Require personalization to be ready"],
+          ].map(([key, label]) => `<label><input id="hubspot-policy-${key}" type="checkbox" ${policy[key] === false ? "" : "checked"}> <span>${escapeHtml(label)}</span></label>`).join("")}
+        </div>
+      </details>
+
+      <div class="admin-live-sections">
+        <article>
+          <strong>Gate counts</strong>
+          ${objectCountRows(dashboard.gate_counts, "No analyses loaded.")}
+        </article>
+        <article>
+          <strong>Outcome joins</strong>
+          ${objectCountRows(dashboard.outcome_counts, "No outcome events loaded.")}
+        </article>
+        <article>
+          <strong>Top failing checks</strong>
+          ${compactRows(dashboard.top_failed_checks, [["Check", "check"], ["Count", "count"]], "No failed checks loaded.")}
+        </article>
+        <article>
+          <strong>Recent findings</strong>
+          ${compactRows(admin.findings, [["Severity", "severity"], ["Finding", "title"], ["Queue", "owner_queue"]], "No findings loaded.")}
+        </article>
+        <article>
+          <strong>Review states</strong>
+          ${compactRows(admin.reviewStates, [["Status", "status"], ["Queue", "owner_queue"], ["SLA", "sla_due_at"]], "No review states loaded.")}
+        </article>
+        <article>
+          <strong>Recent outcomes</strong>
+          ${compactRows(admin.outcomes, [["Event", "event_type"], ["Request", "request_id"], ["Source", "source_system"]], "No outcomes loaded.")}
+        </article>
+      </div>
+    </article>
+  `;
+}
+
 function analyticsWorkspace(context, angles) {
   const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
   return `
@@ -4424,6 +4689,7 @@ function analyticsWorkspace(context, angles) {
       </details>
       <details class="analytics-section" ${state.integrationSetupOpen ? "open" : ""}>
         <summary>Integrations and admin</summary>
+        ${hubspotAdminConsole()}
         <article class="strategy-card">
           <strong>CRM import/export status</strong>
           <p>Integrations stay disabled until credentials, OAuth scopes, and field mappings are configured.</p>

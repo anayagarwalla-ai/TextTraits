@@ -4429,6 +4429,118 @@ body[data-mode="enterprise"] .advanced-card {
   overflow-wrap: anywhere;
 }
 
+.enterprise-admin-console {
+  display: grid;
+  gap: 14px;
+}
+
+.enterprise-admin-console .section-title {
+  align-items: flex-start;
+}
+
+.admin-filters {
+  align-items: end;
+}
+
+.live-admin-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.policy-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.policy-form-grid .field textarea {
+  min-height: 96px;
+}
+
+.admin-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 14px;
+}
+
+.admin-toggle-grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  font-weight: 850;
+}
+
+.admin-live-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-live-sections > article,
+.admin-table article,
+.admin-count-list span {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.admin-live-sections > article {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.admin-count-list,
+.admin-table {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-count-list span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.admin-count-list strong,
+.admin-table b {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.admin-table article {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.admin-table span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #cc3f3f;
+  border-radius: var(--radius-sm);
+  background: #fff2f2;
+  color: #7a1f1f;
+  font-weight: 850;
+}
+
 .outcome-card {
   place-items: center;
   text-align: center;
@@ -4971,6 +5083,11 @@ details[open] > *:not(summary) {
     .account-benefits,
     .auth-grid,
     .admin-grid,
+    .live-admin-grid,
+    .policy-form-grid,
+    .admin-toggle-grid,
+    .admin-live-sections,
+    .admin-table article,
     .profile-grid,
     .coach-flow,
     .habit-strip,

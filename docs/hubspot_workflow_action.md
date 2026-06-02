@@ -44,6 +44,8 @@ Recommended workflow branches:
 - If `texttraits_gate = blocked`, create a task for the owner and stop automated send progression.
 - If `texttraits_route = Compliance review`, route to the compliance/legal review queue.
 
+The HubSpot CRM card shows a workflow branch preview after each analysis. It mirrors these output fields so admins can demo the ready/review/blocked path before wiring workflow branches.
+
 Task creation and field-writeback should be configured in HubSpot using these output fields. TextTraits does not create HubSpot tasks by itself unless a future private-app token and workspace policy explicitly allow that action.
 
 ## Template Testing

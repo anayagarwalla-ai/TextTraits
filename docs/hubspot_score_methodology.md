@@ -38,6 +38,7 @@ Example: if no CTA pattern is found, the finding evidence says: `No reply, confi
 
 Admins can configure policy with `PUT /api/enterprise/hubspot/policy`:
 
+- `rule_pack`: `general`, `sales`, `marketing`, `customer_success`, `healthcare`, or `finance`
 - `ready_score_threshold`
 - `review_score_threshold`
 - `block_score_threshold`
@@ -47,5 +48,9 @@ Admins can configure policy with `PUT /api/enterprise/hubspot/policy`:
 - `require_personalization`
 - `min_body_words`
 - `max_body_words`
+- `custom_risk_phrases`
+- `custom_vague_phrases`
+- `required_template_tokens`
+- `required_headers`
 
-Saved policy affects future HubSpot CRM-card and workflow-action analyses for the configured workspace/environment.
+Rule packs change the active risk phrases, vague-language phrases, required template tokens, and required sender headers. Custom phrase lists extend the selected pack. Saved policy affects future HubSpot CRM-card, workflow-action, and rendered-template-test analyses for the configured workspace/environment.

@@ -147,6 +147,11 @@ def main() -> int:
         "Outcome Learning",
         "Manager Coaching Layer",
         "managerCoachingInsights",
+        "Live HubSpot governance",
+        "hubspotPolicyPayloadFromForm",
+        "hubspot-policy-rule-pack",
+        "CSV export",
+        "JSON export",
     )
     for phrase in enterprise_requirements:
         assert_true(phrase in app_js or phrase in html or phrase in config_js, f"Enterprise workflow missing {phrase}")
