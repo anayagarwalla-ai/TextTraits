@@ -236,6 +236,73 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_analyses (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL UNIQUE,
+                  workspace_id TEXT NOT NULL DEFAULT '',
+                  tenant_id TEXT NOT NULL DEFAULT '',
+                  source_system TEXT NOT NULL DEFAULT 'hubspot',
+                  workflow TEXT NOT NULL DEFAULT '',
+                  analysis_mode TEXT NOT NULL DEFAULT '',
+                  campaign_id TEXT NOT NULL DEFAULT '',
+                  journey_id TEXT NOT NULL DEFAULT '',
+                  template_id TEXT NOT NULL DEFAULT '',
+                  contact_id TEXT NOT NULL DEFAULT '',
+                  company_id TEXT NOT NULL DEFAULT '',
+                  deal_id TEXT NOT NULL DEFAULT '',
+                  owner_id TEXT NOT NULL DEFAULT '',
+                  portal_id TEXT NOT NULL DEFAULT '',
+                  object_type TEXT NOT NULL DEFAULT '',
+                  object_id TEXT NOT NULL DEFAULT '',
+                  locale TEXT NOT NULL DEFAULT '',
+                  content_hash TEXT NOT NULL,
+                  score INTEGER NOT NULL,
+                  gate TEXT NOT NULL,
+                  route TEXT NOT NULL,
+                  send_ready INTEGER NOT NULL DEFAULT 0,
+                  word_count INTEGER NOT NULL DEFAULT 0,
+                  average_model_confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+                  score_source TEXT NOT NULL DEFAULT '',
+                  findings TEXT NOT NULL DEFAULT '[]',
+                  checks TEXT NOT NULL DEFAULT '[]',
+                  policy TEXT NOT NULL DEFAULT '{}',
+                  context TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_review_events (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  action TEXT NOT NULL,
+                  actor_id TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT 'recorded',
+                  payload TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_policy_configs (
+                  id BIGSERIAL PRIMARY KEY,
+                  workspace_id TEXT NOT NULL,
+                  environment TEXT NOT NULL DEFAULT 'production',
+                  policy TEXT NOT NULL DEFAULT '{}',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  updated_at TEXT NOT NULL,
+                  UNIQUE(workspace_id, environment)
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id)")
         else:
             conn.executescript(
                 """
@@ -292,6 +359,65 @@ def init_db() -> None:
               UNIQUE(user_id, provider),
               FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_analyses (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL UNIQUE,
+              workspace_id TEXT NOT NULL DEFAULT '',
+              tenant_id TEXT NOT NULL DEFAULT '',
+              source_system TEXT NOT NULL DEFAULT 'hubspot',
+              workflow TEXT NOT NULL DEFAULT '',
+              analysis_mode TEXT NOT NULL DEFAULT '',
+              campaign_id TEXT NOT NULL DEFAULT '',
+              journey_id TEXT NOT NULL DEFAULT '',
+              template_id TEXT NOT NULL DEFAULT '',
+              contact_id TEXT NOT NULL DEFAULT '',
+              company_id TEXT NOT NULL DEFAULT '',
+              deal_id TEXT NOT NULL DEFAULT '',
+              owner_id TEXT NOT NULL DEFAULT '',
+              portal_id TEXT NOT NULL DEFAULT '',
+              object_type TEXT NOT NULL DEFAULT '',
+              object_id TEXT NOT NULL DEFAULT '',
+              locale TEXT NOT NULL DEFAULT '',
+              content_hash TEXT NOT NULL,
+              score INTEGER NOT NULL,
+              gate TEXT NOT NULL,
+              route TEXT NOT NULL,
+              send_ready INTEGER NOT NULL DEFAULT 0,
+              word_count INTEGER NOT NULL DEFAULT 0,
+              average_model_confidence REAL NOT NULL DEFAULT 0,
+              score_source TEXT NOT NULL DEFAULT '',
+              findings TEXT NOT NULL DEFAULT '[]',
+              checks TEXT NOT NULL DEFAULT '[]',
+              policy TEXT NOT NULL DEFAULT '{}',
+              context TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_review_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              action TEXT NOT NULL,
+              actor_id TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'recorded',
+              payload TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_policy_configs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workspace_id TEXT NOT NULL,
+              environment TEXT NOT NULL DEFAULT 'production',
+              policy TEXT NOT NULL DEFAULT '{}',
+              updated_by TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL,
+              UNIQUE(workspace_id, environment)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id);
             """
             )
         ensure_schema_version(conn)
@@ -738,6 +864,286 @@ def recent_events(user_id: int, limit: int = 25) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def _json_dump(value: Any) -> str:
+    return json.dumps(scrub_payload(value), separators=(",", ":"), sort_keys=True)
+
+
+def _json_load(value: str | None, fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return fallback
+
+
+def _hubspot_analysis_from_row(row) -> dict[str, Any]:
+    return {
+        "request_id": row["request_id"],
+        "workspace_id": row["workspace_id"],
+        "tenant_id": row["tenant_id"],
+        "source_system": row["source_system"],
+        "workflow": row["workflow"],
+        "analysis_mode": row["analysis_mode"],
+        "campaign_id": row["campaign_id"],
+        "journey_id": row["journey_id"],
+        "template_id": row["template_id"],
+        "contact_id": row["contact_id"],
+        "company_id": row["company_id"],
+        "deal_id": row["deal_id"],
+        "owner_id": row["owner_id"],
+        "portal_id": row["portal_id"],
+        "object_type": row["object_type"],
+        "object_id": row["object_id"],
+        "locale": row["locale"],
+        "content_hash": row["content_hash"],
+        "score": int(row["score"] or 0),
+        "gate": row["gate"],
+        "route": row["route"],
+        "send_ready": bool(row["send_ready"]),
+        "word_count": int(row["word_count"] or 0),
+        "average_model_confidence": float(row["average_model_confidence"] or 0),
+        "score_source": row["score_source"],
+        "findings": _json_load(row["findings"], []),
+        "checks": _json_load(row["checks"], []),
+        "policy": _json_load(row["policy"], {}),
+        "context": _json_load(row["context"], {}),
+        "created_at": row["created_at"],
+    }
+
+
+def save_hubspot_email_analysis(record: dict[str, Any]) -> dict[str, Any]:
+    now = record.get("created_at") or utc_now()
+    values = {
+        "request_id": str(record.get("request_id", ""))[:160],
+        "workspace_id": str(record.get("workspace_id", ""))[:160],
+        "tenant_id": str(record.get("tenant_id", ""))[:160],
+        "source_system": str(record.get("source_system", "hubspot"))[:80],
+        "workflow": str(record.get("workflow", ""))[:120],
+        "analysis_mode": str(record.get("analysis_mode", ""))[:80],
+        "campaign_id": str(record.get("campaign_id", ""))[:160],
+        "journey_id": str(record.get("journey_id", ""))[:160],
+        "template_id": str(record.get("template_id", ""))[:160],
+        "contact_id": str(record.get("contact_id", ""))[:160],
+        "company_id": str(record.get("company_id", ""))[:160],
+        "deal_id": str(record.get("deal_id", ""))[:160],
+        "owner_id": str(record.get("owner_id", ""))[:160],
+        "portal_id": str(record.get("portal_id", ""))[:160],
+        "object_type": str(record.get("object_type", ""))[:120],
+        "object_id": str(record.get("object_id", ""))[:160],
+        "locale": str(record.get("locale", ""))[:40],
+        "content_hash": str(record.get("content_hash", ""))[:128],
+        "score": int(record.get("score") or 0),
+        "gate": str(record.get("gate", ""))[:80],
+        "route": str(record.get("route", ""))[:120],
+        "send_ready": 1 if record.get("send_ready") else 0,
+        "word_count": int(record.get("word_count") or 0),
+        "average_model_confidence": float(record.get("average_model_confidence") or 0),
+        "score_source": str(record.get("score_source", ""))[:500],
+        "findings": _json_dump(record.get("findings") or []),
+        "checks": _json_dump(record.get("checks") or []),
+        "policy": _json_dump(record.get("policy") or {}),
+        "context": _json_dump(record.get("context") or {}),
+        "created_at": now,
+    }
+    if not values["request_id"]:
+        raise ValueError("HubSpot analysis record requires a request_id.")
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_email_analyses (
+              request_id, workspace_id, tenant_id, source_system, workflow, analysis_mode,
+              campaign_id, journey_id, template_id, contact_id, company_id, deal_id,
+              owner_id, portal_id, object_type, object_id, locale, content_hash, score,
+              gate, route, send_ready, word_count, average_model_confidence, score_source,
+              findings, checks, policy, context, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+              workspace_id = excluded.workspace_id,
+              tenant_id = excluded.tenant_id,
+              source_system = excluded.source_system,
+              workflow = excluded.workflow,
+              analysis_mode = excluded.analysis_mode,
+              campaign_id = excluded.campaign_id,
+              journey_id = excluded.journey_id,
+              template_id = excluded.template_id,
+              contact_id = excluded.contact_id,
+              company_id = excluded.company_id,
+              deal_id = excluded.deal_id,
+              owner_id = excluded.owner_id,
+              portal_id = excluded.portal_id,
+              object_type = excluded.object_type,
+              object_id = excluded.object_id,
+              locale = excluded.locale,
+              content_hash = excluded.content_hash,
+              score = excluded.score,
+              gate = excluded.gate,
+              route = excluded.route,
+              send_ready = excluded.send_ready,
+              word_count = excluded.word_count,
+              average_model_confidence = excluded.average_model_confidence,
+              score_source = excluded.score_source,
+              findings = excluded.findings,
+              checks = excluded.checks,
+              policy = excluded.policy,
+              context = excluded.context
+            """,
+            tuple(values[key] for key in values),
+        )
+    return values
+
+
+def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_analyses {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [_hubspot_analysis_from_row(row) for row in rows]
+
+
+def save_hubspot_review_event(request_id: str, action: str, payload: dict[str, Any] | None = None, actor_id: str = "", status: str = "recorded") -> dict[str, Any]:
+    clean_action = SAFE_EVENT_TYPE_RE.sub("_", str(action or "")).strip("_")[:80]
+    if clean_action not in {"copy_recommendation", "mark_reviewed", "send_to_marketing_review", "rerun_analysis"}:
+        raise ValueError("Unsupported HubSpot review action.")
+    clean_request_id = str(request_id or "").strip()[:160]
+    if not clean_request_id:
+        raise ValueError("HubSpot review action requires a request_id.")
+    event = {
+        "request_id": clean_request_id,
+        "action": clean_action,
+        "actor_id": str(actor_id or "")[:160],
+        "status": str(status or "recorded")[:80],
+        "payload": scrub_payload(payload or {}),
+        "created_at": utc_now(),
+    }
+    with connect() as conn:
+        execute(
+            conn,
+            "INSERT INTO hubspot_email_review_events (request_id, action, actor_id, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (event["request_id"], event["action"], event["actor_id"], event["status"], _json_dump(event["payload"]), event["created_at"]),
+        )
+    return event
+
+
+def list_hubspot_review_events(request_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    params: tuple[Any, ...]
+    if request_id:
+        statement = "SELECT request_id, action, actor_id, status, payload, created_at FROM hubspot_email_review_events WHERE request_id = ? ORDER BY id DESC LIMIT ?"
+        params = (str(request_id)[:160], safe_limit)
+    else:
+        statement = "SELECT request_id, action, actor_id, status, payload, created_at FROM hubspot_email_review_events ORDER BY id DESC LIMIT ?"
+        params = (safe_limit,)
+    with connect() as conn:
+        rows = execute(conn, statement, params).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "action": row["action"],
+            "actor_id": row["actor_id"],
+            "status": row["status"],
+            "payload": _json_load(row["payload"], {}),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def get_hubspot_policy_config(workspace_id: str, environment: str = "production") -> dict[str, Any] | None:
+    with connect() as conn:
+        row = execute(
+            conn,
+            "SELECT policy, updated_by, updated_at FROM hubspot_policy_configs WHERE workspace_id = ? AND environment = ?",
+            (str(workspace_id or "default")[:160], str(environment or "production")[:80]),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "workspace_id": str(workspace_id or "default")[:160],
+        "environment": str(environment or "production")[:80],
+        "policy": _json_load(row["policy"], {}),
+        "updated_by": row["updated_by"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def save_hubspot_policy_config(workspace_id: str, environment: str, policy: dict[str, Any], updated_by: str = "") -> dict[str, Any]:
+    now = utc_now()
+    clean_workspace = str(workspace_id or "default")[:160]
+    clean_environment = str(environment or "production")[:80]
+    clean_policy = scrub_payload(policy or {})
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_policy_configs (workspace_id, environment, policy, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, environment)
+            DO UPDATE SET policy = excluded.policy, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+            """,
+            (clean_workspace, clean_environment, _json_dump(clean_policy), str(updated_by or "")[:160], now),
+        )
+    return {
+        "workspace_id": clean_workspace,
+        "environment": clean_environment,
+        "policy": clean_policy,
+        "updated_by": str(updated_by or "")[:160],
+        "updated_at": now,
+    }
+
+
+def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
+    analyses = list_hubspot_email_analyses(limit=limit)
+    total = len(analyses)
+    gates: dict[str, int] = {}
+    source_scores: dict[str, list[int]] = {}
+    failed_checks: dict[str, int] = {}
+    route_counts: dict[str, int] = {}
+    blocked = []
+    for item in analyses:
+        gates[item["gate"]] = gates.get(item["gate"], 0) + 1
+        route_counts[item["route"]] = route_counts.get(item["route"], 0) + 1
+        source = item["source_system"] or "unknown"
+        source_scores.setdefault(source, []).append(item["score"])
+        if item["gate"] == "blocked":
+            blocked.append(item)
+        for check in item.get("checks", []):
+            if check.get("status") != "pass":
+                label = check.get("label") or check.get("id") or "Unknown check"
+                failed_checks[label] = failed_checks.get(label, 0) + 1
+    average_by_source = {
+        source: round(sum(scores) / len(scores), 1)
+        for source, scores in source_scores.items()
+        if scores
+    }
+    return {
+        "total_analyses": total,
+        "gate_counts": gates,
+        "route_counts": route_counts,
+        "average_score_by_source": average_by_source,
+        "top_failed_checks": [
+            {"check": check, "count": count}
+            for check, count in sorted(failed_checks.items(), key=lambda item: item[1], reverse=True)[:10]
+        ],
+        "recent_blocked_drafts": blocked[:10],
+        "generated_at": utc_now(),
+    }
 
 
 def upsert_integration(user_id: int, provider: str, status: str, config: dict[str, Any] | None = None) -> dict[str, Any]:

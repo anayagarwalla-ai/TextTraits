@@ -157,6 +157,20 @@ def main() -> int:
     assert_true(crm_payload["analysis"]["email_quality"]["score_source"].startswith("Weighted email-quality checks"), "score source should be explicit")
     assert_true(crm_payload["outputFields"]["texttraits_score"] == crm_payload["analysis"]["email_quality"]["score"], "writeback score should use email-quality score")
     assert_true("decision" in crm_payload["analysis"], "HubSpot CRM card endpoint should return decision metadata")
+    assert_true("policy" in crm_payload["analysis"], "HubSpot CRM card endpoint should return policy metadata")
+    assert_true("context" in crm_payload["analysis"], "HubSpot CRM card endpoint should return context metadata")
+    assert_true(crm_payload["analysis"]["email_quality"]["checks"][0]["evidence"], "HubSpot checks should include evidence-level details")
+
+    review_event = client.post(
+        "/v1/integrations/hubspot/review-action",
+        json={
+            "request_id": crm_payload["outputFields"]["texttraits_request_id"],
+            "action": "mark_reviewed",
+            "payload": {"gate": crm_payload["outputFields"]["texttraits_gate"]},
+        },
+    )
+    assert_true(review_event.status_code == 200, review_event.get_data(as_text=True))
+    assert_true(review_event.get_json()["event"]["action"] == "mark_reviewed", "HubSpot review action should be recorded")
 
     clear_email = client.post(
         "/v1/integrations/hubspot/crm-card/analyze-email",
@@ -179,6 +193,48 @@ def main() -> int:
     ).get_json()
     assert_true(unclear_email["outputFields"]["texttraits_gate"] == "blocked", "unclear email should be blocked by quality checks")
     assert_true(unclear_email["analysis"]["email_quality"]["findings"], "unclear email should include actionable findings")
+    assert_true(unclear_email["analysis"]["email_quality"]["findings"][0]["evidence"], "findings should show failed-check evidence")
+
+    policy_update = client.put(
+        "/api/enterprise/hubspot/policy",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "environment": "production",
+            "policy": {
+                "version": "qa-policy",
+                "ready_score_threshold": 75,
+                "review_score_threshold": 60,
+                "block_score_threshold": 20,
+                "block_if_no_cta": False,
+                "block_high_severity_findings": False,
+                "compliance_review_on_risk_terms": True,
+                "require_personalization": False,
+                "min_body_words": 20,
+                "max_body_words": 240,
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    assert_true(policy_update.status_code == 200, policy_update.get_data(as_text=True))
+    policy_get = client.get("/api/enterprise/hubspot/policy?workspace_id=hubspot_246356639")
+    assert_true(policy_get.get_json()["policy"]["version"] == "qa-policy", "HubSpot policy should persist")
+
+    policy_routed = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Factory tour plan",
+                "body": (
+                    "Hi Brian, the June 3 factory tour agenda includes cupcake line walkthrough, safety notes, "
+                    "and a staffing overview for your team. The plan gives Acme a simple view of timing, owners, "
+                    "and preparation details before the visit."
+                ),
+            },
+        },
+    ).get_json()
+    assert_true(policy_routed["analysis"]["policy"]["version"] == "qa-policy", "analysis should use saved policy")
+    assert_true(policy_routed["outputFields"]["texttraits_gate"] == "ready", "saved policy should affect routing thresholds")
 
     workflow_action = client.post(
         "/v1/integrations/hubspot/workflow-actions/analyze-email",
@@ -191,6 +247,17 @@ def main() -> int:
     )
     assert_true(workflow_action.status_code == 200, workflow_action.get_data(as_text=True))
     assert_true(workflow_action.get_json()["workflow"] == "hubspot_workflow_action", "HubSpot workflow action endpoint should remain available")
+
+    analyses = client.get("/api/enterprise/hubspot/analyses?workspace_id=hubspot_246356639")
+    assert_true(analyses.status_code == 200, analyses.get_data(as_text=True))
+    assert_true(len(analyses.get_json()["analyses"]) >= 3, "HubSpot analyses should persist for reporting")
+    dashboard = client.get("/api/enterprise/hubspot/dashboard")
+    assert_true(dashboard.status_code == 200, dashboard.get_data(as_text=True))
+    assert_true("top_failed_checks" in dashboard.get_json()["dashboard"], "HubSpot dashboard should include failed-check rollups")
+    json_export = client.get("/api/enterprise/hubspot/exports/analyses.json?workspace_id=hubspot_246356639")
+    assert_true(json_export.status_code == 200 and json_export.get_json()["analyses"], "HubSpot JSON export should return analyses")
+    csv_export = client.get("/api/enterprise/hubspot/exports/analyses.csv?workspace_id=hubspot_246356639")
+    assert_true(csv_export.status_code == 200 and "text/csv" in csv_export.headers.get("Content-Type", ""), "HubSpot CSV export should be available")
 
     export = client.post("/api/account/export", json={"password": "texttraits-test-updated"}, headers=csrf_headers(client))
     assert_true(export.status_code == 200, "account export failed")

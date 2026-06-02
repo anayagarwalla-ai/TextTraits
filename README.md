@@ -145,6 +145,13 @@ gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
 
 The repository is deploy-ready, but no live public URL is currently verified in this checkout.
 
+## Enterprise HubSpot Docs
+
+- `docs/hubspot_score_methodology.md`
+- `docs/hubspot_workflow_action.md`
+- `docs/hubspot_reliability_security.md`
+- `docs/enterprise_demo_script.md`
+
 ## Troubleshooting
 
 - If `/evaluate` says the model is unavailable, run `python scripts/verify_models.py` and confirm the model bundle exists.

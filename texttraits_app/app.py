@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import csv
+import io
 import json
 import logging
 import os
@@ -15,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlencode, urlparse
 
-from flask import Flask, g, jsonify, redirect, render_template, render_template_string, request, session
+from flask import Flask, Response, g, jsonify, redirect, render_template, render_template_string, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -46,13 +48,20 @@ from storage import (
     export_user_data,
     get_user_by_id,
     get_workspace,
+    get_hubspot_policy_config,
+    hubspot_email_dashboard,
     init_db,
     integrations,
+    list_hubspot_email_analyses,
+    list_hubspot_review_events,
     log_event,
     needs_email_verification,
     recent_events,
     reset_password,
     save_workspace,
+    save_hubspot_email_analysis,
+    save_hubspot_policy_config,
+    save_hubspot_review_event,
     contains_sensitive_key,
     scrub_payload,
     upsert_integration,
@@ -110,11 +119,17 @@ TRUSTED_PUBLIC_HOSTS = {
     for host in os.getenv("TEXTTRAITS_ALLOWED_PUBLIC_HOSTS", "").split(",")
     if host.strip()
 }
+ENTERPRISE_ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("TEXTTRAITS_ENTERPRISE_ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
 UNSPECIFIED_IPV4 = ".".join(("0", "0", "0", "0"))
 LOCAL_PUBLIC_HOSTS = {"localhost", "127.0.0.1", "::1", UNSPECIFIED_IPV4}
 HUBSPOT_PUBLIC_INGRESS_PATHS = {
     "/v1/integrations/hubspot/workflow-actions/analyze-email",
     "/v1/integrations/hubspot/crm-card/analyze-email",
+    "/v1/integrations/hubspot/review-action",
 }
 ALLOWED_WORKSPACE_KEYS = {
     "mode",
@@ -198,6 +213,31 @@ EMAIL_RISK_PHRASES = (
     "no strings attached",
     "free money",
 )
+DEFAULT_HUBSPOT_EMAIL_POLICY = {
+    "version": "2026-06-01.default",
+    "ready_score_threshold": 78,
+    "review_score_threshold": 70,
+    "block_score_threshold": 50,
+    "block_if_no_cta": True,
+    "block_high_severity_findings": True,
+    "compliance_review_on_risk_terms": True,
+    "require_personalization": False,
+    "min_body_words": 25,
+    "max_body_words": 220,
+}
+HUBSPOT_POLICY_BOOLEAN_KEYS = {
+    "block_if_no_cta",
+    "block_high_severity_findings",
+    "compliance_review_on_risk_terms",
+    "require_personalization",
+}
+HUBSPOT_POLICY_INTEGER_BOUNDS = {
+    "ready_score_threshold": (0, 100),
+    "review_score_threshold": (0, 100),
+    "block_score_threshold": (0, 100),
+    "min_body_words": (0, 500),
+    "max_body_words": (1, 1200),
+}
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
@@ -368,6 +408,19 @@ def require_user() -> tuple[int | None, tuple | None]:
         if csrf:
             session["csrf_token"] = csrf
         return None, (jsonify({"error": "Verify your email before using account sync."}), 403)
+    return user_id, None
+
+
+def require_enterprise_admin() -> tuple[int | None, tuple | None]:
+    user_id, error = require_user()
+    if error:
+        return None, error
+    if not ENTERPRISE_ADMIN_EMAILS:
+        return user_id, None
+    user = get_user_by_id(user_id)
+    email = str((user or {}).get("email", "")).strip().lower()
+    if email not in ENTERPRISE_ADMIN_EMAILS:
+        return None, (jsonify({"error": "Enterprise admin access is required."}), 403)
     return user_id, None
 
 
@@ -593,6 +646,54 @@ def prediction_confidences(value) -> list[float]:
     return []
 
 
+def clamp_int(value: Any, low: int, high: int, fallback: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, number))
+
+
+def normalized_hubspot_email_policy(raw_policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    policy = dict(DEFAULT_HUBSPOT_EMAIL_POLICY)
+    env_policy = os.getenv("TEXTTRAITS_HUBSPOT_EMAIL_POLICY_JSON", "").strip()
+    if env_policy:
+        try:
+            loaded = json.loads(env_policy)
+            if isinstance(loaded, dict):
+                policy.update(loaded)
+        except json.JSONDecodeError:
+            logging.warning("invalid_hubspot_email_policy_env")
+    if isinstance(raw_policy, dict):
+        policy.update(raw_policy)
+    clean: dict[str, Any] = {"version": str(policy.get("version") or DEFAULT_HUBSPOT_EMAIL_POLICY["version"])[:80]}
+    for key in HUBSPOT_POLICY_BOOLEAN_KEYS:
+        clean[key] = bool(policy.get(key, DEFAULT_HUBSPOT_EMAIL_POLICY[key]))
+    for key, (low, high) in HUBSPOT_POLICY_INTEGER_BOUNDS.items():
+        clean[key] = clamp_int(policy.get(key), low, high, DEFAULT_HUBSPOT_EMAIL_POLICY[key])
+    if clean["max_body_words"] <= clean["min_body_words"]:
+        clean["max_body_words"] = min(1200, clean["min_body_words"] + 1)
+    if clean["ready_score_threshold"] < clean["review_score_threshold"]:
+        clean["ready_score_threshold"] = clean["review_score_threshold"]
+    if clean["review_score_threshold"] < clean["block_score_threshold"]:
+        clean["review_score_threshold"] = clean["block_score_threshold"]
+    return clean
+
+
+def hubspot_policy_for_request(payload: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    workspace_id = str(payload.get("workspace_id") or context.get("workspace_id") or "default")[:160]
+    environment = str(payload.get("environment") or payload.get("analysis_environment") or "production")[:80]
+    saved = get_hubspot_policy_config(workspace_id, environment)
+    if saved is None and workspace_id != "default":
+        saved = get_hubspot_policy_config("default", environment)
+    raw_policy = saved["policy"] if saved else {}
+    policy = normalized_hubspot_email_policy(raw_policy)
+    policy["workspace_id"] = workspace_id
+    policy["environment"] = environment
+    policy["source"] = "saved" if saved else "default"
+    return policy
+
+
 def email_word_count(text: str) -> int:
     return len(WORD_RE.findall(text or ""))
 
@@ -628,7 +729,7 @@ def email_specific_anchors(text: str) -> list[str]:
     return deduped[:12]
 
 
-def email_personalization_hits(subject: str, body: str) -> list[str]:
+def email_personalization_hits(subject: str, body: str, context: dict[str, Any] | None = None) -> list[str]:
     text = f"{subject}\n{body}"
     hits: list[str] = []
     if EMAIL_GREETING_RE.search(body or ""):
@@ -637,6 +738,11 @@ def email_personalization_hits(subject: str, body: str) -> list[str]:
         hits.append("personalization token")
     if re.search(r"\b(your|you|your team|for your)\b", text, re.IGNORECASE):
         hits.append("recipient-focused wording")
+    context = context or {}
+    for label, value in (("contact context", context.get("contact_name")), ("company context", context.get("company_name"))):
+        clean = str(value or "").strip()
+        if len(clean) >= 3 and re.search(rf"\b{re.escape(clean)}\b", text, re.IGNORECASE):
+            hits.append(label)
     return hits
 
 
@@ -737,8 +843,11 @@ def email_subject_check(subject: str) -> tuple[dict[str, Any], dict[str, Any] | 
     return email_check("subject_clarity", "Subject clarity", 15, 15, [f"{subject_words} words, {subject_chars} characters."]), None
 
 
-def email_body_check(body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def email_body_check(body: str, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    policy = policy or DEFAULT_HUBSPOT_EMAIL_POLICY
     words = email_word_count(body)
+    min_body_words = int(policy.get("min_body_words", DEFAULT_HUBSPOT_EMAIL_POLICY["min_body_words"]))
+    max_body_words = int(policy.get("max_body_words", DEFAULT_HUBSPOT_EMAIL_POLICY["max_body_words"]))
     if not body.strip():
         finding = email_finding(
             "body_missing",
@@ -752,33 +861,33 @@ def email_body_check(body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
             "Add body copy, then run TextTraits again.",
         )
         return email_check("body_completeness", "Body completeness", 15, 0, ["Missing body."], finding), finding
-    if words < 25:
+    if words < min_body_words:
         severity = "high" if words < 8 else "medium"
         finding = email_finding(
             "body_too_short",
             severity,
             "Body is too short for a reliable routing decision",
             "Very short drafts often omit context, reason, or next step.",
-            [f"{words} body words."],
+            [f"{words} body words.", f"Current policy minimum is {min_body_words} words."],
             "Add context and one clear next step.",
             "Marketing review",
             "High" if severity == "high" else "Medium",
             "Add the reason for the email and the action you want the recipient to take.",
         )
-        return email_check("body_completeness", "Body completeness", 15, 5 if severity == "high" else 9, [f"{words} body words."], finding), finding
-    if words > 220:
+        return email_check("body_completeness", "Body completeness", 15, 5 if severity == "high" else 9, [f"{words} body words.", f"Policy minimum: {min_body_words}."], finding), finding
+    if words > max_body_words:
         finding = email_finding(
             "body_too_long",
             "medium",
             "Body may be too long for CRM outreach",
             "Long drafts can bury the decision or requested action.",
-            [f"{words} body words."],
+            [f"{words} body words.", f"Current policy maximum is {max_body_words} words."],
             "Shorten the draft around the reason, context, and next step.",
             "Marketing review",
             "Medium",
             "Cut nonessential detail before routing.",
         )
-        return email_check("body_completeness", "Body completeness", 15, 10, [f"{words} body words."], finding), finding
+        return email_check("body_completeness", "Body completeness", 15, 10, [f"{words} body words.", f"Policy maximum: {max_body_words}."], finding), finding
     return email_check("body_completeness", "Body completeness", 15, 15, [f"{words} body words."]), None
 
 
@@ -832,8 +941,8 @@ def email_specificity_check(text: str) -> tuple[dict[str, Any], dict[str, Any] |
     return email_check("specificity", "Specificity", 20, score, [f"{len(anchors)} concrete anchors.", f"{len(vague_hits)} vague phrases."], finding), finding
 
 
-def email_personalization_check(subject: str, body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    hits = email_personalization_hits(subject, body)
+def email_personalization_check(subject: str, body: str, context: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    hits = email_personalization_hits(subject, body, context)
     if hits:
         return email_check("personalization", "Personalization", 10, 10, [f"Detected: {', '.join(hits)}."]), None
     finding = email_finding(
@@ -904,17 +1013,39 @@ def email_risk_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     return email_check("risk_terms", "Risk terms", 10, 2 if severity == "high" else 5, [f"Risk phrases: {', '.join(risk_hits[:5])}."], finding), finding
 
 
-def email_decision_from_quality(score: int, findings: list[dict[str, Any]]) -> dict[str, Any]:
+def email_decision_from_quality(score: int, findings: list[dict[str, Any]], checks: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
     high_findings = [item for item in findings if item.get("severity") == "high"]
     medium_findings = [item for item in findings if item.get("severity") == "medium"]
     top_finding = high_findings[0] if high_findings else medium_findings[0] if medium_findings else findings[0] if findings else None
-    if high_findings or score < 50:
+    check_statuses = {item.get("id"): item.get("status") for item in checks}
+    has_missing_cta = any(item.get("id") == "next_step_missing" for item in findings)
+    has_risk_terms = any(item.get("id") == "risk_terms_detected" for item in findings)
+    ready_threshold = int(policy.get("ready_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["ready_score_threshold"]))
+    block_threshold = int(policy.get("block_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["block_score_threshold"]))
+    block_high = bool(policy.get("block_high_severity_findings", True))
+    if bool(policy.get("compliance_review_on_risk_terms", True)) and has_risk_terms:
+        risk_finding = next(item for item in findings if item.get("id") == "risk_terms_detected")
+        gate = "blocked" if risk_finding.get("severity") == "high" else "needs_review"
+        route = "Compliance review"
+        label = "Blocked" if gate == "blocked" else "Needs review"
+        score_meaning = "Routed by configured compliance-risk policy"
+        blocker_level = risk_finding.get("blocker_level", "High" if gate == "blocked" else "Medium")
+        top_finding = risk_finding
+    elif bool(policy.get("block_if_no_cta", True)) and has_missing_cta:
+        cta_finding = next(item for item in findings if item.get("id") == "next_step_missing")
+        gate = "blocked"
+        route = cta_finding.get("owner_queue", "Marketing review")
+        label = "Blocked"
+        score_meaning = "Blocked by configured missing-next-step policy"
+        blocker_level = cta_finding.get("blocker_level", "High")
+        top_finding = cta_finding
+    elif (block_high and high_findings) or score < block_threshold:
         gate = "blocked"
         route = top_finding.get("owner_queue", "Compliance review") if top_finding else "Compliance review"
         label = "Blocked"
         score_meaning = "Blocked by a high-priority email-quality issue"
         blocker_level = top_finding.get("blocker_level", "High") if top_finding else "High"
-    elif score >= 78 and not medium_findings:
+    elif score >= ready_threshold and not medium_findings and (not policy.get("require_personalization") or check_statuses.get("personalization") == "pass"):
         gate = "ready"
         route = "Sending system"
         label = "Ready to route"
@@ -944,16 +1075,18 @@ def email_decision_from_quality(score: int, findings: list[dict[str, Any]]) -> d
         "action": action,
         "score_meaning": score_meaning,
         "reason": reason,
+        "policy_version": policy.get("version", DEFAULT_HUBSPOT_EMAIL_POLICY["version"]),
     }
 
 
-def build_hubspot_email_quality(subject: str, body: str, text: str) -> dict[str, Any]:
+def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    policy = normalized_hubspot_email_policy(policy)
     check_builders = (
         lambda: email_subject_check(subject),
-        lambda: email_body_check(body),
+        lambda: email_body_check(body, policy),
         lambda: email_next_step_check(text),
         lambda: email_specificity_check(text),
-        lambda: email_personalization_check(subject, body),
+        lambda: email_personalization_check(subject, body, context),
         lambda: email_readability_check(body),
         lambda: email_risk_check(text),
     )
@@ -965,7 +1098,7 @@ def build_hubspot_email_quality(subject: str, body: str, text: str) -> dict[str,
         if finding:
             findings.append(finding)
     score = sum(item["score"] for item in checks)
-    decision = email_decision_from_quality(score, findings)
+    decision = email_decision_from_quality(score, findings, checks, policy)
     return {
         "score": score,
         "score_source": "Weighted email-quality checks, not generated copy or a generic model-confidence average.",
@@ -973,6 +1106,7 @@ def build_hubspot_email_quality(subject: str, body: str, text: str) -> dict[str,
         "checks": checks,
         "findings": findings,
         "decision": decision,
+        "policy": policy,
     }
 
 
@@ -1001,6 +1135,84 @@ def sanitize_workspace_data(data: dict[str, Any]) -> dict[str, Any]:
     # The frontend intentionally syncs only metadata/history. Keep raw pasted text out of cloud persistence.
     clean["latestText"] = ""
     return clean
+
+
+def nested_value(source: Any, path: tuple[str, ...]) -> Any:
+    current = source
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def first_text_value(*values: Any, max_length: int = 160) -> str:
+    for value in values:
+        if value is None:
+            continue
+        clean = str(value).strip()
+        if clean:
+            return clean[:max_length]
+    return ""
+
+
+def hubspot_context_from_payload(payload: dict[str, Any], input_fields: dict[str, Any]) -> dict[str, Any]:
+    raw_context = payload.get("crmContext") if isinstance(payload.get("crmContext"), dict) else {}
+    extension_context = payload.get("hubspotContext") if isinstance(payload.get("hubspotContext"), dict) else {}
+    generic_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    object_id = first_text_value(
+        input_fields.get("object_id"),
+        input_fields.get("hs_object_id"),
+        payload.get("object_id"),
+        raw_context.get("objectId"),
+        raw_context.get("object_id"),
+        extension_context.get("objectId"),
+        extension_context.get("recordId"),
+        generic_context.get("objectId"),
+        generic_context.get("recordId"),
+    )
+    object_type = first_text_value(
+        input_fields.get("object_type"),
+        payload.get("object_type"),
+        raw_context.get("objectType"),
+        raw_context.get("objectTypeId"),
+        extension_context.get("objectType"),
+        extension_context.get("objectTypeId"),
+        generic_context.get("objectType"),
+        generic_context.get("objectTypeId"),
+    )
+    portal_id = first_text_value(
+        input_fields.get("portal_id"),
+        payload.get("portal_id"),
+        payload.get("tenant_id"),
+        nested_value(extension_context, ("portal", "id")),
+        extension_context.get("portalId"),
+        generic_context.get("portalId"),
+        raw_context.get("portalId"),
+    )
+    context = {
+        "workspace_id": first_text_value(payload.get("workspace_id"), input_fields.get("workspace_id"), f"hubspot_{portal_id}" if portal_id else "hubspot_workspace"),
+        "tenant_id": first_text_value(payload.get("tenant_id"), input_fields.get("tenant_id"), portal_id),
+        "source_system": first_text_value(payload.get("source_system"), input_fields.get("source_system"), "hubspot", max_length=80),
+        "workflow": first_text_value(payload.get("workflow"), input_fields.get("workflow"), max_length=120),
+        "analysis_mode": first_text_value(payload.get("analysis_mode"), input_fields.get("analysis_mode"), "send_path_gate", max_length=80),
+        "campaign_id": first_text_value(payload.get("campaign_id"), input_fields.get("campaign_id"), max_length=160),
+        "journey_id": first_text_value(payload.get("journey_id"), input_fields.get("journey_id"), max_length=160),
+        "template_id": first_text_value(payload.get("template_id"), input_fields.get("template_id"), max_length=160),
+        "contact_id": first_text_value(payload.get("contact_id"), input_fields.get("contact_id"), raw_context.get("contactId"), object_id if "contact" in object_type.lower() else "", max_length=160),
+        "company_id": first_text_value(payload.get("company_id"), input_fields.get("company_id"), raw_context.get("companyId"), max_length=160),
+        "deal_id": first_text_value(payload.get("deal_id"), input_fields.get("deal_id"), raw_context.get("dealId"), max_length=160),
+        "owner_id": first_text_value(payload.get("owner_id"), input_fields.get("owner_id"), raw_context.get("ownerId"), max_length=160),
+        "portal_id": portal_id,
+        "object_type": object_type,
+        "object_id": object_id,
+        "locale": first_text_value(payload.get("locale"), input_fields.get("locale"), extension_context.get("locale"), generic_context.get("locale"), max_length=40),
+        "contact_name": first_text_value(payload.get("contact_name"), input_fields.get("contact_name"), raw_context.get("contactName"), max_length=160),
+        "company_name": first_text_value(payload.get("company_name"), input_fields.get("company_name"), raw_context.get("companyName"), max_length=160),
+        "lifecycle_stage": first_text_value(payload.get("lifecycle_stage"), input_fields.get("lifecycle_stage"), raw_context.get("lifecycleStage"), max_length=120),
+        "recent_activity": first_text_value(payload.get("recent_activity"), input_fields.get("recent_activity"), raw_context.get("recentActivity"), max_length=300),
+    }
+    return context
 
 
 @app.get("/")
@@ -1068,6 +1280,9 @@ def hubspot_analysis_response(payload: dict, workflow: str):
     subject = str(input_fields.get("subject", "")).strip()
     body = str(input_fields.get("body") or input_fields.get("text") or "").strip()
     text = f"{subject}\n\n{body}".strip()
+    context = hubspot_context_from_payload(payload, input_fields)
+    context["workflow"] = workflow
+    policy = hubspot_policy_for_request(payload, context)
     if not text:
         return jsonify({"error": "Enter an email subject or body to analyze."}), 400
     if len(text.split()) > MAX_TEXT_WORDS:
@@ -1079,7 +1294,7 @@ def hubspot_analysis_response(payload: dict, workflow: str):
 
     confidences = prediction_confidences(predictions)
     average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-    email_quality = build_hubspot_email_quality(subject, body, text)
+    email_quality = build_hubspot_email_quality(subject, body, text, policy, context)
     decision = email_quality["decision"]
     score = email_quality["score"]
     gate = decision["gate"]
@@ -1096,6 +1311,25 @@ def hubspot_analysis_response(payload: dict, workflow: str):
             "workspace_id": str(payload.get("workspace_id", ""))[:120],
         },
     )
+    save_hubspot_email_analysis(
+        {
+            **context,
+            "request_id": request_id,
+            "workflow": workflow,
+            "content_hash": content_hash,
+            "score": score,
+            "gate": gate,
+            "route": route,
+            "send_ready": gate == "ready",
+            "word_count": len(text.split()),
+            "average_model_confidence": round(average_confidence, 4),
+            "score_source": email_quality["score_source"],
+            "findings": email_quality["findings"],
+            "checks": email_quality["checks"],
+            "policy": policy,
+            "context": context,
+        }
+    )
     return jsonify(
         {
             "workflow": workflow,
@@ -1109,6 +1343,7 @@ def hubspot_analysis_response(payload: dict, workflow: str):
                 "texttraits_next_step": decision["next_step"],
                 "texttraits_owner_queue": decision["owner_queue"],
                 "texttraits_blocker_level": decision["blocker_level"],
+                "texttraits_policy_version": policy.get("version"),
             },
             "analysis": {
                 "request_id": request_id,
@@ -1120,6 +1355,8 @@ def hubspot_analysis_response(payload: dict, workflow: str):
                 "average_model_confidence": round(average_confidence, 4),
                 "decision": decision,
                 "email_quality": email_quality,
+                "policy": policy,
+                "context": context,
                 "demo": bool(getattr(predictor, "is_demo", False)),
                 "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
             },
@@ -1137,6 +1374,169 @@ def hubspot_crm_card_analyze_email():
 @rate_limited(60)
 def hubspot_workflow_action_analyze_email():
     return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_workflow_action")
+
+
+def hubspot_analysis_filters_from_request() -> dict[str, str]:
+    allowed = ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id")
+    return {key: request.args.get(key, "").strip() for key in allowed if request.args.get(key, "").strip()}
+
+
+def safe_csv_cell(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        clean = json.dumps(value, separators=(",", ":"), sort_keys=True)
+    else:
+        clean = str(value or "")
+    clean = clean.replace("\r", " ").replace("\n", " ").strip()
+    if clean.startswith(("=", "+", "-", "@")):
+        return "'" + clean
+    return clean
+
+
+HUBSPOT_ANALYSIS_EXPORT_COLUMNS = (
+    "created_at",
+    "request_id",
+    "workspace_id",
+    "tenant_id",
+    "source_system",
+    "workflow",
+    "analysis_mode",
+    "campaign_id",
+    "journey_id",
+    "template_id",
+    "contact_id",
+    "company_id",
+    "deal_id",
+    "owner_id",
+    "portal_id",
+    "object_type",
+    "object_id",
+    "locale",
+    "content_hash",
+    "score",
+    "gate",
+    "route",
+    "send_ready",
+    "word_count",
+    "average_model_confidence",
+    "score_source",
+)
+
+
+@app.post("/v1/integrations/hubspot/review-action")
+@rate_limited(120)
+def hubspot_review_action():
+    payload = request.get_json(silent=True) or {}
+    try:
+        event = save_hubspot_review_event(
+            str(payload.get("request_id") or payload.get("texttraits_request_id") or ""),
+            str(payload.get("action") or ""),
+            payload.get("payload") if isinstance(payload.get("payload"), dict) else {},
+            actor_id=str(payload.get("actor_id") or payload.get("user_id") or ""),
+            status=str(payload.get("status") or "recorded"),
+        )
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    log_event(current_user_id(), "hubspot_review_action", {"request_id": event["request_id"], "action": event["action"]})
+    return jsonify({"ok": True, "event": event})
+
+
+@app.get("/api/enterprise/hubspot/analyses")
+@rate_limited(60)
+def api_enterprise_hubspot_analyses():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    limit = clamp_int(request.args.get("limit"), 1, 1000, 100)
+    analyses = list_hubspot_email_analyses(limit=limit, filters=hubspot_analysis_filters_from_request())
+    log_event(user_id, "hubspot_analyses_viewed", {"count": len(analyses)})
+    return jsonify({"analyses": analyses, "review_events": list_hubspot_review_events(limit=100)})
+
+
+@app.get("/api/enterprise/hubspot/dashboard")
+@rate_limited(60)
+def api_enterprise_hubspot_dashboard():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    limit = clamp_int(request.args.get("limit"), 1, 1000, 500)
+    dashboard = hubspot_email_dashboard(limit=limit)
+    log_event(user_id, "hubspot_dashboard_viewed", {"total": dashboard["total_analyses"]})
+    return jsonify({"dashboard": dashboard})
+
+
+@app.get("/api/enterprise/hubspot/exports/analyses.json")
+@rate_limited(30)
+def api_enterprise_hubspot_export_json():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    analyses = list_hubspot_email_analyses(limit=clamp_int(request.args.get("limit"), 1, 1000, 1000), filters=hubspot_analysis_filters_from_request())
+    log_event(user_id, "hubspot_analyses_exported", {"format": "json", "count": len(analyses)})
+    return jsonify({"analyses": analyses, "exported_at": analyzedTimeForServer()})
+
+
+@app.get("/api/enterprise/hubspot/exports/analyses.csv")
+@rate_limited(30)
+def api_enterprise_hubspot_export_csv():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    analyses = list_hubspot_email_analyses(limit=clamp_int(request.args.get("limit"), 1, 1000, 1000), filters=hubspot_analysis_filters_from_request())
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=HUBSPOT_ANALYSIS_EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for row in analyses:
+        writer.writerow({key: safe_csv_cell(row.get(key)) for key in HUBSPOT_ANALYSIS_EXPORT_COLUMNS})
+    log_event(user_id, "hubspot_analyses_exported", {"format": "csv", "count": len(analyses)})
+    return Response(
+        buffer.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=texttraits-hubspot-analyses.csv"},
+    )
+
+
+def analyzedTimeForServer() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+@app.get("/api/enterprise/hubspot/policy")
+@rate_limited(60)
+def api_enterprise_hubspot_policy_get():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    workspace_id = request.args.get("workspace_id", "default").strip() or "default"
+    environment = request.args.get("environment", "production").strip() or "production"
+    saved = get_hubspot_policy_config(workspace_id, environment)
+    policy = normalized_hubspot_email_policy(saved["policy"] if saved else {})
+    return jsonify({"workspace_id": workspace_id, "environment": environment, "policy": policy, "source": "saved" if saved else "default", "updated_at": saved["updated_at"] if saved else ""})
+
+
+@app.put("/api/enterprise/hubspot/policy")
+@rate_limited(30)
+def api_enterprise_hubspot_policy_put():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    workspace_id = str(payload.get("workspace_id") or "default").strip() or "default"
+    environment = str(payload.get("environment") or "production").strip() or "production"
+    raw_policy = payload.get("policy")
+    if not isinstance(raw_policy, dict):
+        return jsonify({"error": "Policy must be an object."}), 400
+    allowed_keys = {"version", *HUBSPOT_POLICY_BOOLEAN_KEYS, *HUBSPOT_POLICY_INTEGER_BOUNDS.keys()}
+    unsupported = sorted(set(raw_policy.keys()) - allowed_keys)
+    if unsupported:
+        return jsonify({"error": "Policy contains unsupported fields.", "fields": unsupported[:10]}), 400
+    user = get_user_by_id(user_id)
+    saved = save_hubspot_policy_config(
+        workspace_id,
+        environment,
+        normalized_hubspot_email_policy(raw_policy),
+        updated_by=(user or {}).get("email", ""),
+    )
+    log_event(user_id, "hubspot_policy_updated", {"workspace_id": workspace_id, "environment": environment})
+    return jsonify(saved)
 
 
 @app.get("/api/session")
