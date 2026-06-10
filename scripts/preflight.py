@@ -47,12 +47,6 @@ def main() -> int:
             fail("TEXTTRAITS_ALLOW_DEMO=false is required in production.", failures)
         if os.getenv("TEXTTRAITS_DEV_ACCOUNT_LINKS", "").lower() in {"1", "true", "yes", "on"}:
             fail("TEXTTRAITS_DEV_ACCOUNT_LINKS=false is required in production.", failures)
-        if os.getenv("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH", "true").lower() not in {"1", "true", "yes", "on"}:
-            fail("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH=true is required in production.", failures)
-        if os.getenv("TEXTTRAITS_API_KEY", "").strip() and not (
-            os.getenv("TEXTTRAITS_API_KEY_SHA256", "").strip() or os.getenv("TEXTTRAITS_API_KEY_HASHES", "").strip()
-        ):
-            fail("Use TEXTTRAITS_API_KEY_SHA256 or TEXTTRAITS_API_KEY_HASHES instead of plaintext TEXTTRAITS_API_KEY in production.", failures)
         public_origin = urlparse(os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", ""))
         public_hostname = (public_origin.hostname or "").lower()
         if public_origin.scheme != "https":

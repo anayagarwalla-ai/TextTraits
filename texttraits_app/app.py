@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import csv
+import hmac
+import io
 import json
 import logging
 import os
-import secrets
-import hashlib
-import hmac
-import csv
-import io
 import re
+import secrets
 import time
 import urllib.request
 from html import escape as html_escape
@@ -18,20 +18,12 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlencode, urlparse
 
-from flask import Flask, g, jsonify, make_response, redirect, render_template, render_template_string, request, session
+from flask import Flask, Response, g, jsonify, redirect, render_template, render_template_string, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from demo_predictor import DemoPredictor
 from email_delivery import send_account_email, status as email_status
-from email_analysis import (
-    build_email_analysis,
-    compact_analysis,
-    integration_flow_catalog,
-    rendered_template_harness,
-    safe_template_summary,
-    utc_now,
-)
 from env_loader import load_env_file
 from integration_adapters import (
     build_authorization_url,
@@ -44,21 +36,6 @@ from integration_adapters import (
     public_providers,
     slug as provider_slug,
 )
-from integration_contracts import (
-    CONTRACT_VERSION as INTEGRATION_CONTRACT_VERSION,
-    all_manifests,
-    mapping_template,
-    normalize_provider,
-    provider_manifest,
-    validate_field_mapping,
-)
-from hubspot_platform import (
-    build_hubspot_crm_card,
-    build_hubspot_platform_config,
-    env_flag as hubspot_env_flag,
-    flask_hubspot_signature_status,
-)
-from openapi_contract import build_install_kit, build_openapi_spec
 from observability import configure_logging, init_error_reporting
 from predictor import DEFAULT_MODEL_PATH, TextTraitsPredictor
 from storage import (
@@ -69,29 +46,31 @@ from storage import (
     database_backend,
     database_url,
     delete_user,
-    enterprise_governance_snapshot,
     export_user_data,
-    get_governance_policy,
     get_user_by_id,
     get_workspace,
+    get_hubspot_policy_config,
+    hubspot_email_dashboard,
     init_db,
     integrations,
+    list_hubspot_normalized_checks,
+    list_hubspot_normalized_findings,
+    list_hubspot_email_analyses,
+    list_hubspot_outcome_events,
+    list_hubspot_policy_versions,
+    list_hubspot_review_events,
+    list_hubspot_review_states,
     log_event,
     needs_email_verification,
     recent_events,
-    recent_integration_field_mappings,
-    governance_export_rows,
-    save_email_analysis,
-    save_email_outcome,
-    save_integration_field_mapping,
-    save_sample_import,
     reset_password,
-    save_governance_policy,
     save_workspace,
+    save_hubspot_email_analysis,
+    save_hubspot_outcome_event,
+    save_hubspot_policy_config,
+    save_hubspot_review_event,
     contains_sensitive_key,
     scrub_payload,
-    upsert_webhook_event,
-    get_integration_field_mapping,
     upsert_integration,
     upsert_oauth_user,
     user_session_version,
@@ -141,15 +120,26 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
 APP_SECRET = os.getenv("TEXTTRAITS_SECRET_KEY", "dev-texttraits-change-me")
 PUBLIC_BASE_URL = os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", "http://127.0.0.1:5000")
 ALLOW_DEV_ACCOUNT_LINKS = env_flag("TEXTTRAITS_DEV_ACCOUNT_LINKS", False)
-WEBHOOK_SIGNATURE_TOLERANCE_SECONDS = int(os.getenv("TEXTTRAITS_WEBHOOK_SIGNATURE_TOLERANCE_SECONDS", "300"))
 GOOGLE_AUTH_CLIENT_ID = (os.getenv("TEXTTRAITS_GOOGLE_AUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or "").strip()
 TRUSTED_PUBLIC_HOSTS = {
     host.strip().lower()
     for host in os.getenv("TEXTTRAITS_ALLOWED_PUBLIC_HOSTS", "").split(",")
     if host.strip()
 }
+ENTERPRISE_ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("TEXTTRAITS_ENTERPRISE_ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
 UNSPECIFIED_IPV4 = ".".join(("0", "0", "0", "0"))
 LOCAL_PUBLIC_HOSTS = {"localhost", "127.0.0.1", "::1", UNSPECIFIED_IPV4}
+HUBSPOT_PUBLIC_INGRESS_PATHS = {
+    "/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "/v1/integrations/hubspot/crm-card/analyze-email",
+    "/v1/integrations/hubspot/review-action",
+    "/v1/integrations/hubspot/outcomes",
+    "/v1/integrations/hubspot/template-test",
+}
 ALLOWED_WORKSPACE_KEYS = {
     "mode",
     "latestText",
@@ -185,17 +175,145 @@ COMMON_PASSWORDS = {
     "qwerty123",
     "letmein123",
 }
+WORD_RE = re.compile(r"\b[\w'-]+\b")
+SENTENCE_RE = re.compile(r"[.!?]+")
+EMAIL_PLACEHOLDER_RE = re.compile(r"({{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])")
+EMAIL_GREETING_RE = re.compile(r"\b(?:hi|hello|dear)\s+([A-Z][a-z]{1,30}|{{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])")
+EMAIL_DATE_RE = re.compile(
+    r"\b(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|this week|"
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|"
+    r"sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
+    re.IGNORECASE,
+)
+EMAIL_TIME_RE = re.compile(r"\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)\b", re.IGNORECASE)
+EMAIL_NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?%?\b")
+EMAIL_PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{2,}\b")
+EMAIL_CTA_PATTERNS = {
+    "reply": re.compile(r"\b(reply|respond|let me know|tell me)\b", re.IGNORECASE),
+    "confirm": re.compile(r"\b(confirm|approve|review|check|verify)\b", re.IGNORECASE),
+    "schedule": re.compile(r"\b(schedule|book|meet|call|demo|visit)\b", re.IGNORECASE),
+    "send": re.compile(r"\b(send|share|forward|attach|provide)\b", re.IGNORECASE),
+    "choose": re.compile(r"\b(choose|select|pick|decide)\b", re.IGNORECASE),
+}
+EMAIL_VAGUE_PHRASES = (
+    "just checking",
+    "touch base",
+    "circle back",
+    "things",
+    "stuff",
+    "some time",
+    "soon",
+    "maybe",
+    "kind of",
+    "sort of",
+    "asap",
+    "when you get a chance",
+)
+EMAIL_RISK_PHRASES = (
+    "guaranteed",
+    "guarantee",
+    "risk-free",
+    "no risk",
+    "act now",
+    "urgent",
+    "final notice",
+    "limited time",
+    "100%",
+    "no strings attached",
+    "free money",
+)
+HUBSPOT_HIGH_RISK_PHRASES = {
+    "guaranteed",
+    "guarantee",
+    "100%",
+    "guaranteed return",
+    "risk-free investment",
+    "approval guaranteed",
+    "cure",
+    "diagnose",
+    "hipaa compliant",
+}
+HUBSPOT_EMAIL_RULE_PACKS = {
+    "general": {
+        "label": "General B2B",
+        "risk_phrases": EMAIL_RISK_PHRASES,
+        "vague_phrases": EMAIL_VAGUE_PHRASES,
+        "required_template_tokens": ("unsubscribe_link",),
+        "required_headers": ("from", "reply_to"),
+    },
+    "sales": {
+        "label": "Sales outreach",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("instant roi", "guaranteed pipeline", "limited seats", "exclusive offer"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("quick sync", "touch base", "checking in"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+    "marketing": {
+        "label": "Marketing campaign",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("blast", "guaranteed results", "no obligation", "exclusive deal"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("exciting update", "game changer", "value add"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+    "customer_success": {
+        "label": "Customer success",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("no effort", "set and forget", "perfect adoption", "guaranteed renewal"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("circle back", "quick check", "touch base"),
+        "required_template_tokens": ("first_name",),
+        "required_headers": ("from", "reply_to"),
+    },
+    "healthcare": {
+        "label": "Healthcare outreach",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("cure", "diagnose", "treat", "hipaa compliant", "clinical guarantee"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("better outcomes", "patient impact", "workflow improvement"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+    "finance": {
+        "label": "Financial services",
+        "risk_phrases": EMAIL_RISK_PHRASES + ("guaranteed return", "risk-free investment", "no downside", "approval guaranteed"),
+        "vague_phrases": EMAIL_VAGUE_PHRASES + ("financial upside", "strong return", "market advantage"),
+        "required_template_tokens": ("first_name", "unsubscribe_link"),
+        "required_headers": ("from", "reply_to"),
+    },
+}
+DEFAULT_HUBSPOT_EMAIL_POLICY = {
+    "version": "2026-06-01.default",
+    "rule_pack": "general",
+    "ready_score_threshold": 78,
+    "review_score_threshold": 70,
+    "block_score_threshold": 50,
+    "block_if_no_cta": True,
+    "block_high_severity_findings": True,
+    "compliance_review_on_risk_terms": True,
+    "require_personalization": False,
+    "min_body_words": 25,
+    "max_body_words": 220,
+    "custom_risk_phrases": [],
+    "custom_vague_phrases": [],
+    "required_template_tokens": ["unsubscribe_link"],
+    "required_headers": ["from", "reply_to"],
+}
+HUBSPOT_POLICY_BOOLEAN_KEYS = {
+    "block_if_no_cta",
+    "block_high_severity_findings",
+    "compliance_review_on_risk_terms",
+    "require_personalization",
+}
+HUBSPOT_POLICY_INTEGER_BOUNDS = {
+    "ready_score_threshold": (0, 100),
+    "review_score_threshold": (0, 100),
+    "block_score_threshold": (0, 100),
+    "min_body_words": (0, 500),
+    "max_body_words": (1, 1200),
+}
+HUBSPOT_POLICY_LIST_KEYS = {
+    "custom_risk_phrases",
+    "custom_vague_phrases",
+    "required_template_tokens",
+    "required_headers",
+}
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
-DATA_DIR = Path(__file__).resolve().parent / "data"
-ENTERPRISE_PLAN_PATH = DATA_DIR / "enterprise_integration_plan.json"
-ENTERPRISE_DATA_GET_PREFIXES = (
-    "/v1/governance",
-    "/v1/integrations/manifests",
-    "/v1/integrations/field-mappings",
-)
-ENTERPRISE_DATA_GET_SUFFIXES = (
-    "/manifest",
-)
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 configure_logging(ARTIFACT_DIR / "app.log")
 
@@ -225,12 +343,6 @@ def validate_runtime_config() -> None:
             failures.append("TEXTTRAITS_ALLOW_DEMO must be false in production.")
         if ALLOW_DEV_ACCOUNT_LINKS:
             failures.append("TEXTTRAITS_DEV_ACCOUNT_LINKS must be false in production.")
-        if not env_flag("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH", True):
-            failures.append("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH=true is required in production.")
-        if os.getenv("TEXTTRAITS_API_KEY", "").strip() and not (
-            os.getenv("TEXTTRAITS_API_KEY_SHA256", "").strip() or os.getenv("TEXTTRAITS_API_KEY_HASHES", "").strip()
-        ):
-            failures.append("Use TEXTTRAITS_API_KEY_SHA256 or TEXTTRAITS_API_KEY_HASHES instead of plaintext TEXTTRAITS_API_KEY in production.")
         if not env_flag("TEXTTRAITS_SECURE_COOKIES", False):
             failures.append("TEXTTRAITS_SECURE_COOKIES=true is required in production.")
         if database_backend() != "postgres":
@@ -257,10 +369,10 @@ AVAILABLE_MODELS = [
         "description": "Runtime model bundle",
     },
     {
-        "id": "external_connector",
-        "name": "External model connector",
+        "id": "pandora_cloud",
+        "name": "PANDORA cloud-trained",
         "available": False,
-        "description": "Not configured in this local build",
+        "description": "Cloud model placeholder",
     },
 ]
 
@@ -288,7 +400,6 @@ rate_buckets: dict[str, deque[float]] = defaultdict(deque)
 
 def rate_limited(limit: int | None = None) -> Callable:
     max_calls = limit or RATE_LIMIT_PER_MINUTE
-    window_seconds = 60
 
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
@@ -297,33 +408,12 @@ def rate_limited(limit: int | None = None) -> Callable:
             key = f"{identity}:{request.endpoint or fn.__name__}"
             now = time.time()
             bucket = rate_buckets[key]
-            while bucket and now - bucket[0] > window_seconds:
+            while bucket and now - bucket[0] > 60:
                 bucket.popleft()
             if len(bucket) >= max_calls:
-                retry_after = max(1, int(window_seconds - (now - bucket[0])) + 1)
-                response = jsonify(
-                    {
-                        "error": "Too many requests. Please wait a moment and try again.",
-                        "rate_limit": {
-                            "limit": max_calls,
-                            "remaining": 0,
-                            "window_seconds": window_seconds,
-                            "retry_after_seconds": retry_after,
-                        },
-                    }
-                )
-                response.status_code = 429
-                response.headers["Retry-After"] = str(retry_after)
-                response.headers["X-RateLimit-Limit"] = str(max_calls)
-                response.headers["X-RateLimit-Remaining"] = "0"
-                response.headers["X-RateLimit-Reset"] = str(int(now + retry_after))
-                return response
+                return jsonify({"error": "Too many requests. Please wait a moment and try again."}), 429
             bucket.append(now)
-            response = make_response(fn(*args, **kwargs))
-            response.headers["X-RateLimit-Limit"] = str(max_calls)
-            response.headers["X-RateLimit-Remaining"] = str(max(max_calls - len(bucket), 0))
-            response.headers["X-RateLimit-Reset"] = str(int(bucket[0] + window_seconds))
-            return response
+            return fn(*args, **kwargs)
 
         return wrapper
 
@@ -396,8 +486,72 @@ def require_user() -> tuple[int | None, tuple | None]:
     return user_id, None
 
 
+def require_enterprise_admin() -> tuple[int | None, tuple | None]:
+    user_id, error = require_user()
+    if error:
+        return None, error
+    if PRODUCTION and not ENTERPRISE_ADMIN_EMAILS:
+        return None, (jsonify({"error": "Configure TEXTTRAITS_ENTERPRISE_ADMIN_EMAILS before enabling enterprise admin endpoints in production."}), 503)
+    if not ENTERPRISE_ADMIN_EMAILS:
+        return user_id, None
+    user = get_user_by_id(user_id)
+    email = str((user or {}).get("email", "")).strip().lower()
+    if email not in ENTERPRISE_ADMIN_EMAILS:
+        return None, (jsonify({"error": "Enterprise admin access is required."}), 403)
+    return user_id, None
+
+
 def public_url(path: str) -> str:
     return f"{PUBLIC_BASE_URL.rstrip('/')}/{path.lstrip('/')}"
+
+
+def oauth_completion_page(title: str, message: str, status: int = 200):
+    return (
+        render_template_string(
+            """
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>{{ title }}</title>
+                <link rel="stylesheet" href="/static/styles.css">
+              </head>
+              <body>
+                <main class="legal-page">
+                  <h1>{{ title }}</h1>
+                  <p>{{ message }}</p>
+                  <p>You can close this tab and return to HubSpot.</p>
+                </main>
+              </body>
+            </html>
+            """,
+            title=title,
+            message=message,
+        ),
+        status,
+    )
+
+
+def marketplace_install_user(entry, token_payload: dict, state: str) -> dict:
+    portal_id = str(token_payload.get("hub_id") or token_payload.get("hub_domain") or state or "unknown").strip()
+    safe_portal_id = "".join(ch for ch in portal_id if ch.isalnum() or ch in {"-", "_"})[:80] or "unknown"
+    user = upsert_oauth_user(
+        f"hubspot-install-{safe_portal_id}@integrations.texttraits.local",
+        f"HubSpot install {safe_portal_id}",
+        provider=entry.name,
+    )
+    config = {
+        "connected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "marketplace_install": True,
+        "hubspot_portal_id": token_payload.get("hub_id"),
+        "hubspot_domain": token_payload.get("hub_domain"),
+        "token_type": token_payload.get("token_type"),
+        "expires_in": token_payload.get("expires_in"),
+        "scope": token_payload.get("scope"),
+        "tokens_stored": bool(os.getenv("TEXTTRAITS_STORE_OAUTH_TOKENS", "").strip().lower() in {"1", "true", "yes", "on"}),
+    }
+    return upsert_integration(user["id"], entry.name, "connected", config)
 
 
 def send_verification_email(user: dict, token: str | None) -> dict:
@@ -436,10 +590,6 @@ def send_password_reset_email(email: str, token: str) -> dict:
 
 @app.after_request
 def add_security_headers(response):
-    if private_response_path():
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
@@ -477,101 +627,48 @@ def request_origin_allowed() -> bool:
     return supplied.scheme == public_origin.scheme and supplied.netloc in allowed_netlocs
 
 
-def api_key_header_supplied() -> bool:
-    return bool(request.headers.get("X-TextTraits-Api-Key", "").strip())
+def hubspot_public_ingress_path() -> bool:
+    return request.method in {"POST", "OPTIONS"} and request.path in HUBSPOT_PUBLIC_INGRESS_PATHS
 
 
-def normalized_sha256_digest(value: str) -> str:
-    clean = value.strip().lower()
-    if clean.startswith("sha256:"):
-        clean = clean.split(":", 1)[1]
-    return clean if re.fullmatch(r"[a-f0-9]{64}", clean) else ""
+def hubspot_ingress_secret() -> str:
+    return os.getenv("TEXTTRAITS_HUBSPOT_INGRESS_SECRET", "").strip()
 
 
-def configured_api_key_hashes() -> tuple[str, ...]:
-    hashes: list[str] = []
-    for env_name in ("TEXTTRAITS_API_KEY_HASHES", "TEXTTRAITS_API_KEY_SHA256"):
-        for item in os.getenv(env_name, "").split(","):
-            digest = normalized_sha256_digest(item)
-            if digest:
-                hashes.append(digest)
-    legacy_key = os.getenv("TEXTTRAITS_API_KEY", "").strip()
-    if legacy_key:
-        hashes.append(hashlib.sha256(legacy_key.encode("utf-8")).hexdigest())
-    return tuple(dict.fromkeys(hashes))
+def hubspot_ingress_auth_required() -> bool:
+    return env_flag("TEXTTRAITS_REQUIRE_HUBSPOT_INGRESS_AUTH", False)
 
 
-def api_key_request_allowed() -> bool:
-    supplied = request.headers.get("X-TextTraits-Api-Key", "").strip()
-    supplied_digest = hashlib.sha256(supplied.encode("utf-8")).hexdigest() if supplied else ""
-    if not (supplied_digest and any(secrets.compare_digest(supplied_digest, expected) for expected in configured_api_key_hashes())):
-        return False
-    raw_scopes = os.getenv("TEXTTRAITS_API_KEY_SCOPES", "").strip()
-    if not raw_scopes:
-        g.api_key_scope = "unscoped"
-        return True
-    workspace_id = integration_workspace_id(request.get_json(silent=True) if request.is_json else None) if request.path.startswith("/v1/") else "default"
-    method_path = f"{request.method}:{request.path}"
-    for raw_scope in raw_scopes.split(","):
-        scope = raw_scope.strip()
-        if not scope or ":" not in scope:
-            continue
-        workspace_scope, path_scope = scope.split(":", 1)
-        workspace_match = workspace_scope in {"*", workspace_id}
-        endpoint_match = path_scope in {"*", request.path} or method_path.startswith(path_scope) or request.path.startswith(path_scope)
-        if workspace_match and endpoint_match:
-            g.api_key_scope = scope
-            return True
-    return False
+def hubspot_ingress_auth_error() -> tuple | None:
+    secret = hubspot_ingress_secret()
+    if not secret and not hubspot_ingress_auth_required():
+        g.hubspot_ingress_auth = {"mode": "unsigned"}
+        return None
+    if not secret:
+        return jsonify({"error": "HubSpot ingress authentication is required but TEXTTRAITS_HUBSPOT_INGRESS_SECRET is not configured."}), 503
 
+    supplied_key = request.headers.get("X-TextTraits-API-Key", "")
+    if supplied_key and hmac.compare_digest(supplied_key, secret):
+        g.hubspot_ingress_auth = {"mode": "api_key"}
+        return None
 
-def enterprise_data_read_path() -> bool:
-    if request.method not in {"GET", "HEAD"}:
-        return False
-    if any(request.path.startswith(prefix) for prefix in ENTERPRISE_DATA_GET_PREFIXES):
-        return True
-    return request.path.startswith("/v1/integrations/") and request.path.endswith(ENTERPRISE_DATA_GET_SUFFIXES)
-
-
-def private_response_path() -> bool:
-    return request.path.startswith("/api/") or request.path.startswith("/v1/")
-
-
-def browser_session_request_allowed() -> bool:
-    if not (session.get("csrf_token") and request_origin_allowed()):
-        return False
-    if env_flag("TEXTTRAITS_REQUIRE_ENTERPRISE_BROWSER_AUTH", PRODUCTION) and not current_user_id():
-        return False
-    return True
-
-
-def hubspot_platform_request_allowed() -> bool:
-    if not request.path.startswith("/v1/integrations/hubspot/"):
-        return False
-    status = flask_hubspot_signature_status(request)
-    g.hubspot_signature = status
-    return bool(status.get("valid"))
+    supplied_signature = request.headers.get("X-TextTraits-Signature", "").strip()
+    body = request.get_data(cache=True) or b""
+    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    candidates = {expected, f"sha256={expected}"}
+    if supplied_signature and any(hmac.compare_digest(supplied_signature, candidate) for candidate in candidates):
+        g.hubspot_ingress_auth = {"mode": "hmac_sha256"}
+        return None
+    return jsonify({"error": "HubSpot ingress signature was missing or invalid."}), 401
 
 
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
-    if enterprise_data_read_path():
-        if api_key_header_supplied():
-            if api_key_request_allowed():
-                return None
-            return jsonify({"error": "API key is invalid or not scoped for this endpoint."}), 401
-        if browser_session_request_allowed():
-            return None
-        return jsonify({"error": "Authentication required for enterprise governance and integration data."}), 401
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return None
-    if request.path.startswith("/v1/") and api_key_header_supplied():
-        if api_key_request_allowed():
-            return None
-        return jsonify({"error": "API key is invalid or not scoped for this endpoint."}), 401
-    if request.path.startswith("/v1/integrations/hubspot/") and hubspot_platform_request_allowed():
-        return None
+    if hubspot_public_ingress_path():
+        return hubspot_ingress_auth_error()
     if not request_origin_allowed():
         return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
     expected = session.get("csrf_token")
@@ -613,20 +710,6 @@ def public_app_info() -> dict:
     }
 
 
-def load_enterprise_integration_plan() -> dict[str, Any]:
-    with ENTERPRISE_PLAN_PATH.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-@app.get("/api/enterprise/integration-plan")
-def api_enterprise_integration_plan():
-    try:
-        return jsonify(load_enterprise_integration_plan())
-    except Exception:
-        logging.exception("enterprise_integration_plan_unavailable")
-        return jsonify({"error": "Enterprise integration plan is unavailable."}), 503
-
-
 def verify_google_identity_token(credential: str) -> dict[str, str]:
     if not GOOGLE_AUTH_CLIENT_ID:
         raise ValueError("Google sign-in is not configured for this deployment.")
@@ -655,6 +738,567 @@ def public_prediction_payload(predictions: dict) -> dict:
     return scrub_public_value(predictions)
 
 
+def prediction_confidences(value) -> list[float]:
+    if isinstance(value, dict):
+        values = []
+        if isinstance(value.get("confidence"), (int, float)):
+            values.append(float(value["confidence"]))
+        for child in value.values():
+            values.extend(prediction_confidences(child))
+        return values
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            values.extend(prediction_confidences(item))
+        return values
+    return []
+
+
+def clamp_int(value: Any, low: int, high: int, fallback: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, number))
+
+
+def normalized_policy_list(value: Any, fallback: Any = (), limit: int = 40) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\n,]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = list(fallback or [])
+    items: list[str] = []
+    for raw_item in raw_items:
+        clean = re.sub(r"\s+", " ", str(raw_item or "").strip().lower())[:80]
+        if clean and clean not in items:
+            items.append(clean)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def combined_policy_phrases(base: Any, custom: Any, limit: int = 80) -> list[str]:
+    return normalized_policy_list([*normalized_policy_list(base, limit=limit), *normalized_policy_list(custom, limit=limit)], limit=limit)
+
+
+def normalized_hubspot_email_policy(raw_policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    policy = dict(DEFAULT_HUBSPOT_EMAIL_POLICY)
+    env_policy = os.getenv("TEXTTRAITS_HUBSPOT_EMAIL_POLICY_JSON", "").strip()
+    if env_policy:
+        try:
+            loaded = json.loads(env_policy)
+            if isinstance(loaded, dict):
+                policy.update(loaded)
+        except json.JSONDecodeError:
+            logging.warning("invalid_hubspot_email_policy_env")
+    if isinstance(raw_policy, dict):
+        policy.update(raw_policy)
+    clean: dict[str, Any] = {"version": str(policy.get("version") or DEFAULT_HUBSPOT_EMAIL_POLICY["version"])[:80]}
+    rule_pack = re.sub(r"[^a-z0-9_]+", "_", str(policy.get("rule_pack") or "general").strip().lower())[:80]
+    if rule_pack not in HUBSPOT_EMAIL_RULE_PACKS:
+        rule_pack = "general"
+    pack = HUBSPOT_EMAIL_RULE_PACKS[rule_pack]
+    clean["rule_pack"] = rule_pack
+    clean["rule_pack_label"] = pack["label"]
+    for key in HUBSPOT_POLICY_BOOLEAN_KEYS:
+        clean[key] = bool(policy.get(key, DEFAULT_HUBSPOT_EMAIL_POLICY[key]))
+    for key, (low, high) in HUBSPOT_POLICY_INTEGER_BOUNDS.items():
+        clean[key] = clamp_int(policy.get(key), low, high, DEFAULT_HUBSPOT_EMAIL_POLICY[key])
+    clean["custom_risk_phrases"] = normalized_policy_list(policy.get("custom_risk_phrases"), (), limit=30)
+    clean["custom_vague_phrases"] = normalized_policy_list(policy.get("custom_vague_phrases"), (), limit=30)
+    clean["risk_phrases"] = combined_policy_phrases(pack.get("risk_phrases"), clean["custom_risk_phrases"], limit=90)
+    clean["vague_phrases"] = combined_policy_phrases(pack.get("vague_phrases"), clean["custom_vague_phrases"], limit=90)
+    clean["required_template_tokens"] = normalized_policy_list(
+        policy.get("required_template_tokens"),
+        pack.get("required_template_tokens", ()),
+        limit=20,
+    )
+    clean["required_headers"] = normalized_policy_list(
+        policy.get("required_headers"),
+        pack.get("required_headers", ()),
+        limit=20,
+    )
+    if clean["max_body_words"] <= clean["min_body_words"]:
+        clean["max_body_words"] = min(1200, clean["min_body_words"] + 1)
+    if clean["ready_score_threshold"] < clean["review_score_threshold"]:
+        clean["ready_score_threshold"] = clean["review_score_threshold"]
+    if clean["review_score_threshold"] < clean["block_score_threshold"]:
+        clean["review_score_threshold"] = clean["block_score_threshold"]
+    return clean
+
+
+def hubspot_policy_for_request(payload: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    workspace_id = str(payload.get("workspace_id") or context.get("workspace_id") or "default")[:160]
+    environment = str(payload.get("environment") or payload.get("analysis_environment") or "production")[:80]
+    saved = get_hubspot_policy_config(workspace_id, environment)
+    if saved is None and workspace_id != "default":
+        saved = get_hubspot_policy_config("default", environment)
+    raw_policy = saved["policy"] if saved else {}
+    policy = normalized_hubspot_email_policy(raw_policy)
+    policy["workspace_id"] = workspace_id
+    policy["environment"] = environment
+    policy["source"] = "saved" if saved else "default"
+    return policy
+
+
+def email_word_count(text: str) -> int:
+    return len(WORD_RE.findall(text or ""))
+
+
+def email_sentence_count(text: str) -> int:
+    fragments = [fragment.strip() for fragment in SENTENCE_RE.split(text or "") if fragment.strip()]
+    return max(1, len(fragments)) if text.strip() else 0
+
+
+def email_phrase_hits(text: str, phrases: tuple[str, ...]) -> list[str]:
+    lowered = f" {text.lower()} "
+    return [phrase for phrase in phrases if phrase in lowered]
+
+
+def email_cta_hits(text: str) -> list[str]:
+    return [label for label, pattern in EMAIL_CTA_PATTERNS.items() if pattern.search(text or "")]
+
+
+def email_specific_anchors(text: str) -> list[str]:
+    anchors: list[str] = []
+    anchors.extend(match.group(0) for match in EMAIL_DATE_RE.finditer(text or ""))
+    anchors.extend(match.group(0) for match in EMAIL_TIME_RE.finditer(text or ""))
+    anchors.extend(match.group(0) for match in EMAIL_NUMBER_RE.finditer(text or ""))
+    for match in EMAIL_PROPER_NOUN_RE.finditer(text or ""):
+        token = match.group(0)
+        if token.lower() not in {"hi", "hello", "dear", "thanks", "thank", "best"}:
+            anchors.append(token)
+    deduped: list[str] = []
+    for anchor in anchors:
+        clean = anchor.strip()
+        if clean and clean.lower() not in {item.lower() for item in deduped}:
+            deduped.append(clean)
+    return deduped[:12]
+
+
+def email_personalization_hits(subject: str, body: str, context: dict[str, Any] | None = None) -> list[str]:
+    text = f"{subject}\n{body}"
+    hits: list[str] = []
+    if EMAIL_GREETING_RE.search(body or ""):
+        hits.append("named greeting")
+    if EMAIL_PLACEHOLDER_RE.search(text):
+        hits.append("personalization token")
+    if re.search(r"\b(your|you|your team|for your)\b", text, re.IGNORECASE):
+        hits.append("recipient-focused wording")
+    context = context or {}
+    for label, value in (("contact context", context.get("contact_name")), ("company context", context.get("company_name"))):
+        clean = str(value or "").strip()
+        if len(clean) >= 3 and re.search(rf"\b{re.escape(clean)}\b", text, re.IGNORECASE):
+            hits.append(label)
+    return hits
+
+
+def email_finding(
+    finding_id: str,
+    severity: str,
+    title: str,
+    detail: str,
+    evidence: list[str],
+    next_step: str,
+    owner_queue: str,
+    blocker_level: str,
+    action: str,
+) -> dict[str, Any]:
+    return {
+        "id": finding_id,
+        "severity": severity,
+        "title": title,
+        "detail": detail,
+        "evidence": evidence,
+        "next_step": next_step,
+        "owner_queue": owner_queue,
+        "blocker_level": blocker_level,
+        "action": action,
+    }
+
+
+def email_check(
+    check_id: str,
+    label: str,
+    weight: int,
+    score: int,
+    evidence: list[str],
+    finding: dict[str, Any] | None = None,
+    penalty: int = 0,
+) -> dict[str, Any]:
+    bounded_score = max(0, min(weight, int(round(score))))
+    bounded_penalty = max(0, int(round(penalty)))
+    if finding and finding["severity"] == "high":
+        status = "blocked"
+    elif bounded_score >= weight * 0.8 and finding is None:
+        status = "pass"
+    elif bounded_score >= weight * 0.5:
+        status = "needs_review"
+    else:
+        status = "blocked" if weight >= 15 else "needs_review"
+    return {
+        "id": check_id,
+        "label": label,
+        "weight": weight,
+        "score": bounded_score,
+        "status": status,
+        "evidence": evidence,
+        "finding_id": finding["id"] if finding else None,
+        "penalty": bounded_penalty,
+    }
+
+
+def email_subject_check(subject: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    subject_words = email_word_count(subject)
+    subject_chars = len(subject.strip())
+    if not subject.strip():
+        finding = email_finding(
+            "subject_missing",
+            "high",
+            "Subject is missing",
+            "The draft cannot be routed safely without a subject line.",
+            ["No subject text was provided."],
+            "Add a short subject that matches the body.",
+            "Marketing review",
+            "High",
+            "Write a concrete subject before running the draft again.",
+        )
+        return email_check("subject_clarity", "Subject clarity", 15, 0, ["Missing subject."], finding), finding
+    if subject_words < 2 or subject_chars < 8:
+        finding = email_finding(
+            "subject_thin",
+            "medium",
+            "Subject is too thin",
+            "The subject gives reviewers little information about why the email is being sent.",
+            [f"{subject_words} subject word{'s' if subject_words != 1 else ''}."],
+            "Make the subject name the topic or requested decision.",
+            "Marketing review",
+            "Medium",
+            "Expand the subject with the concrete topic of the message.",
+        )
+        return email_check("subject_clarity", "Subject clarity", 15, 8, [f"{subject_words} words, {subject_chars} characters."], finding), finding
+    if subject_words > 14 or subject_chars > 90:
+        finding = email_finding(
+            "subject_long",
+            "medium",
+            "Subject may be too long",
+            "Long subjects can be harder to scan in CRM and inbox workflows.",
+            [f"{subject_words} words, {subject_chars} characters."],
+            "Shorten the subject to the main topic and action.",
+            "Marketing review",
+            "Medium",
+            "Trim the subject before routing this draft.",
+        )
+        return email_check("subject_clarity", "Subject clarity", 15, 10, [f"{subject_words} words, {subject_chars} characters."], finding), finding
+    return email_check("subject_clarity", "Subject clarity", 15, 15, [f"{subject_words} words, {subject_chars} characters."]), None
+
+
+def email_body_check(body: str, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    policy = policy or DEFAULT_HUBSPOT_EMAIL_POLICY
+    words = email_word_count(body)
+    min_body_words = int(policy.get("min_body_words", DEFAULT_HUBSPOT_EMAIL_POLICY["min_body_words"]))
+    max_body_words = int(policy.get("max_body_words", DEFAULT_HUBSPOT_EMAIL_POLICY["max_body_words"]))
+    if not body.strip():
+        finding = email_finding(
+            "body_missing",
+            "high",
+            "Body is missing",
+            "The draft cannot be evaluated as an email without body text.",
+            ["No body text was provided."],
+            "Paste the existing email body before routing.",
+            "Marketing review",
+            "High",
+            "Add body copy, then run TextTraits again.",
+        )
+        return email_check("body_completeness", "Body completeness", 15, 0, ["Missing body."], finding), finding
+    if words < min_body_words:
+        severity = "high" if words < 8 else "medium"
+        finding = email_finding(
+            "body_too_short",
+            severity,
+            "Body is too short for a reliable routing decision",
+            "Very short drafts often omit context, reason, or next step.",
+            [f"{words} body words.", f"Current policy minimum is {min_body_words} words."],
+            "Add context and one clear next step.",
+            "Marketing review",
+            "High" if severity == "high" else "Medium",
+            "Add the reason for the email and the action you want the recipient to take.",
+        )
+        return email_check("body_completeness", "Body completeness", 15, 5 if severity == "high" else 9, [f"{words} body words.", f"Policy minimum: {min_body_words}."], finding), finding
+    if words > max_body_words:
+        finding = email_finding(
+            "body_too_long",
+            "medium",
+            "Body may be too long for CRM outreach",
+            "Long drafts can bury the decision or requested action.",
+            [f"{words} body words.", f"Current policy maximum is {max_body_words} words."],
+            "Shorten the draft around the reason, context, and next step.",
+            "Marketing review",
+            "Medium",
+            "Cut nonessential detail before routing.",
+        )
+        return email_check("body_completeness", "Body completeness", 15, 10, [f"{words} body words.", f"Policy maximum: {max_body_words}."], finding), finding
+    return email_check("body_completeness", "Body completeness", 15, 15, [f"{words} body words."]), None
+
+
+def email_next_step_check(text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    cta_hits = email_cta_hits(text)
+    time_hits = EMAIL_DATE_RE.findall(text or "") + EMAIL_TIME_RE.findall(text or "")
+    if not cta_hits:
+        finding = email_finding(
+            "next_step_missing",
+            "high",
+            "No clear next step detected",
+            "The draft does not include an explicit ask or routing action.",
+            ["No reply, confirm, schedule, review, send, or choose cue was detected."],
+            "Add one direct sentence that says what the recipient should do next.",
+            "Marketing review",
+            "High",
+            "Add a concrete ask such as confirming a time, replying with approval, or reviewing a linked item.",
+        )
+        return email_check("next_step_clarity", "Next-step clarity", 20, 0, ["No CTA pattern detected."], finding), finding
+    score = 20 if time_hits else 17
+    evidence = [f"Detected action cue: {', '.join(cta_hits[:3])}."]
+    if time_hits:
+        evidence.append(f"Detected timing cue: {', '.join(str(item) for item in time_hits[:3])}.")
+    else:
+        evidence.append("No timing cue detected; action is present but not time-bound.")
+    return email_check("next_step_clarity", "Next-step clarity", 20, score, evidence), None
+
+
+def email_specificity_check(text: str, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    policy = policy or DEFAULT_HUBSPOT_EMAIL_POLICY
+    anchors = email_specific_anchors(text)
+    vague_hits = email_phrase_hits(text, tuple(policy.get("vague_phrases") or EMAIL_VAGUE_PHRASES))
+    rule_pack_label = str(policy.get("rule_pack_label") or "General B2B")
+    if len(anchors) >= 2 and not vague_hits:
+        return email_check("specificity", "Specificity", 20, 20, [f"Concrete anchors: {', '.join(anchors[:5])}.", f"Rule pack: {rule_pack_label}."]), None
+    if len(anchors) >= 1 and len(vague_hits) <= 1:
+        return email_check("specificity", "Specificity", 20, 16, [f"Concrete anchors: {', '.join(anchors[:5])}.", f"Rule pack: {rule_pack_label}."]), None
+    finding = email_finding(
+        "specificity_low",
+        "medium",
+        "Draft needs more concrete detail",
+        "The message has too few concrete anchors or too many vague phrases.",
+        [
+            f"{len(anchors)} concrete anchor{'s' if len(anchors) != 1 else ''} detected.",
+            f"Vague phrases: {', '.join(vague_hits[:5]) if vague_hits else 'none detected'}.",
+            f"Rule pack: {rule_pack_label}.",
+        ],
+        "Add a concrete date, topic, deliverable, person, or decision.",
+        "Marketing review",
+        "Medium",
+        "Name the specific thing this email is about before routing.",
+    )
+    score = 7 if len(vague_hits) >= 2 else 10
+    return email_check("specificity", "Specificity", 20, score, [f"{len(anchors)} concrete anchors.", f"{len(vague_hits)} vague phrases.", f"Rule pack: {rule_pack_label}."], finding), finding
+
+
+def email_personalization_check(subject: str, body: str, context: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    hits = email_personalization_hits(subject, body, context)
+    if hits:
+        return email_check("personalization", "Personalization", 10, 10, [f"Detected: {', '.join(hits)}."]), None
+    finding = email_finding(
+        "personalization_missing",
+        "medium",
+        "No personalization signal detected",
+        "The draft does not include a named greeting, token, or recipient-focused wording.",
+        ["No named greeting, personalization token, or recipient-focused wording was detected."],
+        "Add the recipient name or one recipient-specific reference.",
+        "Marketing review",
+        "Medium",
+        "Personalize the draft before adding it to an automated workflow.",
+    )
+    return email_check("personalization", "Personalization", 10, 4, ["No personalization signal detected."], finding), finding
+
+
+def email_readability_check(body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    words = email_word_count(body)
+    sentences = email_sentence_count(body)
+    avg_sentence_words = words / sentences if sentences else 0
+    if not body.strip():
+        return email_check("readability", "Readability", 10, 0, ["No body text."]), None
+    if avg_sentence_words > 32:
+        finding = email_finding(
+            "sentences_long",
+            "medium",
+            "Sentences are too long to scan quickly",
+            "Long average sentence length can make the email harder to review or act on.",
+            [f"{avg_sentence_words:.1f} words per sentence on average."],
+            "Break the draft into shorter sentences.",
+            "Marketing review",
+            "Medium",
+            "Split long sentences before routing.",
+        )
+        return email_check("readability", "Readability", 10, 5, [f"{avg_sentence_words:.1f} words per sentence."], finding), finding
+    if avg_sentence_words > 24:
+        finding = email_finding(
+            "sentences_dense",
+            "low",
+            "Sentences are a little dense",
+            "The draft is readable, but shorter sentences would be easier to scan.",
+            [f"{avg_sentence_words:.1f} words per sentence on average."],
+            "Shorten one long sentence if this goes to a broad audience.",
+            "Marketing review",
+            "Low",
+            "Make the copy easier to scan.",
+        )
+        return email_check("readability", "Readability", 10, 8, [f"{avg_sentence_words:.1f} words per sentence."], finding), finding
+    return email_check("readability", "Readability", 10, 10, [f"{avg_sentence_words:.1f} words per sentence."]), None
+
+
+def email_risk_check(text: str, policy: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    policy = policy or DEFAULT_HUBSPOT_EMAIL_POLICY
+    risk_hits = email_phrase_hits(text, tuple(policy.get("risk_phrases") or EMAIL_RISK_PHRASES))
+    rule_pack_label = str(policy.get("rule_pack_label") or "General B2B")
+    if not risk_hits:
+        return email_check("risk_terms", "Risk terms", 10, 10, [f"No configured risk phrases detected for {rule_pack_label}."]), None
+    severity = "high" if any(item in HUBSPOT_HIGH_RISK_PHRASES for item in risk_hits) or len(risk_hits) >= 2 else "medium"
+    risk_penalty = 45 if severity == "high" else 25
+    finding = email_finding(
+        "risk_terms_detected",
+        severity,
+        "Risky claim or pressure phrase detected",
+        "The draft contains wording that may need legal, compliance, or brand review.",
+        [
+            f"Detected phrase{'s' if len(risk_hits) != 1 else ''}: {', '.join(risk_hits[:5])}.",
+            f"Rule pack: {rule_pack_label}.",
+            f"Risk scoring penalty: {risk_penalty} points.",
+        ],
+        "Review or soften the claim before sending.",
+        "Compliance review",
+        "High" if severity == "high" else "Medium",
+        "Remove or qualify risky language before routing.",
+    )
+    return email_check(
+        "risk_terms",
+        "Risk terms",
+        10,
+        0 if severity == "high" else 2,
+        [f"Risk phrases: {', '.join(risk_hits[:5])}.", f"Rule pack: {rule_pack_label}.", f"Risk penalty: {risk_penalty} points."],
+        finding,
+        penalty=risk_penalty,
+    ), finding
+
+
+def email_decision_from_quality(score: int, findings: list[dict[str, Any]], checks: list[dict[str, Any]], policy: dict[str, Any]) -> dict[str, Any]:
+    high_findings = [item for item in findings if item.get("severity") == "high"]
+    medium_findings = [item for item in findings if item.get("severity") == "medium"]
+    top_finding = high_findings[0] if high_findings else medium_findings[0] if medium_findings else findings[0] if findings else None
+    check_statuses = {item.get("id"): item.get("status") for item in checks}
+    has_missing_cta = any(item.get("id") == "next_step_missing" for item in findings)
+    has_risk_terms = any(item.get("id") == "risk_terms_detected" for item in findings)
+    ready_threshold = int(policy.get("ready_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["ready_score_threshold"]))
+    block_threshold = int(policy.get("block_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["block_score_threshold"]))
+    block_high = bool(policy.get("block_high_severity_findings", True))
+    if bool(policy.get("compliance_review_on_risk_terms", True)) and has_risk_terms:
+        risk_finding = next(item for item in findings if item.get("id") == "risk_terms_detected")
+        gate = "blocked" if risk_finding.get("severity") == "high" else "needs_review"
+        route = "Compliance review"
+        label = "Blocked" if gate == "blocked" else "Needs review"
+        score_meaning = "Routed by configured compliance-risk policy"
+        blocker_level = risk_finding.get("blocker_level", "High" if gate == "blocked" else "Medium")
+        top_finding = risk_finding
+    elif bool(policy.get("block_if_no_cta", True)) and has_missing_cta:
+        cta_finding = next(item for item in findings if item.get("id") == "next_step_missing")
+        gate = "blocked"
+        route = cta_finding.get("owner_queue", "Marketing review")
+        label = "Blocked"
+        score_meaning = "Blocked by configured missing-next-step policy"
+        blocker_level = cta_finding.get("blocker_level", "High")
+        top_finding = cta_finding
+    elif (block_high and high_findings) or score < block_threshold:
+        gate = "blocked"
+        route = top_finding.get("owner_queue", "Compliance review") if top_finding else "Compliance review"
+        label = "Blocked"
+        score_meaning = "Blocked by a high-priority email-quality issue"
+        blocker_level = top_finding.get("blocker_level", "High") if top_finding else "High"
+    elif score >= ready_threshold and not medium_findings and (not policy.get("require_personalization") or check_statuses.get("personalization") == "pass"):
+        gate = "ready"
+        route = "Sending system"
+        label = "Ready to route"
+        score_meaning = "Meets current email-quality checks"
+        blocker_level = "None"
+    else:
+        gate = "needs_review"
+        route = top_finding.get("owner_queue", "Marketing review") if top_finding else "Marketing review"
+        label = "Needs review"
+        score_meaning = "Needs one or more quality fixes"
+        blocker_level = top_finding.get("blocker_level", "Medium") if top_finding else "Medium"
+    if top_finding:
+        next_step = top_finding["next_step"]
+        action = top_finding["action"]
+        reason = top_finding["title"]
+    else:
+        next_step = "Proceed through the normal send path."
+        action = "No configured email-quality issue was detected."
+        reason = "All configured checks passed."
+    return {
+        "gate": gate,
+        "label": label,
+        "route": route,
+        "owner_queue": route,
+        "blocker_level": blocker_level,
+        "next_step": next_step,
+        "action": action,
+        "score_meaning": score_meaning,
+        "reason": reason,
+        "policy_version": policy.get("version", DEFAULT_HUBSPOT_EMAIL_POLICY["version"]),
+    }
+
+
+def build_hubspot_email_quality(subject: str, body: str, text: str, policy: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    policy = normalized_hubspot_email_policy(policy)
+    check_builders = (
+        lambda: email_subject_check(subject),
+        lambda: email_body_check(body, policy),
+        lambda: email_next_step_check(text),
+        lambda: email_specificity_check(text, policy),
+        lambda: email_personalization_check(subject, body, context),
+        lambda: email_readability_check(body),
+        lambda: email_risk_check(text, policy),
+    )
+    checks: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    for builder in check_builders:
+        check, finding = builder()
+        checks.append(check)
+        if finding:
+            findings.append(finding)
+    raw_score = sum(item["score"] for item in checks)
+    scoring_penalties = [
+        {
+            "check_id": item["id"],
+            "label": item["label"],
+            "points": int(item.get("penalty", 0)),
+            "evidence": item.get("evidence", []),
+        }
+        for item in checks
+        if int(item.get("penalty", 0)) > 0
+    ]
+    total_penalty = sum(item["points"] for item in scoring_penalties)
+    score = max(0, min(100, raw_score - total_penalty))
+    decision = email_decision_from_quality(score, findings, checks, policy)
+    return {
+        "score": score,
+        "raw_checklist_score": raw_score,
+        "score_factors": {
+            "checklist_points": raw_score,
+            "total_penalty": total_penalty,
+            "penalties": scoring_penalties,
+            "final_score": score,
+        },
+        "score_source": "Weighted email-quality checks plus explicit risk penalties; not generated copy or a generic model-confidence average.",
+        "weights": {item["id"]: item["weight"] for item in checks},
+        "checks": checks,
+        "findings": findings,
+        "decision": decision,
+        "policy": policy,
+    }
+
+
 def scrub_public_value(value):
     if isinstance(value, dict):
         cleaned = {}
@@ -680,6 +1324,211 @@ def sanitize_workspace_data(data: dict[str, Any]) -> dict[str, Any]:
     # The frontend intentionally syncs only metadata/history. Keep raw pasted text out of cloud persistence.
     clean["latestText"] = ""
     return clean
+
+
+def nested_value(source: Any, path: tuple[str, ...]) -> Any:
+    current = source
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def first_text_value(*values: Any, max_length: int = 160) -> str:
+    for value in values:
+        if value is None:
+            continue
+        clean = str(value).strip()
+        if clean:
+            return clean[:max_length]
+    return ""
+
+
+def optional_context_object(*values: Any) -> dict[str, Any]:
+    for value in values:
+        if isinstance(value, dict):
+            return scrub_payload(value)
+    return {}
+
+
+def hubspot_workspace_for_portal(portal_id: str) -> str:
+    clean = "".join(ch for ch in str(portal_id or "") if ch.isalnum() or ch in {"-", "_"})[:120]
+    return f"hubspot_{clean}" if clean else ""
+
+
+def validate_hubspot_context(context: dict[str, Any]) -> str | None:
+    portal_id = str(context.get("portal_id") or "").strip()
+    workspace_id = str(context.get("workspace_id") or "").strip()
+    tenant_id = str(context.get("tenant_id") or "").strip()
+    expected_workspace = hubspot_workspace_for_portal(portal_id)
+    if portal_id and tenant_id and tenant_id != portal_id:
+        return "HubSpot tenant_id must match the portal ID supplied by the installed app."
+    if expected_workspace and workspace_id and workspace_id != expected_workspace:
+        return "HubSpot workspace_id must match the installed portal."
+    if expected_workspace and not workspace_id:
+        context["workspace_id"] = expected_workspace
+    if portal_id and not tenant_id:
+        context["tenant_id"] = portal_id
+    return None
+
+
+def hubspot_context_from_payload(payload: dict[str, Any], input_fields: dict[str, Any]) -> dict[str, Any]:
+    raw_context = payload.get("crmContext") if isinstance(payload.get("crmContext"), dict) else {}
+    extension_context = payload.get("hubspotContext") if isinstance(payload.get("hubspotContext"), dict) else {}
+    generic_context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+    object_id = first_text_value(
+        input_fields.get("object_id"),
+        input_fields.get("hs_object_id"),
+        payload.get("object_id"),
+        raw_context.get("objectId"),
+        raw_context.get("object_id"),
+        extension_context.get("objectId"),
+        extension_context.get("recordId"),
+        generic_context.get("objectId"),
+        generic_context.get("recordId"),
+    )
+    object_type = first_text_value(
+        input_fields.get("object_type"),
+        payload.get("object_type"),
+        raw_context.get("objectType"),
+        raw_context.get("objectTypeId"),
+        extension_context.get("objectType"),
+        extension_context.get("objectTypeId"),
+        generic_context.get("objectType"),
+        generic_context.get("objectTypeId"),
+    )
+    portal_id = first_text_value(
+        input_fields.get("portal_id"),
+        payload.get("portal_id"),
+        payload.get("tenant_id"),
+        nested_value(extension_context, ("portal", "id")),
+        extension_context.get("portalId"),
+        generic_context.get("portalId"),
+        raw_context.get("portalId"),
+    )
+    context = {
+        "workspace_id": first_text_value(payload.get("workspace_id"), input_fields.get("workspace_id"), f"hubspot_{portal_id}" if portal_id else "hubspot_workspace"),
+        "tenant_id": first_text_value(payload.get("tenant_id"), input_fields.get("tenant_id"), portal_id),
+        "source_system": first_text_value(payload.get("source_system"), input_fields.get("source_system"), "hubspot", max_length=80),
+        "workflow": first_text_value(payload.get("workflow"), input_fields.get("workflow"), input_fields.get("workflow_name"), max_length=120),
+        "analysis_mode": first_text_value(payload.get("analysis_mode"), input_fields.get("analysis_mode"), "send_path_gate", max_length=80),
+        "campaign_id": first_text_value(payload.get("campaign_id"), input_fields.get("campaign_id"), input_fields.get("workflow_name"), max_length=160),
+        "journey_id": first_text_value(payload.get("journey_id"), input_fields.get("journey_id"), max_length=160),
+        "template_id": first_text_value(payload.get("template_id"), input_fields.get("template_id"), max_length=160),
+        "contact_id": first_text_value(payload.get("contact_id"), input_fields.get("contact_id"), raw_context.get("contactId"), object_id if "contact" in object_type.lower() else "", max_length=160),
+        "company_id": first_text_value(payload.get("company_id"), input_fields.get("company_id"), raw_context.get("companyId"), max_length=160),
+        "deal_id": first_text_value(payload.get("deal_id"), input_fields.get("deal_id"), raw_context.get("dealId"), max_length=160),
+        "owner_id": first_text_value(payload.get("owner_id"), input_fields.get("owner_id"), raw_context.get("ownerId"), max_length=160),
+        "portal_id": portal_id,
+        "object_type": object_type,
+        "object_id": object_id,
+        "locale": first_text_value(payload.get("locale"), input_fields.get("locale"), extension_context.get("locale"), generic_context.get("locale"), max_length=40),
+        "contact_name": first_text_value(payload.get("contact_name"), input_fields.get("contact_name"), raw_context.get("contactName"), max_length=160),
+        "company_name": first_text_value(payload.get("company_name"), input_fields.get("company_name"), raw_context.get("companyName"), max_length=160),
+        "lifecycle_stage": first_text_value(payload.get("lifecycle_stage"), input_fields.get("lifecycle_stage"), raw_context.get("lifecycleStage"), max_length=120),
+        "recent_activity": first_text_value(payload.get("recent_activity"), input_fields.get("recent_activity"), raw_context.get("recentActivity"), max_length=300),
+        "headers": optional_context_object(payload.get("headers"), input_fields.get("headers")),
+        "consent_context": optional_context_object(payload.get("consent_context"), input_fields.get("consent_context")),
+        "delivery_context": optional_context_object(payload.get("delivery_context"), input_fields.get("delivery_context")),
+        "ingress_auth": getattr(g, "hubspot_ingress_auth", {"mode": "unknown"}),
+    }
+    validation_error = validate_hubspot_context(context)
+    if validation_error:
+        context["_validation_error"] = validation_error
+    return context
+
+
+TEMPLATE_TOKEN_RE = re.compile(r"{{\s*([A-Za-z0-9_.-]+)\s*}}|%\s*([A-Za-z0-9_.-]+)\s*%|\[\[\s*([A-Za-z0-9_.-]+)\s*\]\]")
+LINK_RE = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
+
+
+def template_context_value(context: dict[str, Any], key: str) -> str:
+    current: Any = context
+    for part in key.split("."):
+        if isinstance(current, dict):
+            current = current.get(part)
+        else:
+            return ""
+    if current is None:
+        return ""
+    return str(current)
+
+
+def render_template_text(template: str, sample_context: dict[str, Any]) -> tuple[str, list[str]]:
+    unresolved: list[str] = []
+
+    def replace(match: re.Match) -> str:
+        key = next((group for group in match.groups() if group), "")
+        value = template_context_value(sample_context, key)
+        if value == "":
+            token = match.group(0)
+            if token not in unresolved:
+                unresolved.append(token)
+            return token
+        return value
+
+    return TEMPLATE_TOKEN_RE.sub(replace, template or ""), unresolved
+
+
+def template_contains_token(template_text: str, token: str) -> bool:
+    clean_token = re.escape(token)
+    patterns = (
+        rf"{{{{\s*{clean_token}\s*}}}}",
+        rf"%\s*{clean_token}\s*%",
+        rf"\[\[\s*{clean_token}\s*\]\]",
+    )
+    return any(re.search(pattern, template_text, re.IGNORECASE) for pattern in patterns)
+
+
+def hubspot_template_test_result(subject: str, body: str, sample_context: dict[str, Any], headers: dict[str, Any] | None = None, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    policy = normalized_hubspot_email_policy(policy)
+    rendered_subject, subject_unresolved = render_template_text(subject, sample_context)
+    rendered_body, body_unresolved = render_template_text(body, sample_context)
+    unresolved = subject_unresolved + [token for token in body_unresolved if token not in subject_unresolved]
+    links = LINK_RE.findall(rendered_body)
+    lower_rendered = rendered_body.lower()
+    unsubscribe_present = any(
+        cue in lower_rendered
+        for cue in ("unsubscribe", "{{unsubscribe_link}}", "%unsubscribe_link%", "[[unsubscribe_link]]")
+    )
+    header_warnings: list[str] = []
+    clean_headers = scrub_payload(headers or {})
+    required_headers = normalized_policy_list(policy.get("required_headers"), ("from", "reply_to"), limit=20)
+    for required in required_headers:
+        if required not in {str(key).lower() for key in clean_headers.keys()}:
+            header_warnings.append(f"Missing {required.replace('_', '-')} header.")
+    original_template = f"{subject}\n{body}"
+    required_tokens = normalized_policy_list(policy.get("required_template_tokens"), ("unsubscribe_link",), limit=20)
+    missing_required_tokens = [
+        token
+        for token in required_tokens
+        if not template_contains_token(original_template, token) and not (token == "unsubscribe_link" and unsubscribe_present)
+    ]
+    checks = [
+        {"id": "tokens_resolved", "label": "Merge tokens resolved", "ok": not unresolved, "detail": "All supplied tokens rendered." if not unresolved else f"Unresolved tokens: {', '.join(unresolved[:8])}."},
+        {"id": "required_tokens_present", "label": "Required tokens", "ok": not missing_required_tokens, "detail": "Required rule-pack tokens are present." if not missing_required_tokens else f"Missing required token{'s' if len(missing_required_tokens) != 1 else ''}: {', '.join(missing_required_tokens[:8])}."},
+        {"id": "unsubscribe_present", "label": "Unsubscribe state", "ok": unsubscribe_present, "detail": "Unsubscribe wording or token is present." if unsubscribe_present else "Add an unsubscribe token or link before automated routing."},
+        {"id": "links_detected", "label": "Link inventory", "ok": True, "detail": f"{len(links)} link{'s' if len(links) != 1 else ''} detected."},
+        {"id": "headers_present", "label": "Header context", "ok": not header_warnings, "detail": "Required sender headers supplied." if not header_warnings else " ".join(header_warnings)},
+    ]
+    return {
+        "rendered_subject": rendered_subject,
+        "rendered_body": rendered_body,
+        "unresolved_tokens": unresolved,
+        "missing_required_tokens": missing_required_tokens,
+        "links": links[:25],
+        "headers": clean_headers,
+        "policy": {
+            "version": policy.get("version"),
+            "rule_pack": policy.get("rule_pack"),
+            "rule_pack_label": policy.get("rule_pack_label"),
+            "required_template_tokens": required_tokens,
+            "required_headers": required_headers,
+        },
+        "checks": checks,
+        "ready": all(item["ok"] for item in checks),
+    }
 
 
 @app.get("/")
@@ -727,7 +1576,7 @@ def evaluate():
     if len(text.split()) > MAX_TEXT_WORDS:
         return jsonify({"error": f"Please keep samples under {MAX_TEXT_WORDS} words for this workspace."}), 413
     if model_id != "local":
-        return jsonify({"error": "External model connectors are not configured in this local build."}), 503
+        return jsonify({"error": "The PANDORA cloud-trained model is not connected yet."}), 503
     try:
         log_event(current_user_id(), "evaluate", {"mode": payload.get("mode", "unknown"), "words": len(text.split())})
         predictions = predictor.predict(text)
@@ -742,940 +1591,413 @@ def evaluate():
         return jsonify({"error": str(error)}), 503
 
 
-def normalize_email_analysis_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
-    normalized = {**payload}
-    normalized["subject"] = payload.get("subject") or message.get("subject") or ""
-    normalized["body"] = payload.get("body") or payload.get("text") or message.get("content") or message.get("body") or message.get("text") or message.get("html") or ""
-    normalized["headers"] = payload.get("headers") if isinstance(payload.get("headers"), dict) else message.get("headers") if isinstance(message.get("headers"), dict) else {}
-    normalized["tenant_id"] = payload.get("tenant_id") or message.get("tenant_id") or ""
-    normalized["source_system"] = payload.get("source_system") or message.get("source_system") or payload.get("source") or payload.get("channel") or ""
-    normalized["analysis_mode"] = payload.get("analysis_mode") or message.get("analysis_mode") or payload.get("channel") or "direct_api"
-    for key in ("campaign_id", "journey_id", "step_id", "template_id", "template_version", "locale"):
-        normalized[key] = payload.get(key) or message.get(key) or ""
-    if "links" not in normalized and message.get("links"):
-        normalized["links"] = message.get("links")
-    return normalized
+def hubspot_analysis_response(payload: dict, workflow: str):
+    input_fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
+    subject = str(input_fields.get("subject") or input_fields.get("email_subject") or input_fields.get("hs_email_subject") or "").strip()
+    body = str(input_fields.get("body") or input_fields.get("email_body") or input_fields.get("hs_email_body") or input_fields.get("text") or "").strip()
+    text = f"{subject}\n\n{body}".strip()
+    context = hubspot_context_from_payload(payload, input_fields)
+    context["workflow"] = workflow
+    if context.get("_validation_error"):
+        return jsonify({"error": context["_validation_error"]}), 403
+    policy = hubspot_policy_for_request(payload, context)
+    if not text:
+        return jsonify({"error": "Enter an email subject or body to analyze."}), 400
+    if len(text.split()) > MAX_TEXT_WORDS:
+        return jsonify({"error": f"Please keep samples under {MAX_TEXT_WORDS} words for this workspace."}), 413
+    try:
+        predictions = predictor.predict(text)
+    except RuntimeError as error:
+        return jsonify({"error": str(error)}), 503
 
-
-def analyze_email_payload(payload: dict[str, Any], request_id: str | None = None) -> dict[str, Any]:
-    payload = normalize_email_analysis_payload(payload)
-    subject = str(payload.get("subject") or "").strip()
-    body = str(payload.get("body") or payload.get("text") or "").strip()
-    model_id = str(payload.get("model", "local")).strip() or "local"
-    workspace_id = str(payload.get("workspace_id") or "default").strip()[:120] or "default"
-    if not body:
-        raise ValueError("Email body is required.")
-    if len(f"{subject} {body}".split()) > MAX_TEXT_WORDS:
-        raise ValueError(f"Please keep email samples under {MAX_TEXT_WORDS} words for this workspace.")
-    if model_id != "local":
-        raise RuntimeError("External model connectors are not configured in this local build.")
-    governance_policy = get_governance_policy(workspace_id)
-    predictions = predictor.predict(f"{subject}\n\n{body}".strip())
-    public_predictions = predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions)
-    analysis = build_email_analysis(
-        {**payload, "subject": subject, "body": body, "model": model_id, "workspace_id": workspace_id},
-        public_predictions,
-        model_metadata=getattr(predictor, "metadata", {}),
-        demo=bool(getattr(predictor, "is_demo", False)),
-        request_id=request_id,
-        policy_controls=governance_policy,
+    confidences = prediction_confidences(predictions)
+    average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+    email_quality = build_hubspot_email_quality(subject, body, text, policy, context)
+    decision = email_quality["decision"]
+    score = email_quality["score"]
+    gate = decision["gate"]
+    route = decision["route"]
+    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    idempotency_key = first_text_value(
+        payload.get("idempotency_key"),
+        input_fields.get("idempotency_key"),
+        request.headers.get("X-Idempotency-Key"),
+        max_length=160,
     )
-    save_email_analysis(analysis, source=str(payload.get("source") or payload.get("channel") or "direct_api"), workspace_id=workspace_id)
+    if idempotency_key:
+        digest = hashlib.sha256(f"{context.get('workspace_id')}:{workflow}:{idempotency_key}:{content_hash}".encode("utf-8")).hexdigest()[:28]
+        request_id = f"{workflow}-{digest}"
+    else:
+        request_id = f"{workflow}-{secrets.token_urlsafe(12)}"
     log_event(
         current_user_id(),
-        "v1_email_analyze",
+        workflow,
         {
-            "request_id": analysis["request_id"],
-            "workspace_id": workspace_id,
-            "score": analysis["scores"]["overall"],
-            "gate": analysis["policy"]["gate"]["status"],
-            "finding_count": len(analysis["findings"]),
+            "words": len(text.split()),
+            "score": score,
+            "gate": gate,
+            "workspace_id": str(payload.get("workspace_id", ""))[:120],
         },
     )
-    return analysis
-
-
-def analysis_error_response(error: Exception):
-    if isinstance(error, ValueError):
-        return jsonify({"error": str(error)}), 400
-    if isinstance(error, RuntimeError):
-        return jsonify({"error": str(error)}), 503
-    logging.exception("v1_email_analysis_failed")
-    return jsonify({"error": "Email analysis failed. Retry in a moment."}), 500
-
-
-@app.post("/v1/email/analyze")
-@rate_limited()
-def v1_email_analyze():
-    payload = request.get_json(silent=True) or {}
-    try:
-        return jsonify(analyze_email_payload(payload, request.headers.get("X-Request-ID")))
-    except Exception as error:
-        return analysis_error_response(error)
-
-
-@app.get("/v1/openapi.json")
-def v1_openapi_contract():
-    return jsonify(build_openapi_spec(PUBLIC_BASE_URL))
-
-
-@app.get("/v1/install-kit")
-def v1_install_kit():
-    return jsonify(build_install_kit(PUBLIC_BASE_URL))
-
-
-def hubspot_signature_status() -> dict[str, Any]:
-    status = getattr(g, "hubspot_signature", None)
-    if isinstance(status, dict):
-        return status
-    status = flask_hubspot_signature_status(request)
-    g.hubspot_signature = status
-    return status
-
-
-def hubspot_signature_required_response() -> tuple | None:
-    status = hubspot_signature_status()
-    if hubspot_env_flag("HUBSPOT_REQUIRE_SIGNATURE", PRODUCTION) and not status.get("valid"):
-        return jsonify({"error": "HubSpot request signature verification failed.", "signature": status}), 401
-    return None
-
-
-@app.get("/v1/integrations/hubspot/platform-config")
-def v1_hubspot_platform_config():
-    return jsonify({"api_version": "v1", "hubspot": build_hubspot_platform_config(PUBLIC_BASE_URL)})
-
-
-@app.get("/v1/integrations/hubspot/crm-card")
-def v1_hubspot_crm_card():
-    blocked = hubspot_signature_required_response()
-    if blocked:
-        return blocked
-    workspace_id = integration_workspace_id()
+    save_hubspot_email_analysis(
+        {
+            **context,
+            "request_id": request_id,
+            "workflow": workflow,
+            "idempotency_key": idempotency_key,
+            "content_hash": content_hash,
+            "score": score,
+            "gate": gate,
+            "route": route,
+            "send_ready": gate == "ready",
+            "word_count": len(text.split()),
+            "average_model_confidence": round(average_confidence, 4),
+            "score_source": email_quality["score_source"],
+            "findings": email_quality["findings"],
+            "checks": email_quality["checks"],
+            "policy": policy,
+            "context": context,
+        }
+    )
     return jsonify(
         {
-            "api_version": "v1",
-            "card": build_hubspot_crm_card(request.args, PUBLIC_BASE_URL, workspace_id, hubspot_signature_status()),
+            "workflow": workflow,
+            "outputFields": {
+                "texttraits_request_id": request_id,
+                "texttraits_content_hash": content_hash,
+                "texttraits_idempotency_key": idempotency_key,
+                "texttraits_score": score,
+                "texttraits_gate": gate,
+                "texttraits_route": route,
+                "texttraits_send_ready": gate == "ready",
+                "texttraits_next_step": decision["next_step"],
+                "texttraits_owner_queue": decision["owner_queue"],
+                "texttraits_blocker_level": decision["blocker_level"],
+                "texttraits_policy_version": policy.get("version"),
+            },
+            "analysis": {
+                "request_id": request_id,
+                "content_hash": content_hash,
+                "idempotency_key": idempotency_key,
+                "score": score,
+                "gate": gate,
+                "route": route,
+                "word_count": len(text.split()),
+                "average_model_confidence": round(average_confidence, 4),
+                "decision": decision,
+                "email_quality": email_quality,
+                "policy": policy,
+                "context": context,
+                "demo": bool(getattr(predictor, "is_demo", False)),
+                "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
+            },
         }
     )
 
 
 @app.post("/v1/integrations/hubspot/crm-card/analyze-email")
-@rate_limited()
-def v1_hubspot_crm_card_analyze_email():
-    blocked = hubspot_signature_required_response()
-    if blocked:
-        return blocked
-    payload = request.get_json(silent=True) or {}
-    fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
-    workspace_id = integration_workspace_id(payload)
-    analysis_payload = {
-        "workspace_id": workspace_id,
-        "subject": fields.get("subject") or fields.get("email_subject") or fields.get("hs_email_subject"),
-        "body": fields.get("body") or fields.get("email_body") or fields.get("message") or fields.get("hs_email_text"),
-        "audience": fields.get("audience") or fields.get("lifecyclestage") or fields.get("persona") or "HubSpot CRM record",
-        "intent": fields.get("intent") or fields.get("workflow_name") or fields.get("pipeline") or "CRM outreach review",
-        "channel": "hubspot_crm_card",
-        "source": "hubspot_crm_card",
-        "source_system": "hubspot",
-    }
-    try:
-        analysis = analyze_email_payload(analysis_payload, payload.get("requestId") or payload.get("request_id"))
-    except Exception as error:
-        return analysis_error_response(error)
-    gate = analysis["policy"]["gate"]
-    return jsonify(
-        {
-            "card": "hubspot_crm_card",
-            "workspace_id": workspace_id,
-            "signature": hubspot_signature_status(),
-            "outputFields": {
-                "texttraits_request_id": analysis["request_id"],
-                "texttraits_content_hash": analysis["content_hash"],
-                "texttraits_score": analysis["scores"]["overall"],
-                "texttraits_gate": gate["status"],
-                "texttraits_route": gate["route"],
-                "texttraits_send_ready": gate["send_ready"],
-            },
-            "analysis": compact_analysis(analysis),
-            "hubspot_next_steps": [
-                "Write request_id and content_hash back to the CRM object or workflow enrollment record.",
-                "Branch ready messages toward send or scheduling.",
-                "Route needs_review and blocked messages to a human review queue before sending.",
-            ],
-        }
-    )
-
-
-@app.get("/v1/integrations/sandbox-flows")
-def v1_sandbox_integration_flows():
-    return jsonify({"api_version": "v1", "flows": integration_flow_catalog()})
-
-
-@app.get("/v1/integrations/mock-flows")
-def v1_mock_integration_flows():
-    return v1_sandbox_integration_flows()
-
-
-def integration_workspace_id(payload: dict[str, Any] | None = None) -> str:
-    candidate = (
-        request.headers.get("X-TextTraits-Workspace")
-        or request.args.get("workspace_id")
-        or (payload or {}).get("workspace_id")
-        or "default"
-    )
-    return str(candidate).strip()[:120] or "default"
-
-
-def nested_value(data: Any, path: str) -> Any:
-    for candidate in str(path or "").split("|"):
-        current = data
-        for part in candidate.strip().split("."):
-            if not part:
-                continue
-            if not isinstance(current, dict) or part not in current:
-                current = None
-                break
-            current = current[part]
-        if current not in (None, ""):
-            return current
-    return None
-
-
-def mapped_input(data: dict[str, Any], mapping_record: dict[str, Any] | None, logical_key: str, fallback_paths: list[str]) -> Any:
-    configured_path = (mapping_record or {}).get("mapping", {}).get("inputs", {}).get(logical_key)
-    paths = [configured_path] if configured_path else []
-    paths.extend(fallback_paths)
-    for path in paths:
-        value = nested_value(data, str(path))
-        if value not in (None, ""):
-            return value
-    return ""
-
-
-def analysis_output_values(analysis: dict[str, Any]) -> dict[str, Any]:
-    gate = analysis.get("policy", {}).get("gate", {})
-    return {
-        "request_id": analysis.get("request_id"),
-        "content_hash": analysis.get("content_hash"),
-        "score": analysis.get("scores", {}).get("overall"),
-        "gate_status": gate.get("status"),
-        "send_ready": gate.get("send_ready"),
-        "route": gate.get("route"),
-        "highest_severity": gate.get("highest_severity"),
-        "findings_count": len(analysis.get("findings") or []),
-        "policy_bundle_version": analysis.get("policy", {}).get("bundle_version"),
-    }
-
-
-def mapped_outputs(analysis: dict[str, Any], mapping_record: dict[str, Any] | None, defaults: dict[str, Any]) -> dict[str, Any]:
-    output_values = analysis_output_values(analysis)
-    configured_outputs = (mapping_record or {}).get("mapping", {}).get("outputs", {})
-    if not configured_outputs:
-        return defaults
-    fields = {}
-    for provider_field, logical_key in configured_outputs.items():
-        if logical_key in output_values:
-            fields[provider_field] = output_values[logical_key]
-    return fields or defaults
-
-
-@app.get("/v1/integrations/manifests")
-def v1_integration_manifests():
-    workspace_id = integration_workspace_id()
-    return jsonify(
-        {
-            "api_version": "v1",
-            "contract_version": INTEGRATION_CONTRACT_VERSION,
-            "manifests": all_manifests(),
-            "field_mappings": recent_integration_field_mappings(workspace_id=workspace_id, limit=20),
-            "workspace_id": workspace_id,
-        }
-    )
-
-
-@app.get("/v1/integrations/<provider>/manifest")
-def v1_integration_manifest(provider: str):
-    manifest = provider_manifest(provider)
-    if not manifest:
-        return jsonify({"error": "Unsupported integration provider.", "provider": normalize_provider(provider)}), 404
-    workspace_id = integration_workspace_id()
-    return jsonify(
-        {
-            "api_version": "v1",
-            "contract_version": INTEGRATION_CONTRACT_VERSION,
-            "manifest": manifest,
-            "mapping_template": mapping_template(provider),
-            "saved_mapping": get_integration_field_mapping(workspace_id, normalize_provider(provider)),
-            "workspace_id": workspace_id,
-        }
-    )
-
-
-@app.get("/v1/integrations/field-mappings")
-def v1_integration_field_mappings():
-    workspace_id = integration_workspace_id()
-    return jsonify(
-        {
-            "api_version": "v1",
-            "contract_version": INTEGRATION_CONTRACT_VERSION,
-            "workspace_id": workspace_id,
-            "field_mappings": recent_integration_field_mappings(workspace_id=workspace_id, limit=50),
-        }
-    )
-
-
-@app.post("/v1/integrations/<provider>/field-mapping/validate")
 @rate_limited(60)
-def v1_integration_field_mapping_validate(provider: str):
-    payload = request.get_json(silent=True) or {}
-    manifest = provider_manifest(provider)
-    if not manifest:
-        return jsonify({"error": "Unsupported integration provider.", "provider": normalize_provider(provider)}), 404
-    mapping = payload.get("mapping") if isinstance(payload.get("mapping"), dict) else payload
-    validation = validate_field_mapping(provider, mapping)
-    return jsonify(
-        {
-            "api_version": "v1",
-            "contract_version": INTEGRATION_CONTRACT_VERSION,
-            "provider": manifest["provider"],
-            "manifest": manifest,
-            "validation": validation,
-            "mapping_template": mapping_template(provider),
-        }
-    )
-
-
-@app.post("/v1/integrations/<provider>/field-mapping")
-@rate_limited(40)
-def v1_integration_field_mapping_save(provider: str):
-    payload = request.get_json(silent=True) or {}
-    manifest = provider_manifest(provider)
-    if not manifest:
-        return jsonify({"error": "Unsupported integration provider.", "provider": normalize_provider(provider)}), 404
-    workspace_id = integration_workspace_id(payload)
-    mapping = payload.get("mapping") if isinstance(payload.get("mapping"), dict) else payload
-    validation = validate_field_mapping(provider, mapping)
-    if not validation["valid"] and not payload.get("save_draft"):
-        return (
-            jsonify(
-                {
-                    "error": "Field mapping is incomplete.",
-                    "validation": validation,
-                    "mapping_template": mapping_template(provider),
-                }
-            ),
-            400,
-        )
-    saved = save_integration_field_mapping(
-        workspace_id,
-        manifest["provider"],
-        validation["normalized_mapping"],
-        validation,
-        INTEGRATION_CONTRACT_VERSION,
-    )
-    return jsonify(
-        {
-            "api_version": "v1",
-            "contract_version": INTEGRATION_CONTRACT_VERSION,
-            "provider": manifest["provider"],
-            "workspace_id": workspace_id,
-            "field_mapping": saved,
-        }
-    )
+def hubspot_crm_card_analyze_email():
+    return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_crm_card")
 
 
 @app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
-@rate_limited()
-def v1_hubspot_workflow_action():
-    blocked = hubspot_signature_required_response()
-    if blocked:
-        return blocked
-    payload = request.get_json(silent=True) or {}
-    workspace_id = integration_workspace_id(payload)
-    mapping_record = get_integration_field_mapping(workspace_id, "hubspot")
-    fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
-    analysis_payload = {
-        "workspace_id": workspace_id,
-        "subject": mapped_input(fields, mapping_record, "subject", ["subject", "email_subject"]),
-        "body": mapped_input(fields, mapping_record, "body", ["body", "email_body", "message"]),
-        "audience": mapped_input(fields, mapping_record, "audience", ["audience"]) or "HubSpot contact",
-        "intent": mapped_input(fields, mapping_record, "intent", ["intent"]) or "Workflow email",
-        "channel": "hubspot_workflow",
-        "source": "hubspot_workflow_action",
-    }
-    try:
-        analysis = analyze_email_payload(analysis_payload, payload.get("requestId"))
-    except Exception as error:
-        return analysis_error_response(error)
-    gate = analysis["policy"]["gate"]
-    default_outputs = {
-        "texttraits_request_id": analysis["request_id"],
-        "texttraits_content_hash": analysis["content_hash"],
-        "texttraits_score": analysis["scores"]["overall"],
-        "texttraits_gate": gate["status"],
-        "texttraits_route": gate["route"],
-        "texttraits_send_ready": gate["send_ready"],
-    }
-    return jsonify(
-        {
-            "workflow": "hubspot_workflow_action",
-            "workspace_id": workspace_id,
-            "signature": hubspot_signature_status(),
-            "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
-            "outputFields": mapped_outputs(analysis, mapping_record, default_outputs),
-            "analysis": compact_analysis(analysis),
-        }
-    )
-
-
-@app.post("/v1/integrations/salesforce/journey-builder/activity")
-@rate_limited()
-def v1_salesforce_journey_activity():
-    payload = request.get_json(silent=True) or {}
-    workspace_id = integration_workspace_id(payload)
-    mapping_record = get_integration_field_mapping(workspace_id, "salesforce")
-    in_arguments = payload.get("inArguments") if isinstance(payload.get("inArguments"), list) else []
-    fields: dict[str, Any] = {}
-    for item in in_arguments:
-        if isinstance(item, dict):
-            fields.update(item)
-    fields.update({key: value for key, value in payload.items() if key in {"subject", "body", "email_body", "audience", "intent"}})
-    analysis_payload = {
-        "workspace_id": workspace_id,
-        "subject": mapped_input(fields, mapping_record, "subject", ["subject", "EmailSubject"]),
-        "body": mapped_input(fields, mapping_record, "body", ["body", "email_body", "EmailBody"]),
-        "audience": mapped_input(fields, mapping_record, "audience", ["audience", "ContactType"]) or "Salesforce contact",
-        "intent": mapped_input(fields, mapping_record, "intent", ["intent", "JourneyName"]) or "Journey email",
-        "channel": "salesforce_journey_builder",
-        "source": "salesforce_journey_builder_activity",
-    }
-    try:
-        analysis = analyze_email_payload(analysis_payload, payload.get("requestId"))
-    except Exception as error:
-        return analysis_error_response(error)
-    gate = analysis["policy"]["gate"]
-    default_arguments = {
-        "texttraits_request_id": analysis["request_id"],
-        "texttraits_score": analysis["scores"]["overall"],
-        "texttraits_gate": gate["status"],
-        "texttraits_route": gate["route"],
-    }
-    return jsonify(
-        {
-            "activity": "salesforce_journey_builder_activity",
-            "branchResult": "send" if gate["send_ready"] else "review",
-            "workspace_id": workspace_id,
-            "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
-            "arguments": mapped_outputs(analysis, mapping_record, default_arguments),
-            "analysis": compact_analysis(analysis),
-        }
-    )
-
-
-@app.post("/v1/integrations/sendgrid-ses/middleware")
-@rate_limited()
-def v1_sendgrid_ses_middleware():
-    started = time.perf_counter()
-    payload = request.get_json(silent=True) or {}
-    workspace_id = integration_workspace_id(payload)
-    governance_policy = get_governance_policy(workspace_id)
-    mapping_record = get_integration_field_mapping(workspace_id, "sendgrid_ses")
-    message = payload.get("message") if isinstance(payload.get("message"), dict) else payload
-    body = message.get("text") or message.get("body") or message.get("html") or ""
-    analysis_payload = {
-        "workspace_id": workspace_id,
-        "subject": mapped_input(payload, mapping_record, "subject", ["message.subject", "subject"]),
-        "body": mapped_input(payload, mapping_record, "body", ["message.text", "message.body", "message.html", "text", "body", "html"]) or body,
-        "audience": mapped_input(payload, mapping_record, "audience", ["message.audience", "audience"]) or "Outbound recipient",
-        "intent": mapped_input(payload, mapping_record, "intent", ["message.intent", "intent"]) or "Transactional or campaign email",
-        "channel": str(payload.get("provider") or "sendgrid_ses_middleware"),
-        "source": "sendgrid_ses_middleware",
-        "assets": message.get("assets") or {},
-        "tenant_id": payload.get("tenant_id") or "",
-        "source_system": payload.get("source_system") or payload.get("provider") or "sendgrid_ses",
-        "analysis_mode": payload.get("analysis_mode") or "send_path_middleware",
-        "campaign_id": payload.get("campaign_id") or message.get("campaign_id") or "",
-        "template_id": payload.get("template_id") or message.get("template_id") or "",
-        "headers": message.get("headers") or payload.get("headers") or {},
-        "delivery_context": payload.get("delivery_context") if isinstance(payload.get("delivery_context"), dict) else {},
-    }
-    try:
-        analysis = analyze_email_payload(analysis_payload, payload.get("request_id"))
-    except Exception as error:
-        return analysis_error_response(error)
-    gate = analysis["policy"]["gate"]
-    elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-    timeout_ms = int(governance_policy.get("send_path_timeout_ms") or 500)
-    return jsonify(
-        {
-            "middleware": "sendgrid_ses",
-            "workspace_id": workspace_id,
-            "mapping_status": (mapping_record or {}).get("status", "default_mapping"),
-            "allow_send": gate["send_ready"],
-            "provider_action": "forward_to_provider" if gate["send_ready"] else "hold_for_review",
-            "latency_budget": {
-                "elapsed_ms": elapsed_ms,
-                "timeout_ms": timeout_ms,
-                "within_budget": elapsed_ms <= timeout_ms,
-                "idempotency_window_seconds": governance_policy.get("idempotency_window_seconds"),
-                "idempotency_key": str(payload.get("idempotency_key") or payload.get("request_id") or analysis["request_id"])[:180],
-            },
-            "headers": {
-                "X-TextTraits-Request-ID": analysis["request_id"],
-                "X-TextTraits-Policy-Version": analysis["policy"]["bundle_version"],
-                "X-TextTraits-Gate": gate["status"],
-            },
-            "analysis": compact_analysis(analysis),
-        }
-    )
-
-
-def generic_enterprise_adapter_payload(payload: dict[str, Any], provider: str) -> dict[str, Any]:
-    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
-    canvas_step = payload.get("canvas_step") if isinstance(payload.get("canvas_step"), dict) else {}
-    asset = payload.get("asset") if isinstance(payload.get("asset"), dict) else {}
-    input_fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else {}
-    in_arguments = payload.get("inArguments") if isinstance(payload.get("inArguments"), list) else []
-    argument_fields: dict[str, Any] = {}
-    for item in in_arguments:
-        if isinstance(item, dict):
-            argument_fields.update(item)
-    source = {**payload, **input_fields, **argument_fields, **message, **canvas_step, **asset}
-    body = (
-        source.get("body")
-        or source.get("content")
-        or source.get("text")
-        or source.get("html")
-        or message.get("html")
-        or asset.get("html")
-        or canvas_step.get("body")
-        or ""
-    )
-    return {
-        "workspace_id": integration_workspace_id(payload),
-        "tenant_id": payload.get("tenant_id") or "",
-        "source_system": payload.get("source_system") or provider,
-        "analysis_mode": payload.get("analysis_mode") or "pre_send_gate",
-        "campaign_id": payload.get("campaign_id") or source.get("campaign_id") or source.get("campaignId") or source.get("program_id") or source.get("canvas_id") or source.get("email_campaign_id") or "",
-        "journey_id": payload.get("journey_id") or source.get("journey_id") or source.get("workflow_id") or source.get("canvas_id") or "",
-        "step_id": payload.get("step_id") or source.get("step_id") or source.get("activity_id") or "",
-        "template_id": payload.get("template_id") or source.get("template_id") or source.get("asset_id") or source.get("id") or "",
-        "template_version": payload.get("template_version") or source.get("template_version") or source.get("version") or "",
-        "locale": payload.get("locale") or source.get("locale") or "",
-        "subject": source.get("subject") or source.get("email_subject") or source.get("EmailSubject") or "",
-        "body": body or source.get("email_body") or source.get("EmailBody") or "",
-        "audience": payload.get("audience") or source.get("segment") or provider,
-        "intent": payload.get("intent") or source.get("intent") or "Enterprise workflow gate",
-        "channel": provider,
-        "source": f"{provider}_sandbox_adapter",
-        "headers": payload.get("headers") if isinstance(payload.get("headers"), dict) else message.get("headers") if isinstance(message.get("headers"), dict) else {},
-        "personalization_context": payload.get("personalization_context") if isinstance(payload.get("personalization_context"), dict) else {},
-        "recipient_context": payload.get("recipient_context") if isinstance(payload.get("recipient_context"), dict) else {},
-        "consent_context": payload.get("consent_context") if isinstance(payload.get("consent_context"), dict) else {},
-        "delivery_context": payload.get("delivery_context") if isinstance(payload.get("delivery_context"), dict) else {},
-        "assets": source.get("assets") if isinstance(source.get("assets"), dict) else {},
-    }
-
-
-def adapter_response(provider: str, payload: dict[str, Any], request_id: str | None = None) -> tuple[dict[str, Any], int]:
-    analysis_payload = generic_enterprise_adapter_payload(payload, provider)
-    try:
-        analysis = analyze_email_payload(analysis_payload, request_id or payload.get("request_id") or payload.get("requestId"))
-    except Exception as error:
-        response, status = analysis_error_response(error)
-        return response.get_json() or {"error": str(error)}, status
-    gate = analysis["policy"]["gate"]
-    return {
-        "adapter": provider,
-        "workspace_id": analysis_payload["workspace_id"],
-        "decision": "send" if gate["send_ready"] else "review",
-        "writeback": {
-            "texttraits_request_id": analysis["request_id"],
-            "texttraits_content_hash": analysis["content_hash"],
-            "texttraits_score": analysis["scores"]["overall"],
-            "texttraits_gate": gate["status"],
-            "texttraits_route": gate["route"],
-        },
-        "render_test": analysis["input"].get("rendered_template", {}),
-        "analysis": compact_analysis(analysis),
-    }, 200
-
-
-@app.post("/v1/integrations/braze/canvas-gate")
-@rate_limited()
-def v1_braze_canvas_gate():
-    payload = request.get_json(silent=True) or {}
-    response, status = adapter_response("braze", payload)
-    return jsonify(response), status
-
-
-@app.post("/v1/integrations/marketo/smart-campaign-gate")
-@rate_limited()
-def v1_marketo_smart_campaign_gate():
-    payload = request.get_json(silent=True) or {}
-    response, status = adapter_response("marketo", payload)
-    return jsonify(response), status
-
-
-@app.post("/v1/integrations/iterable/workflow-gate")
-@rate_limited()
-def v1_iterable_workflow_gate():
-    payload = request.get_json(silent=True) or {}
-    response, status = adapter_response("iterable", payload)
-    return jsonify(response), status
-
-
-@app.post("/v1/integrations/warehouse/feedback-import")
-@rate_limited(20)
-def v1_warehouse_feedback_import():
-    payload = request.get_json(silent=True) or {}
-    rows = payload.get("rows") if isinstance(payload.get("rows"), list) else payload.get("samples")
-    if not isinstance(rows, list) or not rows:
-        return jsonify({"error": "Provide non-empty rows or samples for warehouse feedback import."}), 400
-    workspace_id = integration_workspace_id(payload)
-    import_payload = {**payload, "workspace_id": workspace_id, "samples": rows, "source_system": "warehouse"}
-    summaries = []
-    errors = []
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            errors.append({"index": index, "error": "Warehouse row must be an object."})
-            continue
-        response, status = adapter_response("warehouse", {**payload, **row, "workspace_id": workspace_id}, f"{stable_import_id(import_payload)}:{index}")
-        if status == 200:
-            summaries.append({"index": index, **response["analysis"]})
-            event_type = str(row.get("event_type") or row.get("delivery_status") or "").strip()
-            if event_type:
-                save_email_outcome(
-                    {
-                        "workspace_id": workspace_id,
-                        "request_id": response["analysis"]["request_id"],
-                        "content_hash": response["analysis"]["content_hash"],
-                        "provider": row.get("provider") or row.get("source_system") or "warehouse",
-                        "event_type": event_type,
-                        "delivery_status": row.get("delivery_status") or event_type,
-                        "campaign_id": row.get("campaign_id") or "",
-                        "template_id": row.get("template_id") or "",
-                        "event_timestamp": row.get("event_timestamp") or utc_now(),
-                    },
-                    workspace_id=workspace_id,
-                )
-        else:
-            errors.append({"index": index, "error": response.get("error", "Warehouse row failed analysis.")})
-    summary = save_sample_import(
-        {
-            "import_id": stable_import_id(import_payload),
-            "workspace_id": workspace_id,
-            "accepted": len(summaries),
-            "rejected": len(errors),
-            "chunk_index": int(payload.get("chunk_index") or 0),
-            "chunk_total": int(payload.get("chunk_total") or 1),
-            "resume_token": str(payload.get("resume_token") or ""),
-            "average_score": round(sum(row["score"] for row in summaries) / len(summaries), 1) if summaries else 0,
-            "blocked_or_review": sum(1 for row in summaries if row["gate"]["status"] != "ready"),
-            "created_at": utc_now(),
-        },
-        workspace_id=workspace_id,
-    )
-    return jsonify({"summary": summary, "rows": summaries, "errors": errors})
-
-
-@app.post("/v1/integrations/simulate")
-@rate_limited(40)
-def v1_adapter_simulator():
-    payload = request.get_json(silent=True) or {}
-    provider = normalize_provider(str(payload.get("provider") or "hubspot"))
-    adapter_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
-    response, status = adapter_response(provider, adapter_payload)
-    response["manifest"] = provider_manifest(provider)
-    response["mapping_template"] = mapping_template(provider)
-    return jsonify(response), status
-
-
-@app.post("/v1/templates/render-test")
 @rate_limited(60)
-def v1_template_render_test():
+def hubspot_workflow_action_analyze_email():
+    return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_workflow_action")
+
+
+@app.post("/v1/integrations/hubspot/template-test")
+@rate_limited(60)
+def hubspot_template_test():
     payload = request.get_json(silent=True) or {}
-    harness = rendered_template_harness(payload)
-    include_preview = bool(payload.get("include_rendered_preview"))
-    response = {
-        "api_version": "v1",
-        "workspace_id": integration_workspace_id(payload),
-        "render_test": safe_template_summary(harness),
-    }
-    if include_preview:
-        response["rendered_preview"] = {
-            "subject": harness.get("rendered_subject", ""),
-            "body": harness.get("rendered_body", ""),
-        }
-    return jsonify(response)
+    input_fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
+    subject = str(input_fields.get("subject") or input_fields.get("email_subject") or "").strip()
+    body = str(input_fields.get("body") or input_fields.get("email_body") or input_fields.get("text") or "").strip()
+    sample_context = payload.get("sample_context") if isinstance(payload.get("sample_context"), dict) else input_fields.get("sample_context") if isinstance(input_fields.get("sample_context"), dict) else {}
+    headers = payload.get("headers") if isinstance(payload.get("headers"), dict) else input_fields.get("headers") if isinstance(input_fields.get("headers"), dict) else {}
+    if not subject and not body:
+        return jsonify({"error": "Enter a template subject or body to test."}), 400
+    context = hubspot_context_from_payload(payload, input_fields)
+    if context.get("_validation_error"):
+        return jsonify({"error": context["_validation_error"]}), 403
+    policy = hubspot_policy_for_request(payload, context)
+    result = hubspot_template_test_result(subject, body, scrub_payload(sample_context), scrub_payload(headers), policy)
+    return jsonify({"template_test": result})
 
 
-def webhook_dedupe_key(payload: dict[str, Any]) -> str:
-    explicit = str(payload.get("event_id") or payload.get("id") or payload.get("message_id") or "").strip()
-    if explicit:
-        return explicit[:180]
-    canonical = json.dumps(scrub_payload(payload), sort_keys=True, separators=(",", ":"))[:4000]
-    return "event_hash:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+def hubspot_analysis_filters_from_request() -> dict[str, str]:
+    allowed = ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id")
+    return {key: request.args.get(key, "").strip() for key in allowed if request.args.get(key, "").strip()}
 
 
-def supplied_webhook_signature() -> str:
-    for header in ("X-TextTraits-Signature", "X-Hub-Signature-256", "X-Signature-SHA256"):
-        value = request.headers.get(header, "").strip()
-        if value:
-            return value if value.lower().startswith("sha256=") else f"sha256={value}"
-    return ""
+def hubspot_outcome_filters_from_request() -> dict[str, str]:
+    allowed = ("request_id", "content_hash", "workspace_id", "tenant_id", "source_system", "event_type")
+    return {key: request.args.get(key, "").strip() for key in allowed if request.args.get(key, "").strip()}
 
 
-def supplied_webhook_timestamp() -> str:
-    for header in ("X-TextTraits-Timestamp", "X-Webhook-Timestamp", "X-Request-Timestamp"):
-        value = request.headers.get(header, "").strip()
-        if value:
-            return value
-    return ""
-
-
-def webhook_timestamp_valid(timestamp: str) -> str:
-    if not timestamp:
-        return "missing_timestamp" if env_flag("TEXTTRAITS_WEBHOOK_REQUIRE_TIMESTAMP", PRODUCTION) else "not_required"
-    try:
-        supplied = float(timestamp)
-    except ValueError:
-        return "malformed_timestamp"
-    now = time.time()
-    if abs(now - supplied) > max(WEBHOOK_SIGNATURE_TOLERANCE_SECONDS, 1):
-        return "stale_timestamp"
-    return "ok"
-
-
-def webhook_signature_status() -> str:
-    secret = os.getenv("TEXTTRAITS_WEBHOOK_SECRET", "").strip()
-    if not secret:
-        return "not_configured"
-    supplied = supplied_webhook_signature()
-    if not supplied:
-        return "missing"
-    raw_body = request.get_data(cache=True)
-    timestamp = supplied_webhook_timestamp()
-    timestamp_status = webhook_timestamp_valid(timestamp)
-    if timestamp_status not in {"ok", "not_required"}:
-        return timestamp_status
-    signed_payloads = [raw_body]
-    if timestamp_status == "ok":
-        signed_payloads.insert(0, f"{timestamp}.".encode("utf-8") + raw_body)
-    for signed_payload in signed_payloads:
-        expected = "sha256=" + hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
-        if hmac.compare_digest(expected, supplied):
-            return "verified"
-    return "invalid"
-
-
-@app.post("/v1/webhooks/post-send")
-@rate_limited(180)
-def v1_post_send_webhook():
-    payload = request.get_json(silent=True) or {}
-    workspace_id = integration_workspace_id(payload)
-    governance_policy = get_governance_policy(workspace_id)
-    signature_status = webhook_signature_status()
-    if signature_status in {"invalid", "missing", "missing_timestamp", "malformed_timestamp", "stale_timestamp"}:
-        return jsonify({"accepted": False, "retry": False, "error": "Webhook signature verification failed."}), 401
-    provider = str(payload.get("provider") or "").strip()
-    event_type = str(payload.get("event_type") or payload.get("event") or "").strip()
-    if not provider or not event_type:
-        return (
-            jsonify(
-                {
-                    "accepted": False,
-                    "retry": True,
-                    "retry_after_seconds": 300,
-                    "error": "Webhook event requires provider and event_type.",
-                }
-            ),
-            202,
-        )
-    key = webhook_dedupe_key(payload)
-    record = {
-        "workspace_id": workspace_id,
-        "dedupe_key": key,
-        "provider": provider[:80],
-        "event_type": event_type[:80],
-        "request_id": str(payload.get("request_id") or payload.get("texttraits_request_id") or "")[:120],
-        "content_hash": str(payload.get("content_hash") or "")[:120],
-        "first_seen_at": utc_now(),
-        "last_seen_at": utc_now(),
-        "seen_count": 1,
-        "delivery_status": str(payload.get("delivery_status") or payload.get("status") or "received")[:80],
-        "signature_status": signature_status,
-        "campaign_id": str(payload.get("campaign_id") or "")[:160],
-        "template_id": str(payload.get("template_id") or "")[:160],
-    }
-    event, duplicate = upsert_webhook_event(
-        key,
-        record,
-        payload,
-        workspace_id=workspace_id,
-        dedupe_window_days=int(governance_policy.get("webhook_dedupe_window_days") or 30),
-    )
-    outcome = save_email_outcome({**record, "event_timestamp": event["last_seen_at"]}, workspace_id=workspace_id)
-    return jsonify(
-        {
-            "accepted": True,
-            "duplicate": duplicate,
-            "workspace_id": workspace_id,
-            "dedupe_key": key,
-            "dedupe_window_days": governance_policy.get("webhook_dedupe_window_days"),
-            "signature_status": signature_status,
-            "event": event,
-            "outcome": outcome,
-        }
-    )
-
-
-@app.post("/v1/samples/import")
-@rate_limited(20)
-def v1_samples_import():
-    payload = request.get_json(silent=True) or {}
-    workspace_id = integration_workspace_id(payload)
-    governance_policy = get_governance_policy(workspace_id)
-    samples = payload.get("samples")
-    if not isinstance(samples, list) or not samples:
-        return jsonify({"error": "Provide a non-empty samples array."}), 400
-    sample_limit = int(governance_policy.get("sample_import_limit") or 25)
-    if len(samples) > sample_limit:
-        return jsonify({"error": f"Import up to {sample_limit} samples at a time for this workspace."}), 413
-    import_id = stable_import_id(payload)
-    rows = []
-    errors = []
-    for index, sample in enumerate(samples):
-        if not isinstance(sample, dict):
-            errors.append({"index": index, "error": "Sample must be an object."})
-            continue
-        try:
-            analysis = analyze_email_payload(
-                {
-                    **sample,
-                    "workspace_id": workspace_id,
-                    "audience": sample.get("audience") or payload.get("audience") or "Batch import",
-                    "intent": sample.get("intent") or payload.get("intent") or "Warehouse sample",
-                    "channel": sample.get("channel") or "warehouse_import",
-                    "source": "batch_sample_import",
-                },
-                f"{import_id}:{index}",
-            )
-            rows.append({"index": index, **compact_analysis(analysis)})
-        except Exception as error:
-            errors.append({"index": index, "error": str(error)})
-    summary = {
-        "import_id": import_id,
-        "workspace_id": workspace_id,
-        "chunk_index": int(payload.get("chunk_index") or 0),
-        "chunk_total": int(payload.get("chunk_total") or 1),
-        "resume_token": str(payload.get("resume_token") or ""),
-        "accepted": len(rows),
-        "rejected": len(errors),
-        "average_score": round(sum(row["score"] for row in rows) / len(rows), 1) if rows else 0,
-        "blocked_or_review": sum(1 for row in rows if row["gate"]["status"] != "ready"),
-        "created_at": utc_now(),
-    }
-    summary = save_sample_import(summary, workspace_id=workspace_id)
-    return jsonify({"summary": summary, "rows": rows, "errors": errors})
-
-
-def stable_import_id(payload: dict[str, Any]) -> str:
-    explicit = str(payload.get("import_id") or "").strip()
-    if explicit:
-        return explicit[:120]
-    return "import_" + hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
-
-
-def csv_safe_cell(value: Any) -> str:
-    if value is None:
-        return ""
+def safe_csv_cell(value: Any) -> str:
     if isinstance(value, (dict, list)):
-        text = json.dumps(scrub_payload(value), separators=(",", ":"), sort_keys=True)
+        clean = json.dumps(value, separators=(",", ":"), sort_keys=True)
     else:
-        text = str(value)
-    if text and text[0] in {"=", "+", "-", "@", "\t", "\r", "\n"}:
-        return "'" + text
-    return text
+        clean = str(value or "")
+    clean = clean.replace("\r", " ").replace("\n", " ").strip()
+    if clean.startswith(("=", "+", "-", "@")):
+        return "'" + clean
+    return clean
 
 
-def csv_safe_rows(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
-    return [{key: csv_safe_cell(value) for key, value in row.items()} for row in rows]
+HUBSPOT_ANALYSIS_EXPORT_COLUMNS = (
+    "created_at",
+    "request_id",
+    "workspace_id",
+    "tenant_id",
+    "source_system",
+    "workflow",
+    "analysis_mode",
+    "campaign_id",
+    "journey_id",
+    "template_id",
+    "contact_id",
+    "company_id",
+    "deal_id",
+    "owner_id",
+    "portal_id",
+    "object_type",
+    "object_id",
+    "locale",
+    "content_hash",
+    "score",
+    "gate",
+    "route",
+    "send_ready",
+    "word_count",
+    "average_model_confidence",
+    "score_source",
+)
 
 
-def safe_attachment_filename(kind: str, workspace_id: str) -> str:
-    stem = f"texttraits-{kind}-{workspace_id}"
-    clean = re.sub(r"[^A-Za-z0-9_.-]+", "-", stem).strip(".-")[:140]
-    return f"{clean or 'texttraits-export'}.csv"
-
-
-@app.get("/v1/governance/dashboard")
-def v1_governance_dashboard():
-    workspace_id = integration_workspace_id()
-    snapshot = enterprise_governance_snapshot(limit=20, workspace_id=workspace_id)
-    return jsonify(
-        {
-            "api_version": "v1",
-            "policy_bundle_version": "2026.05.25",
-            "model_version": str(getattr(predictor, "metadata", {}).get("trained_at") or "local-texttraits-bundle"),
-            **snapshot,
-            "integration_flows": integration_flow_catalog(),
-            "enterprise_integration_plan": load_enterprise_integration_plan(),
-            "field_mappings": recent_integration_field_mappings(workspace_id=workspace_id, limit=20),
-        }
-    )
-
-
-@app.get("/v1/governance/export")
-def v1_governance_export():
-    workspace_id = integration_workspace_id()
-    kind = str(request.args.get("type") or request.args.get("kind") or "analyses").strip().lower()
-    export_format = str(request.args.get("format") or "json").strip().lower()
-    limit = int(request.args.get("limit") or 1000)
+@app.post("/v1/integrations/hubspot/review-action")
+@rate_limited(120)
+def hubspot_review_action():
+    payload = request.get_json(silent=True) or {}
     try:
-        rows = governance_export_rows(kind, workspace_id=workspace_id, limit=limit)
+        event = save_hubspot_review_event(
+            str(payload.get("request_id") or payload.get("texttraits_request_id") or ""),
+            str(payload.get("action") or ""),
+            payload.get("payload") if isinstance(payload.get("payload"), dict) else {},
+            actor_id=str(payload.get("actor_id") or payload.get("user_id") or ""),
+            status=str(payload.get("status") or "recorded"),
+        )
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
-    if export_format == "csv":
-        output = io.StringIO()
-        fieldnames = sorted({key for row in rows for key in row.keys()}) or ["empty"]
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(csv_safe_rows(rows))
-        response = app.response_class(output.getvalue(), mimetype="text/csv")
-        response.headers["Content-Disposition"] = f'attachment; filename="{safe_attachment_filename(kind, workspace_id)}"'
-        return response
-    return jsonify({"api_version": "v1", "workspace_id": workspace_id, "type": kind, "rows": rows})
+    log_event(current_user_id(), "hubspot_review_action", {"request_id": event["request_id"], "action": event["action"]})
+    return jsonify({"ok": True, "event": event})
 
 
-@app.get("/v1/governance/policy")
-def v1_governance_policy():
-    workspace_id = integration_workspace_id()
-    return jsonify(
-        {
-            "api_version": "v1",
-            "workspace_id": workspace_id,
-            "policy": get_governance_policy(workspace_id),
-        }
-    )
-
-
-@app.put("/v1/governance/policy")
-@rate_limited(40)
-def v1_governance_policy_save():
+@app.post("/v1/integrations/hubspot/outcomes")
+@rate_limited(120)
+def hubspot_outcomes_ingest():
     payload = request.get_json(silent=True) or {}
-    workspace_id = integration_workspace_id(payload)
-    policy_payload = payload.get("policy") if isinstance(payload.get("policy"), dict) else payload
-    policy = save_governance_policy(workspace_id, policy_payload)
-    log_event(current_user_id(), "governance_policy_updated", {"workspace_id": workspace_id, "policy": policy})
+    raw_events = payload.get("events") if isinstance(payload.get("events"), list) else [payload]
+    saved = []
+    for raw_event in raw_events[:100]:
+        if not isinstance(raw_event, dict):
+            continue
+        record = {
+            "request_id": raw_event.get("request_id") or raw_event.get("texttraits_request_id") or payload.get("request_id"),
+            "content_hash": raw_event.get("content_hash") or raw_event.get("texttraits_content_hash") or payload.get("content_hash"),
+            "workspace_id": raw_event.get("workspace_id") or payload.get("workspace_id"),
+            "tenant_id": raw_event.get("tenant_id") or payload.get("tenant_id"),
+            "source_system": raw_event.get("source_system") or payload.get("source_system") or "hubspot",
+            "event_type": raw_event.get("event_type") or raw_event.get("type"),
+            "event_id": raw_event.get("event_id") or raw_event.get("id"),
+            "payload": raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else raw_event,
+            "occurred_at": raw_event.get("occurred_at") or raw_event.get("timestamp") or payload.get("occurred_at"),
+        }
+        saved.append(save_hubspot_outcome_event(record))
+    if not saved:
+        return jsonify({"error": "No valid outcome events were supplied."}), 400
+    return jsonify({"ok": True, "events": saved})
+
+
+@app.get("/api/enterprise/hubspot/analyses")
+@rate_limited(60)
+def api_enterprise_hubspot_analyses():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    limit = clamp_int(request.args.get("limit"), 1, 1000, 100)
+    analyses = list_hubspot_email_analyses(limit=limit, filters=hubspot_analysis_filters_from_request())
+    log_event(user_id, "hubspot_analyses_viewed", {"count": len(analyses)})
     return jsonify(
         {
-            "api_version": "v1",
-            "workspace_id": workspace_id,
-            "policy": policy,
+            "analyses": analyses,
+            "review_events": list_hubspot_review_events(limit=100),
+            "review_states": list_hubspot_review_states(limit=100),
         }
     )
+
+
+@app.get("/api/enterprise/hubspot/findings")
+@rate_limited(60)
+def api_enterprise_hubspot_findings():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    filters = {key: request.args.get(key, "").strip() for key in ("request_id", "finding_id", "severity", "owner_queue", "blocker_level") if request.args.get(key, "").strip()}
+    findings = list_hubspot_normalized_findings(limit=clamp_int(request.args.get("limit"), 1, 1000, 100), filters=filters)
+    log_event(user_id, "hubspot_findings_viewed", {"count": len(findings)})
+    return jsonify({"findings": findings})
+
+
+@app.get("/api/enterprise/hubspot/checks")
+@rate_limited(60)
+def api_enterprise_hubspot_checks():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    filters = {key: request.args.get(key, "").strip() for key in ("request_id", "check_id", "status") if request.args.get(key, "").strip()}
+    checks = list_hubspot_normalized_checks(limit=clamp_int(request.args.get("limit"), 1, 1000, 100), filters=filters)
+    log_event(user_id, "hubspot_checks_viewed", {"count": len(checks)})
+    return jsonify({"checks": checks})
+
+
+@app.get("/api/enterprise/hubspot/review-states")
+@rate_limited(60)
+def api_enterprise_hubspot_review_states():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    filters = {key: request.args.get(key, "").strip() for key in ("request_id", "status", "owner_queue", "assigned_to") if request.args.get(key, "").strip()}
+    states = list_hubspot_review_states(limit=clamp_int(request.args.get("limit"), 1, 1000, 100), filters=filters)
+    log_event(user_id, "hubspot_review_states_viewed", {"count": len(states)})
+    return jsonify({"review_states": states})
+
+
+@app.get("/api/enterprise/hubspot/outcomes")
+@rate_limited(60)
+def api_enterprise_hubspot_outcomes():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    events = list_hubspot_outcome_events(limit=clamp_int(request.args.get("limit"), 1, 1000, 100), filters=hubspot_outcome_filters_from_request())
+    log_event(user_id, "hubspot_outcomes_viewed", {"count": len(events)})
+    return jsonify({"events": events})
+
+
+@app.get("/api/enterprise/hubspot/dashboard")
+@rate_limited(60)
+def api_enterprise_hubspot_dashboard():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    limit = clamp_int(request.args.get("limit"), 1, 1000, 500)
+    dashboard = hubspot_email_dashboard(limit=limit)
+    log_event(user_id, "hubspot_dashboard_viewed", {"total": dashboard["total_analyses"]})
+    return jsonify({"dashboard": dashboard})
+
+
+@app.get("/api/enterprise/hubspot/exports/analyses.json")
+@rate_limited(30)
+def api_enterprise_hubspot_export_json():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    analyses = list_hubspot_email_analyses(limit=clamp_int(request.args.get("limit"), 1, 1000, 1000), filters=hubspot_analysis_filters_from_request())
+    log_event(user_id, "hubspot_analyses_exported", {"format": "json", "count": len(analyses)})
+    return jsonify({"analyses": analyses, "exported_at": analyzedTimeForServer()})
+
+
+@app.get("/api/enterprise/hubspot/exports/analyses.csv")
+@rate_limited(30)
+def api_enterprise_hubspot_export_csv():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    analyses = list_hubspot_email_analyses(limit=clamp_int(request.args.get("limit"), 1, 1000, 1000), filters=hubspot_analysis_filters_from_request())
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=HUBSPOT_ANALYSIS_EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for row in analyses:
+        writer.writerow({key: safe_csv_cell(row.get(key)) for key in HUBSPOT_ANALYSIS_EXPORT_COLUMNS})
+    log_event(user_id, "hubspot_analyses_exported", {"format": "csv", "count": len(analyses)})
+    return Response(
+        buffer.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=texttraits-hubspot-analyses.csv"},
+    )
+
+
+def analyzedTimeForServer() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+@app.get("/api/enterprise/hubspot/policy")
+@rate_limited(60)
+def api_enterprise_hubspot_policy_get():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    workspace_id = request.args.get("workspace_id", "default").strip() or "default"
+    environment = request.args.get("environment", "production").strip() or "production"
+    saved = get_hubspot_policy_config(workspace_id, environment)
+    policy = normalized_hubspot_email_policy(saved["policy"] if saved else {})
+    history = list_hubspot_policy_versions(workspace_id=workspace_id, environment=environment, limit=25)
+    rule_packs = [
+        {
+            "id": key,
+            "label": value["label"],
+            "risk_phrase_count": len(value.get("risk_phrases", ())),
+            "vague_phrase_count": len(value.get("vague_phrases", ())),
+            "required_template_tokens": list(value.get("required_template_tokens", ())),
+            "required_headers": list(value.get("required_headers", ())),
+        }
+        for key, value in HUBSPOT_EMAIL_RULE_PACKS.items()
+    ]
+    return jsonify({"workspace_id": workspace_id, "environment": environment, "policy": policy, "rule_packs": rule_packs, "source": "saved" if saved else "default", "updated_at": saved["updated_at"] if saved else "", "history": history})
+
+
+@app.get("/api/enterprise/hubspot/policy/history")
+@rate_limited(60)
+def api_enterprise_hubspot_policy_history():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    history = list_hubspot_policy_versions(
+        workspace_id=request.args.get("workspace_id", "").strip(),
+        environment=request.args.get("environment", "").strip(),
+        limit=clamp_int(request.args.get("limit"), 1, 1000, 100),
+    )
+    log_event(user_id, "hubspot_policy_history_viewed", {"count": len(history)})
+    return jsonify({"history": history})
+
+
+@app.put("/api/enterprise/hubspot/policy")
+@rate_limited(30)
+def api_enterprise_hubspot_policy_put():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    workspace_id = str(payload.get("workspace_id") or "default").strip() or "default"
+    environment = str(payload.get("environment") or "production").strip() or "production"
+    raw_policy = payload.get("policy")
+    if not isinstance(raw_policy, dict):
+        return jsonify({"error": "Policy must be an object."}), 400
+    allowed_keys = {"version", "rule_pack", *HUBSPOT_POLICY_BOOLEAN_KEYS, *HUBSPOT_POLICY_INTEGER_BOUNDS.keys(), *HUBSPOT_POLICY_LIST_KEYS}
+    unsupported = sorted(set(raw_policy.keys()) - allowed_keys)
+    if unsupported:
+        return jsonify({"error": "Policy contains unsupported fields.", "fields": unsupported[:10]}), 400
+    user = get_user_by_id(user_id)
+    saved = save_hubspot_policy_config(
+        workspace_id,
+        environment,
+        normalized_hubspot_email_policy(raw_policy),
+        updated_by=(user or {}).get("email", ""),
+    )
+    log_event(user_id, "hubspot_policy_updated", {"workspace_id": workspace_id, "environment": environment})
+    return jsonify(saved)
 
 
 @app.get("/api/session")
@@ -1998,20 +2320,41 @@ def api_integration_oauth_start(provider: str):
 @app.get("/api/integrations/<provider>/oauth/callback")
 @rate_limited(20)
 def api_integration_oauth_callback(provider: str):
-    user_id, error = require_user()
-    if error:
-        return error
     entry = get_provider(provider)
     if not entry:
         return jsonify({"error": "Unsupported integration provider."}), 404
     code = request.args.get("code", "")
     state = request.args.get("state", "")
-    if not code or not state:
-        return jsonify({"error": "OAuth callback is missing code or state."}), 400
+    if not code:
+        return jsonify({"error": "OAuth callback is missing code."}), 400
     try:
-        decoded = decoded_state(state)
+        decoded = decoded_state(state) if state else None
     except Exception:
+        decoded = None
+
+    if decoded is None and provider_slug(entry.name) == "hubspot":
+        redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
+        try:
+            token_payload = exchange_oauth_code(entry, redirect_uri, code)
+            marketplace_install_user(entry, token_payload, state)
+        except Exception:
+            logging.exception("hubspot_marketplace_oauth_exchange_failed")
+            return oauth_completion_page(
+                "HubSpot install reached TextTraits",
+                "TextTraits received the HubSpot install callback, but the token exchange failed. Check the deployed HubSpot client ID, client secret, and redirect URL before trying again.",
+                502,
+            )
+        return oauth_completion_page(
+            "HubSpot app installed",
+            "The HubSpot account was connected to TextTraits. Return to HubSpot and add the TextTraits email fit card from record customization.",
+        )
+
+    if decoded is None:
         return jsonify({"error": "OAuth state is invalid."}), 400
+
+    user_id, error = require_user()
+    if error:
+        return error
     expected_nonce = session.get(f"oauth_nonce_{provider_slug(entry.name)}")
     if decoded.get("user_id") != user_id or decoded.get("provider") != entry.name or decoded.get("nonce") != expected_nonce:
         return jsonify({"error": "OAuth state did not match this session."}), 400
@@ -2051,32 +2394,15 @@ def privacy():
               crossorigin="anonymous"
             ></script>
           </head>
-          <body data-mode="enterprise-optimizer">
-        <main class="app-shell legal-shell">
-          <header class="topbar legal-topbar">
-            <div class="brand-block">
-              <p class="eyebrow">TextTraits</p>
-              <h1>Privacy</h1>
-              <p>Enterprise-grade handling for email analysis, governance metadata, and integration setup.</p>
-            </div>
-            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
-          </header>
-          <section class="panel legal-page">
-            <article>
-              <span class="interface-label">Data handling</span>
-              <p>TextTraits stores account and workspace data for signed-in users, including saved writing history, campaigns, drafts, outcomes, settings, and integration connection status.</p>
-              <p>Text submitted for analysis is processed by the TextTraits application. Raw pasted text is not included in normal workspace sync unless a user saves a reading, draft, or campaign that contains it.</p>
-            </article>
-            <article>
-              <span class="interface-label">Controls</span>
-              <p>Signed-in users can export their account data and delete their account from the account menu. Deletion removes the synced workspace and integration connection records for that account.</p>
-              <p>Enterprise integrations require administrator setup before any CRM or email data is exchanged. Preview integrations do not connect to third-party systems.</p>
-            </article>
-            <article>
-              <span class="interface-label">Operational safeguards</span>
-              <p>Operational logs and error reports are used to keep the service reliable and should avoid storing passwords, reset codes, API keys, and OAuth credentials.</p>
-            </article>
-          </section>
+          <body>
+        <main class="legal-page">
+          <h1>Privacy</h1>
+          <p>TextTraits stores account and workspace data for signed-in users, including saved writing history, campaigns, drafts, outcomes, settings, and integration connection status.</p>
+          <p>Text submitted for analysis is processed by the TextTraits application. Raw pasted text is not included in normal workspace sync unless a user saves a reading, draft, or campaign that contains it.</p>
+          <p>Signed-in users can export their account data and delete their account from the account menu. Deletion removes the synced workspace and integration connection records for that account.</p>
+          <p>Enterprise integrations require administrator setup before any CRM or email data is exchanged. Preview integrations do not connect to third-party systems.</p>
+          <p>Operational logs and error reports are used to keep the service reliable and should avoid storing passwords, reset codes, API keys, and OAuth credentials.</p>
+          <p><a href="/">Back to TextTraits</a></p>
         </main>
           </body>
         </html>
@@ -2100,248 +2426,14 @@ def terms():
               crossorigin="anonymous"
             ></script>
           </head>
-          <body data-mode="enterprise-optimizer">
-        <main class="app-shell legal-shell">
-          <header class="topbar legal-topbar">
-            <div class="brand-block">
-              <p class="eyebrow">TextTraits</p>
-              <h1>Terms</h1>
-              <p>Operational terms for an optimization layer that evaluates existing messages and does not generate replacement emails.</p>
-            </div>
-            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
-          </header>
-          <section class="panel legal-page">
-            <article>
-              <span class="interface-label">Product role</span>
-              <p>TextTraits is an email optimization and outreach workflow scoring tool. It evaluates existing messages and does not generate replacement emails in this branch.</p>
-            </article>
-            <article>
-              <span class="interface-label">Administrator responsibility</span>
-              <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, external integration credentials, and user access.</p>
-              <p>Preview integrations are disabled until real credentials, provider approvals, and field mappings are configured by the workspace owner.</p>
-            </article>
-            <article>
-              <span class="interface-label">Content and compliance</span>
-              <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
-            </article>
-          </section>
-        </main>
-          </body>
-        </html>
-        """
-    )
-
-
-@app.get("/security")
-def security():
-    return render_template_string(
-        """
-        <!doctype html>
-        <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>TextTraits Security</title>
-            <link rel="stylesheet" href="/static/styles.css">
-            <script
-              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
-              crossorigin="anonymous"
-            ></script>
-          </head>
-          <body data-mode="enterprise-optimizer">
-        <main class="app-shell legal-shell">
-          <header class="topbar legal-topbar">
-            <div class="brand-block">
-              <p class="eyebrow">TextTraits</p>
-              <h1>Security</h1>
-              <p>Internal enterprise trust package for data handling, retention, model limits, and integration boundaries.</p>
-            </div>
-            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
-          </header>
-          <section class="panel legal-page">
-            <article>
-              <span class="interface-label">Data handling</span>
-              <p>Default governance storage is designed around request IDs, content hashes, normalized findings, policy metadata, and outcome joins. Raw email body text is excluded from normal governance responses.</p>
-            </article>
-            <article>
-              <span class="interface-label">Retention controls</span>
-              <p>Workspace policies define analysis retention, webhook retention, dedupe windows, and storage mode. Production deployments should pair these controls with database backup and restore policies.</p>
-            </article>
-            <article>
-              <span class="interface-label">Model limits</span>
-              <p>TextTraits returns policy-backed signals and confidence metadata for existing messages. It should be treated as decision support, not a legal, deliverability, or compliance authority.</p>
-            </article>
-            <article>
-              <span class="interface-label">Integration boundaries</span>
-              <p>Sandbox adapters are for payload validation and workflow design. Production connections require real provider credentials, scoped API keys, webhook signing secrets, and administrator approval.</p>
-            </article>
-          </section>
-        </main>
-          </body>
-        </html>
-        """
-    )
-
-
-@app.get("/deployment")
-def deployment():
-    return render_template_string(
-        """
-        <!doctype html>
-        <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>TextTraits Deployment</title>
-            <link rel="stylesheet" href="/static/styles.css">
-            <script
-              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
-              crossorigin="anonymous"
-            ></script>
-          </head>
-          <body data-mode="enterprise-optimizer">
-        <main class="app-shell legal-shell">
-          <header class="topbar legal-topbar">
-            <div class="brand-block">
-              <p class="eyebrow">TextTraits</p>
-              <h1>Deployment Readiness</h1>
-              <p>Checklist for moving the enterprise optimizer from local sandbox to production workflow infrastructure.</p>
-            </div>
-            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
-          </header>
-          <section class="panel legal-page">
-            <article>
-              <span class="interface-label">Secrets</span>
-              <p>Set high-entropy application secrets, scoped server-to-server API keys, webhook signing secrets, and provider OAuth credentials outside source control.</p>
-            </article>
-            <article>
-              <span class="interface-label">Database</span>
-              <p>Use hosted Postgres with SSL, backups, retention controls, restore testing, and environment separation for sandbox, staging, and production.</p>
-            </article>
-            <article>
-              <span class="interface-label">Runtime</span>
-              <p>Run behind HTTPS with secure cookies, a production WSGI server, request timeouts, monitoring, error reporting, and alerting for send-path latency.</p>
-            </article>
-            <article>
-              <span class="interface-label">Operations</span>
-              <p>Document key rotation, incident ownership, webhook replay handling, export governance, and approval workflows before connecting live enterprise traffic.</p>
-            </article>
-          </section>
-        </main>
-          </body>
-        </html>
-        """
-    )
-
-
-@app.get("/model-card")
-def model_card():
-    info = public_model_info()
-    metadata = getattr(predictor, "metadata", {}) or {}
-    targets = metadata.get("targets") or []
-    return render_template_string(
-        """
-        <!doctype html>
-        <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>TextTraits Model Card</title>
-            <link rel="stylesheet" href="/static/styles.css">
-            <script
-              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
-              crossorigin="anonymous"
-            ></script>
-          </head>
-          <body data-mode="enterprise-optimizer">
-        <main class="app-shell legal-shell">
-          <header class="topbar legal-topbar">
-            <div class="brand-block">
-              <p class="eyebrow">TextTraits</p>
-              <h1>Model Card</h1>
-              <p>Enterprise-facing summary of what the current local model bundle does, what it does not do, and what needs validation before a pilot becomes automated workflow gating.</p>
-            </div>
-            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
-          </header>
-          <section class="panel legal-page">
-            <article>
-              <span class="interface-label">Runtime bundle</span>
-              <p>{{ info.name }} is {{ "available" if info.available else "unavailable" }} with {{ info.target_count }} configured text-trait target{{ "" if info.target_count == 1 else "s" }}{% if info.demo %}. Demo predictor mode is active because the trained bundle was not loaded{% endif %}.</p>
-            </article>
-            <article>
-              <span class="interface-label">Signals returned</span>
-              <p>The app exposes confidence, margin, alternatives, cue terms, score components, rule findings, content hashes, policy versions, and workflow routes. These signals are evidence for review decisions and are not generated email copy.</p>
-            </article>
-            <article>
-              <span class="interface-label">Current targets</span>
-              <p>{{ targets|join(", ") if targets else "Target metadata is not available from this runtime bundle." }}</p>
-            </article>
-            <article>
-              <span class="interface-label">Known limits</span>
-              <p>The model is not a legal, consent, deliverability, spam, or truthfulness authority. Rule packs and human review still need to catch unsupported claims, regulated content, consent issues, broken links, and customer-specific policies.</p>
-            </article>
-            <article>
-              <span class="interface-label">Free validation step</span>
-              <p>Before pitching automatic gates, run a free pilot calibration on customer-approved sample messages. Track false passes, false reviews, reviewer agreement, latency, and outcome joins before changing live send paths.</p>
-            </article>
-          </section>
-        </main>
-          </body>
-        </html>
-        """,
-        info=info,
-        targets=targets,
-    )
-
-
-@app.get("/pilot-plan")
-def pilot_plan():
-    return render_template_string(
-        """
-        <!doctype html>
-        <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>TextTraits Pilot Plan</title>
-            <link rel="stylesheet" href="/static/styles.css">
-            <script
-              src="https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
-              crossorigin="anonymous"
-            ></script>
-          </head>
-          <body data-mode="enterprise-optimizer">
-        <main class="app-shell legal-shell">
-          <header class="topbar legal-topbar">
-            <div class="brand-block">
-              <p class="eyebrow">TextTraits</p>
-              <h1>Free Pilot Plan</h1>
-              <p>A no-paid-tools path for proving the enterprise workflow before credentials, SSO, contracts, or production hosting are introduced.</p>
-            </div>
-            <a class="button-secondary legal-home-link" href="/">Back to TextTraits</a>
-          </header>
-          <section class="panel legal-page">
-            <article>
-              <span class="interface-label">Pitch demo</span>
-              <p>Use the analyzer, example dashboard rows, adapter simulator, policy controls, exports, deployment page, security page, and model card to show how TextTraits evaluates existing emails without writing them.</p>
-            </article>
-            <article>
-              <span class="interface-label">Free pilot data</span>
-              <p>Ask the enterprise for a small, approved set of historical or sample messages with no secrets. Import them locally or through the API, then compare score distributions, findings, and reviewer agreement.</p>
-            </article>
-            <article>
-              <span class="interface-label">Workflow proof</span>
-              <p>Paste HubSpot, Salesforce, Braze, Marketo, Iterable, SendGrid/SES, or warehouse-shaped payloads into the simulator and show normalized inputs, outputs, writeback fields, routes, and webhook join behavior.</p>
-            </article>
-            <article>
-              <span class="interface-label">Success metrics</span>
-              <p>Measure review capture rate, blocked-policy issues, template risk, source-system trends, outcome join coverage, median latency, and how often reviewers agree with the gate decision.</p>
-            </article>
-            <article>
-              <span class="interface-label">What not to fake</span>
-              <p>Do not claim live provider connections, SSO, legal approval, production hosting, paid monitoring, or customer-specific policy accuracy until the customer supplies credentials, requirements, and deployment approval.</p>
-            </article>
-          </section>
+          <body>
+        <main class="legal-page">
+          <h1>Terms</h1>
+          <p>TextTraits is a writing coach and outreach workflow tool. Users are responsible for reviewing generated drafts before using them.</p>
+          <p>Team administrators are responsible for approved claims, compliance requirements, permissions, retention settings, external integration credentials, and user access.</p>
+          <p>Preview integrations are disabled until real credentials, provider approvals, and field mappings are configured by the workspace owner.</p>
+          <p>Users must not upload content they do not have the right to process, and must review outreach copy for accuracy, consent, opt-out handling, and applicable laws before sending.</p>
+          <p><a href="/">Back to TextTraits</a></p>
         </main>
           </body>
         </html>

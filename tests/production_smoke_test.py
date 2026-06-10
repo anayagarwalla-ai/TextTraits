@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
 import sys
 import tempfile
@@ -31,6 +34,12 @@ def assert_true(condition: bool, message: str) -> None:
 def csrf_headers(client) -> dict[str, str]:
     token = client.get("/api/session").get_json()["csrf_token"]
     return {"X-CSRF-Token": token}
+
+
+def signed_hubspot_headers(secret: str, payload: dict) -> tuple[bytes, dict[str, str]]:
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return body, {"Content-Type": "application/json", "X-TextTraits-Signature": f"sha256={signature}"}
 
 
 SENTRY_BROWSER_SCRIPT = "https://js.sentry-cdn.com/e02e26721e10ee55975fc73c5b7dfd57.min.js"
@@ -123,6 +132,277 @@ def main() -> int:
     assert_true(hubspot_provider["configured"] is False, "HubSpot should report unconfigured without credentials")
     oauth_start = client.post("/api/integrations/hubspot/oauth/start", headers=csrf_headers(client))
     assert_true(oauth_start.status_code == 409, "OAuth start should require configured provider credentials")
+
+    old_exchange = app_module.exchange_oauth_code
+    app_module.exchange_oauth_code = lambda entry, redirect_uri, code: {
+        "hub_id": 246356639,
+        "hub_domain": "simsayer.com",
+        "token_type": "bearer",
+        "expires_in": 1800,
+        "scope": "crm.objects.contacts.read",
+    }
+    try:
+        marketplace_callback = client.get("/api/integrations/hubspot/oauth/callback?code=sample-code&state=hubspot-install-state")
+    finally:
+        app_module.exchange_oauth_code = old_exchange
+    assert_true(marketplace_callback.status_code == 200, marketplace_callback.get_data(as_text=True))
+    assert_true("HubSpot app installed" in marketplace_callback.get_data(as_text=True), "HubSpot marketplace callback should not require TextTraits login")
+
+    crm_card = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Renewal follow-up",
+                "body": "Hi Brian, following up on the renewal timing and next steps for your team.",
+            },
+        },
+    )
+    assert_true(crm_card.status_code == 200, crm_card.get_data(as_text=True))
+    crm_payload = crm_card.get_json()
+    assert_true(crm_payload["workflow"] == "hubspot_crm_card", "HubSpot CRM card endpoint should return the card workflow")
+    assert_true("texttraits_score" in crm_payload["outputFields"], "HubSpot CRM card endpoint should return writeback fields")
+    assert_true("email_quality" in crm_payload["analysis"], "HubSpot CRM card endpoint should return email-quality checks")
+    assert_true(crm_payload["analysis"]["email_quality"]["score_source"].startswith("Weighted email-quality checks"), "score source should be explicit")
+    assert_true(crm_payload["outputFields"]["texttraits_score"] == crm_payload["analysis"]["email_quality"]["score"], "writeback score should use email-quality score")
+    assert_true("decision" in crm_payload["analysis"], "HubSpot CRM card endpoint should return decision metadata")
+    assert_true("policy" in crm_payload["analysis"], "HubSpot CRM card endpoint should return policy metadata")
+    assert_true("context" in crm_payload["analysis"], "HubSpot CRM card endpoint should return context metadata")
+    assert_true(crm_payload["analysis"]["email_quality"]["checks"][0]["evidence"], "HubSpot checks should include evidence-level details")
+
+    idempotent_payload = {
+        "workspace_id": "hubspot_246356639",
+        "idempotency_key": "qa-idempotent-email",
+        "inputFields": {
+            "subject": "Renewal routing check",
+            "body": "Hi Brian, please review the renewal checklist by Friday and reply with the items your team wants included.",
+        },
+    }
+    idempotent_a = client.post("/v1/integrations/hubspot/crm-card/analyze-email", json=idempotent_payload).get_json()
+    idempotent_b = client.post("/v1/integrations/hubspot/crm-card/analyze-email", json=idempotent_payload).get_json()
+    assert_true(idempotent_a["outputFields"]["texttraits_request_id"] == idempotent_b["outputFields"]["texttraits_request_id"], "idempotency key should produce stable HubSpot request IDs")
+
+    template_test = client.post(
+        "/v1/integrations/hubspot/template-test",
+        json={
+            "inputFields": {
+                "subject": "Hi {{first_name}}",
+                "body": "Hi {{first_name}}, please review {{company}} at https://example.com before Friday. {{unsubscribe_link}}",
+            },
+            "sample_context": {"first_name": "Brian", "company": "HubSpot", "unsubscribe_link": "https://example.com/unsubscribe"},
+            "headers": {"from": "marketing@example.com", "reply_to": "sales@example.com"},
+        },
+    )
+    assert_true(template_test.status_code == 200, template_test.get_data(as_text=True))
+    template_payload = template_test.get_json()["template_test"]
+    assert_true(template_payload["ready"] is True, "rendered template test should pass when tokens and unsubscribe are present")
+    assert_true(template_payload["rendered_subject"] == "Hi Brian", "template test should render Liquid-style tokens")
+
+    review_event = client.post(
+        "/v1/integrations/hubspot/review-action",
+        json={
+            "request_id": crm_payload["outputFields"]["texttraits_request_id"],
+            "action": "mark_reviewed",
+            "actor_id": "qa-reviewer",
+            "payload": {"gate": crm_payload["outputFields"]["texttraits_gate"], "notes": "QA reviewed."},
+        },
+    )
+    assert_true(review_event.status_code == 200, review_event.get_data(as_text=True))
+    assert_true(review_event.get_json()["event"]["action"] == "mark_reviewed", "HubSpot review action should be recorded")
+
+    clear_email = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Factory tour checklist",
+                "body": (
+                    "Hi Brian, I wanted to confirm whether Wednesday still works for the factory tour. "
+                    "If it does, reply by Friday and I will send the short checklist your team can review before the visit."
+                ),
+            },
+        },
+    ).get_json()
+    assert_true(clear_email["outputFields"]["texttraits_gate"] == "ready", "clear email should be ready to route")
+
+    unclear_email = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={"inputFields": {"subject": "Checking", "body": "Thoughts?"}},
+    ).get_json()
+    assert_true(unclear_email["outputFields"]["texttraits_gate"] == "blocked", "unclear email should be blocked by quality checks")
+    assert_true(unclear_email["analysis"]["email_quality"]["findings"], "unclear email should include actionable findings")
+    assert_true(unclear_email["analysis"]["email_quality"]["findings"][0]["evidence"], "findings should show failed-check evidence")
+
+    risky_email = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "inputFields": {
+                "subject": "Guaranteed renewal savings",
+                "body": "Hi Brian, this renewal is guaranteed to save 100% of the time your team spends on the process. Please approve today.",
+            },
+        },
+    ).get_json()
+    assert_true(risky_email["outputFields"]["texttraits_gate"] == "blocked", "risky email should be blocked by compliance policy")
+    assert_true(risky_email["outputFields"]["texttraits_route"] == "Compliance review", "risky email should route to compliance review")
+    assert_true(risky_email["outputFields"]["texttraits_score"] < 50, "blocked risky email should not show a ready-looking score")
+    assert_true(risky_email["analysis"]["email_quality"]["raw_checklist_score"] > risky_email["analysis"]["email_quality"]["score"], "risky email should preserve checklist points before penalties")
+    assert_true(risky_email["analysis"]["email_quality"]["score_factors"]["total_penalty"] >= 45, "risky email should be lowered by risk scoring penalties")
+
+    policy_update = client.put(
+        "/api/enterprise/hubspot/policy",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "environment": "production",
+            "policy": {
+                "version": "qa-policy",
+                "rule_pack": "finance",
+                "ready_score_threshold": 75,
+                "review_score_threshold": 60,
+                "block_score_threshold": 20,
+                "block_if_no_cta": False,
+                "block_high_severity_findings": False,
+                "compliance_review_on_risk_terms": True,
+                "require_personalization": False,
+                "min_body_words": 20,
+                "max_body_words": 240,
+                "custom_risk_phrases": ["nonrefundable"],
+                "custom_vague_phrases": ["next-level"],
+                "required_template_tokens": ["first_name", "unsubscribe_link"],
+                "required_headers": ["from", "reply_to"],
+            },
+        },
+        headers=csrf_headers(client),
+    )
+    assert_true(policy_update.status_code == 200, policy_update.get_data(as_text=True))
+    policy_get = client.get("/api/enterprise/hubspot/policy?workspace_id=hubspot_246356639")
+    assert_true(policy_get.get_json()["policy"]["version"] == "qa-policy", "HubSpot policy should persist")
+    assert_true(policy_get.get_json()["policy"]["rule_pack"] == "finance", "HubSpot policy should persist rule pack")
+    assert_true("finance" in {item["id"] for item in policy_get.get_json()["rule_packs"]}, "policy response should expose supported rule packs")
+
+    template_policy_check = client.post(
+        "/v1/integrations/hubspot/template-test",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Renewal plan",
+                "body": "Please review the renewal plan. {{unsubscribe_link}}",
+            },
+            "sample_context": {"unsubscribe_link": "https://example.com/unsubscribe"},
+            "headers": {"from": "qa@example.com", "reply_to": "sales@example.com"},
+        },
+    )
+    assert_true(template_policy_check.status_code == 200, template_policy_check.get_data(as_text=True))
+    template_policy_json = template_policy_check.get_json()["template_test"]
+    assert_true(template_policy_json["ready"] is False, "template test should enforce policy-required tokens")
+    assert_true("first_name" in template_policy_json["missing_required_tokens"], "finance policy token requirement should be visible")
+
+    policy_routed = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Factory tour plan",
+                "body": (
+                    "Hi Brian, the June 3 factory tour agenda includes cupcake line walkthrough, safety notes, "
+                    "and a staffing overview for your team. The plan gives Acme a simple view of timing, owners, "
+                    "and preparation details before the visit."
+                ),
+            },
+        },
+    ).get_json()
+    assert_true(policy_routed["analysis"]["policy"]["version"] == "qa-policy", "analysis should use saved policy")
+    assert_true(policy_routed["outputFields"]["texttraits_gate"] == "ready", "saved policy should affect routing thresholds")
+
+    finance_risky = client.post(
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        json={
+            "workspace_id": "hubspot_246356639",
+            "inputFields": {
+                "subject": "Investment review",
+                "body": "Hi Brian, this is a risk-free investment with no downside for your team. Please review the plan by Friday.",
+            },
+        },
+    ).get_json()
+    assert_true(finance_risky["outputFields"]["texttraits_gate"] == "blocked", "finance rule pack should block financial risk language")
+    assert_true(finance_risky["analysis"]["policy"]["rule_pack_label"] == "Financial services", "analysis should expose active rule-pack label")
+
+    workflow_action = client.post(
+        "/v1/integrations/hubspot/workflow-actions/analyze-email",
+        json={
+            "inputFields": {
+                "email_subject": "Renewal workflow follow-up",
+                "email_body": "Check this message before the automated renewal sequence continues.",
+                "workflow_name": "QA renewal workflow",
+            },
+        },
+    )
+    assert_true(workflow_action.status_code == 200, workflow_action.get_data(as_text=True))
+    assert_true(workflow_action.get_json()["workflow"] == "hubspot_workflow_action", "HubSpot workflow action endpoint should remain available")
+    assert_true(workflow_action.get_json()["analysis"]["context"]["campaign_id"] == "QA renewal workflow", "workflow aliases should map campaign context")
+
+    outcome = client.post(
+        "/v1/integrations/hubspot/outcomes",
+        json={
+            "request_id": crm_payload["outputFields"]["texttraits_request_id"],
+            "content_hash": crm_payload["outputFields"]["texttraits_content_hash"],
+            "workspace_id": "hubspot_246356639",
+            "event_type": "opened",
+            "event_id": "qa-opened-1",
+            "payload": {"campaign": "qa"},
+        },
+    )
+    assert_true(outcome.status_code == 200, outcome.get_data(as_text=True))
+
+    analyses = client.get("/api/enterprise/hubspot/analyses?workspace_id=hubspot_246356639")
+    assert_true(analyses.status_code == 200, analyses.get_data(as_text=True))
+    assert_true(len(analyses.get_json()["analyses"]) >= 3, "HubSpot analyses should persist for reporting")
+    assert_true(analyses.get_json()["review_states"], "HubSpot review states should be queryable")
+    findings = client.get("/api/enterprise/hubspot/findings?severity=high")
+    assert_true(findings.status_code == 200 and findings.get_json()["findings"], "normalized findings endpoint should return queryable rows")
+    checks = client.get("/api/enterprise/hubspot/checks?status=blocked")
+    assert_true(checks.status_code == 200 and checks.get_json()["checks"], "normalized checks endpoint should return queryable rows")
+    review_states = client.get("/api/enterprise/hubspot/review-states?status=resolved")
+    assert_true(review_states.status_code == 200 and review_states.get_json()["review_states"], "review state endpoint should show resolved reviews")
+    outcomes = client.get(f"/api/enterprise/hubspot/outcomes?request_id={crm_payload['outputFields']['texttraits_request_id']}")
+    assert_true(outcomes.status_code == 200 and outcomes.get_json()["events"], "outcome events should join back by request_id")
+    dashboard = client.get("/api/enterprise/hubspot/dashboard")
+    assert_true(dashboard.status_code == 200, dashboard.get_data(as_text=True))
+    assert_true("top_failed_checks" in dashboard.get_json()["dashboard"], "HubSpot dashboard should include failed-check rollups")
+    assert_true(dashboard.get_json()["dashboard"]["outcome_counts"].get("opened", 0) >= 1, "HubSpot dashboard should include outcome joins")
+    json_export = client.get("/api/enterprise/hubspot/exports/analyses.json?workspace_id=hubspot_246356639")
+    assert_true(json_export.status_code == 200 and json_export.get_json()["analyses"], "HubSpot JSON export should return analyses")
+    csv_export = client.get("/api/enterprise/hubspot/exports/analyses.csv?workspace_id=hubspot_246356639")
+    assert_true(csv_export.status_code == 200 and "text/csv" in csv_export.headers.get("Content-Type", ""), "HubSpot CSV export should be available")
+    policy_history = client.get("/api/enterprise/hubspot/policy/history?workspace_id=hubspot_246356639")
+    assert_true(policy_history.status_code == 200 and policy_history.get_json()["history"], "HubSpot policy history should be retained")
+
+    signed_secret = "qa-hubspot-ingress-secret"
+    previous_secret = os.environ.get("TEXTTRAITS_HUBSPOT_INGRESS_SECRET")
+    os.environ["TEXTTRAITS_HUBSPOT_INGRESS_SECRET"] = signed_secret
+    try:
+        unsigned = client.post("/v1/integrations/hubspot/crm-card/analyze-email", json={"inputFields": {"subject": "Unsigned", "body": "Please reply by Friday."}})
+        assert_true(unsigned.status_code == 401, "HubSpot ingress should require signature when a secret is configured")
+        signed_payload = {"inputFields": {"subject": "Signed", "body": "Hi Brian, please reply by Friday with the renewal checklist."}}
+        body, headers = signed_hubspot_headers(signed_secret, signed_payload)
+        signed = client.post("/v1/integrations/hubspot/crm-card/analyze-email", data=body, headers=headers)
+        assert_true(signed.status_code == 200, signed.get_data(as_text=True))
+    finally:
+        if previous_secret is None:
+            os.environ.pop("TEXTTRAITS_HUBSPOT_INGRESS_SECRET", None)
+        else:
+            os.environ["TEXTTRAITS_HUBSPOT_INGRESS_SECRET"] = previous_secret
+
+    previous_production = app_module.PRODUCTION
+    previous_admins = set(app_module.ENTERPRISE_ADMIN_EMAILS)
+    app_module.PRODUCTION = True
+    app_module.ENTERPRISE_ADMIN_EMAILS.clear()
+    try:
+        locked_admin = client.get("/api/enterprise/hubspot/dashboard")
+        assert_true(locked_admin.status_code == 503, "production enterprise admin endpoints should require an allowlist")
+    finally:
+        app_module.PRODUCTION = previous_production
+        app_module.ENTERPRISE_ADMIN_EMAILS.clear()
+        app_module.ENTERPRISE_ADMIN_EMAILS.update(previous_admins)
 
     export = client.post("/api/account/export", json={"password": "texttraits-test-updated"}, headers=csrf_headers(client))
     assert_true(export.status_code == 200, "account export failed")

@@ -25,35 +25,6 @@ except ImportError:  # pragma: no cover - optional production dependency
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "artifacts" / "texttraits_workspace.sqlite3"
 SCHEMA_VERSION = "2026_05_15_initial_workspace_schema"
-ENTERPRISE_SCHEMA_VERSION = "2026_05_25_enterprise_v1_workflows"
-INTEGRATION_MAPPING_SCHEMA_VERSION = "2026_05_25_integration_field_mappings"
-GOVERNANCE_POLICY_SCHEMA_VERSION = "2026_05_25_governance_policy_controls"
-GOVERNANCE_ANALYTICS_SCHEMA_VERSION = "2026_05_25_enterprise_governance_analytics"
-
-DEFAULT_RULE_FAMILY_MODES = {
-    "compliance": "fail_closed",
-    "unsubscribe": "fail_closed",
-    "personalization": "review",
-    "cta": "review",
-    "specificity": "review",
-    "clarity": "fail_open",
-    "format": "fail_open",
-    "subject": "fail_open",
-}
-
-DEFAULT_GOVERNANCE_POLICY = {
-    "policy_environment": "production",
-    "retention_days": 180,
-    "webhook_retention_days": 365,
-    "webhook_dedupe_window_days": 30,
-    "min_ready_score": 72,
-    "high_severity_requires_review": True,
-    "rule_family_modes": DEFAULT_RULE_FAMILY_MODES,
-    "content_storage_mode": "hash_only",
-    "sample_import_limit": 25,
-    "send_path_timeout_ms": 500,
-    "idempotency_window_seconds": 900,
-}
 
 
 def db_path() -> Path:
@@ -103,6 +74,11 @@ def utc_now() -> str:
 
 
 SENSITIVE_PAYLOAD_KEYS = ("password", "secret", "token", "api_key", "apikey", "authorization", "credential")
+NON_SECRET_TOKEN_FIELD_KEYS = {
+    "required_template_tokens",
+    "missing_required_tokens",
+    "unresolved_tokens",
+}
 SENSITIVE_VALUE_RE = re.compile(
     r"(?i)\b(password|token|secret|api[_-]?key|authorization|credential|reset_token|verify_token|access_token|refresh_token|client_secret)=([^&\s]+)"
 )
@@ -141,7 +117,7 @@ def contains_sensitive_key(value: Any, depth: int = 0) -> bool:
     if isinstance(value, dict):
         for key, child in value.items():
             clean_key = str(key).lower()
-            if any(marker in clean_key for marker in SENSITIVE_PAYLOAD_KEYS):
+            if clean_key not in NON_SECRET_TOKEN_FIELD_KEYS and any(marker in clean_key for marker in SENSITIVE_PAYLOAD_KEYS):
                 return True
             if contains_sensitive_key(child, depth + 1):
                 return True
@@ -157,7 +133,7 @@ def scrub_payload(value: Any, depth: int = 0) -> Any:
         cleaned = {}
         for key, child in value.items():
             clean_key = str(key)
-            if any(marker in clean_key.lower() for marker in SENSITIVE_PAYLOAD_KEYS):
+            if clean_key.lower() not in NON_SECRET_TOKEN_FIELD_KEYS and any(marker in clean_key.lower() for marker in SENSITIVE_PAYLOAD_KEYS):
                 cleaned[clean_key] = "[redacted]"
             else:
                 cleaned[clean_key] = scrub_payload(child, depth + 1)
@@ -177,10 +153,6 @@ def connect():
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -269,6 +241,158 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_analyses (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL UNIQUE,
+                  workspace_id TEXT NOT NULL DEFAULT '',
+                  tenant_id TEXT NOT NULL DEFAULT '',
+                  source_system TEXT NOT NULL DEFAULT 'hubspot',
+                  workflow TEXT NOT NULL DEFAULT '',
+                  analysis_mode TEXT NOT NULL DEFAULT '',
+                  campaign_id TEXT NOT NULL DEFAULT '',
+                  journey_id TEXT NOT NULL DEFAULT '',
+                  template_id TEXT NOT NULL DEFAULT '',
+                  contact_id TEXT NOT NULL DEFAULT '',
+                  company_id TEXT NOT NULL DEFAULT '',
+                  deal_id TEXT NOT NULL DEFAULT '',
+                  owner_id TEXT NOT NULL DEFAULT '',
+                  portal_id TEXT NOT NULL DEFAULT '',
+                  object_type TEXT NOT NULL DEFAULT '',
+                  object_id TEXT NOT NULL DEFAULT '',
+                  locale TEXT NOT NULL DEFAULT '',
+                  content_hash TEXT NOT NULL,
+                  score INTEGER NOT NULL,
+                  gate TEXT NOT NULL,
+                  route TEXT NOT NULL,
+                  send_ready INTEGER NOT NULL DEFAULT 0,
+                  word_count INTEGER NOT NULL DEFAULT 0,
+                  average_model_confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+                  score_source TEXT NOT NULL DEFAULT '',
+                  findings TEXT NOT NULL DEFAULT '[]',
+                  checks TEXT NOT NULL DEFAULT '[]',
+                  policy TEXT NOT NULL DEFAULT '{}',
+                  context TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_review_events (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  action TEXT NOT NULL,
+                  actor_id TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT 'recorded',
+                  payload TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_policy_configs (
+                  id BIGSERIAL PRIMARY KEY,
+                  workspace_id TEXT NOT NULL,
+                  environment TEXT NOT NULL DEFAULT 'production',
+                  policy TEXT NOT NULL DEFAULT '{}',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  updated_at TEXT NOT NULL,
+                  UNIQUE(workspace_id, environment)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_policy_versions (
+                  id BIGSERIAL PRIMARY KEY,
+                  workspace_id TEXT NOT NULL,
+                  environment TEXT NOT NULL DEFAULT 'production',
+                  version TEXT NOT NULL DEFAULT '',
+                  policy TEXT NOT NULL DEFAULT '{}',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_checks (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  check_id TEXT NOT NULL,
+                  label TEXT NOT NULL DEFAULT '',
+                  weight INTEGER NOT NULL DEFAULT 0,
+                  score INTEGER NOT NULL DEFAULT 0,
+                  status TEXT NOT NULL DEFAULT '',
+                  penalty INTEGER NOT NULL DEFAULT 0,
+                  evidence TEXT NOT NULL DEFAULT '[]',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_findings (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL,
+                  finding_id TEXT NOT NULL,
+                  severity TEXT NOT NULL DEFAULT '',
+                  title TEXT NOT NULL DEFAULT '',
+                  owner_queue TEXT NOT NULL DEFAULT '',
+                  blocker_level TEXT NOT NULL DEFAULT '',
+                  next_step TEXT NOT NULL DEFAULT '',
+                  action TEXT NOT NULL DEFAULT '',
+                  evidence TEXT NOT NULL DEFAULT '[]',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_review_states (
+                  request_id TEXT PRIMARY KEY,
+                  status TEXT NOT NULL DEFAULT 'open',
+                  assigned_to TEXT NOT NULL DEFAULT '',
+                  owner_queue TEXT NOT NULL DEFAULT '',
+                  blocker_level TEXT NOT NULL DEFAULT '',
+                  sla_due_at TEXT NOT NULL DEFAULT '',
+                  resolved_at TEXT NOT NULL DEFAULT '',
+                  notes TEXT NOT NULL DEFAULT '',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_email_outcome_events (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL DEFAULT '',
+                  content_hash TEXT NOT NULL DEFAULT '',
+                  workspace_id TEXT NOT NULL DEFAULT '',
+                  tenant_id TEXT NOT NULL DEFAULT '',
+                  source_system TEXT NOT NULL DEFAULT '',
+                  event_type TEXT NOT NULL,
+                  event_id TEXT NOT NULL DEFAULT '',
+                  payload TEXT NOT NULL DEFAULT '{}',
+                  occurred_at TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_checks_request ON hubspot_email_checks (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_findings_request ON hubspot_email_findings (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_request ON hubspot_email_outcome_events (request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_hash ON hubspot_email_outcome_events (content_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_policy_versions_workspace ON hubspot_policy_versions (workspace_id, environment)")
         else:
             conn.executescript(
                 """
@@ -325,6 +449,135 @@ def init_db() -> None:
               UNIQUE(user_id, provider),
               FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_analyses (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL UNIQUE,
+              workspace_id TEXT NOT NULL DEFAULT '',
+              tenant_id TEXT NOT NULL DEFAULT '',
+              source_system TEXT NOT NULL DEFAULT 'hubspot',
+              workflow TEXT NOT NULL DEFAULT '',
+              analysis_mode TEXT NOT NULL DEFAULT '',
+              campaign_id TEXT NOT NULL DEFAULT '',
+              journey_id TEXT NOT NULL DEFAULT '',
+              template_id TEXT NOT NULL DEFAULT '',
+              contact_id TEXT NOT NULL DEFAULT '',
+              company_id TEXT NOT NULL DEFAULT '',
+              deal_id TEXT NOT NULL DEFAULT '',
+              owner_id TEXT NOT NULL DEFAULT '',
+              portal_id TEXT NOT NULL DEFAULT '',
+              object_type TEXT NOT NULL DEFAULT '',
+              object_id TEXT NOT NULL DEFAULT '',
+              locale TEXT NOT NULL DEFAULT '',
+              content_hash TEXT NOT NULL,
+              score INTEGER NOT NULL,
+              gate TEXT NOT NULL,
+              route TEXT NOT NULL,
+              send_ready INTEGER NOT NULL DEFAULT 0,
+              word_count INTEGER NOT NULL DEFAULT 0,
+              average_model_confidence REAL NOT NULL DEFAULT 0,
+              score_source TEXT NOT NULL DEFAULT '',
+              findings TEXT NOT NULL DEFAULT '[]',
+              checks TEXT NOT NULL DEFAULT '[]',
+              policy TEXT NOT NULL DEFAULT '{}',
+              context TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_review_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              action TEXT NOT NULL,
+              actor_id TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'recorded',
+              payload TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_policy_configs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workspace_id TEXT NOT NULL,
+              environment TEXT NOT NULL DEFAULT 'production',
+              policy TEXT NOT NULL DEFAULT '{}',
+              updated_by TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL,
+              UNIQUE(workspace_id, environment)
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_policy_versions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workspace_id TEXT NOT NULL,
+              environment TEXT NOT NULL DEFAULT 'production',
+              version TEXT NOT NULL DEFAULT '',
+              policy TEXT NOT NULL DEFAULT '{}',
+              updated_by TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_checks (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              check_id TEXT NOT NULL,
+              label TEXT NOT NULL DEFAULT '',
+              weight INTEGER NOT NULL DEFAULT 0,
+              score INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT '',
+              penalty INTEGER NOT NULL DEFAULT 0,
+              evidence TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_findings (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              finding_id TEXT NOT NULL,
+              severity TEXT NOT NULL DEFAULT '',
+              title TEXT NOT NULL DEFAULT '',
+              owner_queue TEXT NOT NULL DEFAULT '',
+              blocker_level TEXT NOT NULL DEFAULT '',
+              next_step TEXT NOT NULL DEFAULT '',
+              action TEXT NOT NULL DEFAULT '',
+              evidence TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_review_states (
+              request_id TEXT PRIMARY KEY,
+              status TEXT NOT NULL DEFAULT 'open',
+              assigned_to TEXT NOT NULL DEFAULT '',
+              owner_queue TEXT NOT NULL DEFAULT '',
+              blocker_level TEXT NOT NULL DEFAULT '',
+              sla_due_at TEXT NOT NULL DEFAULT '',
+              resolved_at TEXT NOT NULL DEFAULT '',
+              notes TEXT NOT NULL DEFAULT '',
+              updated_by TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_email_outcome_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL DEFAULT '',
+              content_hash TEXT NOT NULL DEFAULT '',
+              workspace_id TEXT NOT NULL DEFAULT '',
+              tenant_id TEXT NOT NULL DEFAULT '',
+              source_system TEXT NOT NULL DEFAULT '',
+              event_type TEXT NOT NULL,
+              event_id TEXT NOT NULL DEFAULT '',
+              payload TEXT NOT NULL DEFAULT '{}',
+              occurred_at TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_checks_request ON hubspot_email_checks (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_findings_request ON hubspot_email_findings (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_request ON hubspot_email_outcome_events (request_id);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_hash ON hubspot_email_outcome_events (content_hash);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_policy_versions_workspace ON hubspot_policy_versions (workspace_id, environment);
             """
             )
         ensure_schema_version(conn)
@@ -333,7 +586,6 @@ def init_db() -> None:
         ensure_column(conn, "users", "reset_token", "TEXT")
         ensure_column(conn, "users", "reset_expires_at", "TEXT")
         ensure_column(conn, "users", "session_version", "INTEGER DEFAULT 0")
-        ensure_enterprise_workflow_tables(conn)
 
 
 def ensure_schema_version(conn) -> None:
@@ -347,10 +599,6 @@ def ensure_schema_version(conn) -> None:
             """
         )
     )
-    record_schema_version(conn, SCHEMA_VERSION)
-
-
-def record_schema_version(conn, version: str) -> None:
     if uses_postgres():
         conn.execute(
             """
@@ -358,7 +606,7 @@ def record_schema_version(conn, version: str) -> None:
             VALUES (%s, %s)
             ON CONFLICT (version) DO NOTHING
             """,
-            (version, utc_now()),
+            (SCHEMA_VERSION, utc_now()),
         )
     else:
         conn.execute(
@@ -366,175 +614,8 @@ def record_schema_version(conn, version: str) -> None:
             INSERT OR IGNORE INTO schema_migrations (version, applied_at)
             VALUES (?, ?)
             """,
-            (version, utc_now()),
+            (SCHEMA_VERSION, utc_now()),
         )
-
-
-def ensure_enterprise_workflow_tables(conn) -> None:
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS email_analyses (
-              request_id TEXT PRIMARY KEY,
-              content_hash TEXT NOT NULL,
-              source TEXT NOT NULL,
-              policy_bundle_version TEXT NOT NULL,
-              model_version TEXT NOT NULL,
-              gate_status TEXT NOT NULL,
-              send_ready INTEGER NOT NULL,
-              route TEXT NOT NULL,
-              highest_severity TEXT NOT NULL,
-              score INTEGER NOT NULL,
-              finding_count INTEGER NOT NULL,
-              analysis_json TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS webhook_events (
-              dedupe_key TEXT PRIMARY KEY,
-              provider TEXT NOT NULL,
-              event_type TEXT NOT NULL,
-              request_id TEXT,
-              content_hash TEXT,
-              delivery_status TEXT NOT NULL,
-              event_json TEXT NOT NULL,
-              first_seen_at TEXT NOT NULL,
-              last_seen_at TEXT NOT NULL,
-              seen_count INTEGER NOT NULL DEFAULT 1
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS sample_imports (
-              import_id TEXT PRIMARY KEY,
-              summary_json TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS integration_field_mappings (
-              workspace_id TEXT NOT NULL,
-              provider TEXT NOT NULL,
-              mapping_json TEXT NOT NULL,
-              validation_json TEXT NOT NULL,
-              status TEXT NOT NULL,
-              version TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              PRIMARY KEY(workspace_id, provider)
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS governance_policies (
-              workspace_id TEXT PRIMARY KEY,
-              policy_json TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS policy_bundle_versions (
-              id TEXT PRIMARY KEY,
-              workspace_id TEXT NOT NULL,
-              environment TEXT NOT NULL,
-              policy_json TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS email_findings (
-              id TEXT PRIMARY KEY,
-              workspace_id TEXT NOT NULL,
-              request_id TEXT NOT NULL,
-              content_hash TEXT NOT NULL,
-              rule_id TEXT NOT NULL,
-              category TEXT NOT NULL,
-              severity TEXT NOT NULL,
-              title TEXT NOT NULL,
-              remediation TEXT NOT NULL,
-              evidence_json TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-    )
-    conn.execute(
-        sql(
-            """
-            CREATE TABLE IF NOT EXISTS email_outcomes (
-              id TEXT PRIMARY KEY,
-              workspace_id TEXT NOT NULL,
-              request_id TEXT,
-              content_hash TEXT,
-              provider TEXT NOT NULL,
-              event_type TEXT NOT NULL,
-              delivery_status TEXT NOT NULL,
-              campaign_id TEXT,
-              template_id TEXT,
-              event_timestamp TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            )
-            """
-        )
-    )
-    ensure_column(conn, "email_analyses", "workspace_id", "TEXT DEFAULT 'default'")
-    ensure_column(conn, "email_analyses", "tenant_id", "TEXT")
-    ensure_column(conn, "email_analyses", "source_system", "TEXT")
-    ensure_column(conn, "email_analyses", "analysis_mode", "TEXT")
-    ensure_column(conn, "email_analyses", "campaign_id", "TEXT")
-    ensure_column(conn, "email_analyses", "journey_id", "TEXT")
-    ensure_column(conn, "email_analyses", "template_id", "TEXT")
-    ensure_column(conn, "email_analyses", "locale", "TEXT")
-    ensure_column(conn, "webhook_events", "workspace_id", "TEXT DEFAULT 'default'")
-    ensure_column(conn, "webhook_events", "signature_status", "TEXT DEFAULT 'not_configured'")
-    ensure_column(conn, "webhook_events", "campaign_id", "TEXT")
-    ensure_column(conn, "webhook_events", "template_id", "TEXT")
-    ensure_column(conn, "sample_imports", "workspace_id", "TEXT DEFAULT 'default'")
-    ensure_column(conn, "sample_imports", "chunk_index", "INTEGER DEFAULT 0")
-    ensure_column(conn, "sample_imports", "chunk_total", "INTEGER DEFAULT 1")
-    ensure_column(conn, "sample_imports", "resume_token", "TEXT")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_analyses_created_at ON email_analyses(created_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_analyses_gate_status ON email_analyses(gate_status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_analyses_workspace_id ON email_analyses(workspace_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_analyses_source_system ON email_analyses(source_system)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_analyses_campaign_id ON email_analyses(campaign_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_analyses_template_id ON email_analyses(template_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_webhook_events_last_seen ON webhook_events(last_seen_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_webhook_events_workspace_id ON webhook_events(workspace_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sample_imports_created_at ON sample_imports(created_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sample_imports_workspace_id ON sample_imports(workspace_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_field_mappings_updated_at ON integration_field_mappings(updated_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_findings_workspace_category ON email_findings(workspace_id, category)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_findings_rule_id ON email_findings(rule_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_outcomes_workspace_event ON email_outcomes(workspace_id, event_type)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_outcomes_request_id ON email_outcomes(request_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_outcomes_content_hash ON email_outcomes(content_hash)")
-    record_schema_version(conn, ENTERPRISE_SCHEMA_VERSION)
-    record_schema_version(conn, INTEGRATION_MAPPING_SCHEMA_VERSION)
-    record_schema_version(conn, GOVERNANCE_POLICY_SCHEMA_VERSION)
-    record_schema_version(conn, GOVERNANCE_ANALYTICS_SCHEMA_VERSION)
 
 
 def ensure_column(conn, table: str, column: str, column_type: str) -> None:
@@ -597,14 +678,13 @@ def create_pending_signup(email: str, password: str, name: str = "") -> dict[str
     code = verification_code()
     digest = token_digest(code)
     password_hash = generate_password_hash(password)
-    no_new_code = None
     with connect() as conn:
         existing = execute(conn, "SELECT * FROM users WHERE lower(email) = lower(?)", (clean_email,)).fetchone()
         if existing is not None:
             if existing["email_verified_at"]:
-                return {"email": clean_email, "name": existing["name"], "token": no_new_code, "expires_at": None, "existing": True}
+                return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True}
             if existing["verification_token"]:
-                return {"email": clean_email, "name": existing["name"], "token": no_new_code, "expires_at": None, "existing": True, "already_sent": True}
+                return {"email": clean_email, "name": existing["name"], "token": None, "expires_at": None, "existing": True, "already_sent": True}
             execute(
                 conn,
                 "UPDATE users SET verification_token = ? WHERE id = ?",
@@ -623,7 +703,7 @@ def create_pending_signup(email: str, password: str, name: str = "") -> dict[str
                 return {
                     "email": clean_email,
                     "name": clean_name,
-                    "token": no_new_code,
+                    "token": None,
                     "expires_at": pending["expires_at"],
                     "existing": False,
                     "already_sent": True,
@@ -946,912 +1026,654 @@ def recent_events(user_id: int, limit: int = 25) -> list[dict[str, Any]]:
     ]
 
 
-def analysis_summary_from_row(row) -> dict[str, Any]:
+def _json_dump(value: Any) -> str:
+    return json.dumps(scrub_payload(value), separators=(",", ":"), sort_keys=True)
+
+
+def _json_load(value: str | None, fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return fallback
+
+
+def _hubspot_analysis_from_row(row) -> dict[str, Any]:
     return {
-        "workspace_id": row["workspace_id"] if "workspace_id" in row.keys() else "default",
         "request_id": row["request_id"],
+        "workspace_id": row["workspace_id"],
+        "tenant_id": row["tenant_id"],
+        "source_system": row["source_system"],
+        "workflow": row["workflow"],
+        "analysis_mode": row["analysis_mode"],
+        "campaign_id": row["campaign_id"],
+        "journey_id": row["journey_id"],
+        "template_id": row["template_id"],
+        "contact_id": row["contact_id"],
+        "company_id": row["company_id"],
+        "deal_id": row["deal_id"],
+        "owner_id": row["owner_id"],
+        "portal_id": row["portal_id"],
+        "object_type": row["object_type"],
+        "object_id": row["object_id"],
+        "locale": row["locale"],
         "content_hash": row["content_hash"],
         "score": int(row["score"] or 0),
-        "gate": {
-            "status": row["gate_status"],
-            "send_ready": bool(row["send_ready"]),
-            "route": row["route"],
-            "highest_severity": row["highest_severity"],
-        },
-        "finding_count": int(row["finding_count"] or 0),
-        "highest_severity": row["highest_severity"],
+        "gate": row["gate"],
+        "route": row["route"],
+        "send_ready": bool(row["send_ready"]),
+        "word_count": int(row["word_count"] or 0),
+        "average_model_confidence": float(row["average_model_confidence"] or 0),
+        "score_source": row["score_source"],
+        "findings": _json_load(row["findings"], []),
+        "checks": _json_load(row["checks"], []),
+        "policy": _json_load(row["policy"], {}),
+        "context": _json_load(row["context"], {}),
         "created_at": row["created_at"],
-        "source": row["source"],
-        "tenant_id": row["tenant_id"] if "tenant_id" in row.keys() else "",
-        "source_system": row["source_system"] if "source_system" in row.keys() else "",
-        "analysis_mode": row["analysis_mode"] if "analysis_mode" in row.keys() else "",
-        "campaign_id": row["campaign_id"] if "campaign_id" in row.keys() else "",
-        "journey_id": row["journey_id"] if "journey_id" in row.keys() else "",
-        "template_id": row["template_id"] if "template_id" in row.keys() else "",
-        "locale": row["locale"] if "locale" in row.keys() else "",
-        "policy_bundle_version": row["policy_bundle_version"],
-        "model_version": row["model_version"],
     }
 
 
-def clean_workspace_id(workspace_id: str | None = None) -> str:
-    return str(workspace_id or "default").strip()[:120] or "default"
-
-
-def clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        number = default
-    return max(minimum, min(number, maximum))
-
-
-def normalize_governance_policy(policy: dict[str, Any] | None = None, workspace_id: str = "default") -> dict[str, Any]:
-    raw = {**DEFAULT_GOVERNANCE_POLICY, **(policy or {})}
-    storage_mode = str(raw.get("content_storage_mode") or DEFAULT_GOVERNANCE_POLICY["content_storage_mode"]).strip().lower()
-    if storage_mode not in {"hash_only", "metadata_only"}:
-        storage_mode = DEFAULT_GOVERNANCE_POLICY["content_storage_mode"]
-    policy_environment = str(raw.get("policy_environment") or "production").strip().lower()
-    if policy_environment not in {"sandbox", "staging", "production"}:
-        policy_environment = "production"
-    raw_modes = raw.get("rule_family_modes") if isinstance(raw.get("rule_family_modes"), dict) else {}
-    valid_modes = {"fail_open", "review", "fail_closed"}
-    rule_family_modes = {}
-    for category, default_mode in DEFAULT_RULE_FAMILY_MODES.items():
-        mode = str(raw_modes.get(category) or default_mode).strip().lower()
-        rule_family_modes[category] = mode if mode in valid_modes else default_mode
-    return {
-        "workspace_id": clean_workspace_id(workspace_id or raw.get("workspace_id")),
-        "version": GOVERNANCE_POLICY_SCHEMA_VERSION,
-        "policy_environment": policy_environment,
-        "retention_days": clamp_int(raw.get("retention_days"), DEFAULT_GOVERNANCE_POLICY["retention_days"], 30, 3650),
-        "webhook_retention_days": clamp_int(raw.get("webhook_retention_days"), DEFAULT_GOVERNANCE_POLICY["webhook_retention_days"], 30, 3650),
-        "webhook_dedupe_window_days": clamp_int(raw.get("webhook_dedupe_window_days"), DEFAULT_GOVERNANCE_POLICY["webhook_dedupe_window_days"], 1, 365),
-        "min_ready_score": clamp_int(raw.get("min_ready_score"), DEFAULT_GOVERNANCE_POLICY["min_ready_score"], 0, 100),
-        "high_severity_requires_review": bool(raw.get("high_severity_requires_review", True)),
-        "rule_family_modes": rule_family_modes,
-        "content_storage_mode": storage_mode,
-        "sample_import_limit": clamp_int(raw.get("sample_import_limit"), DEFAULT_GOVERNANCE_POLICY["sample_import_limit"], 1, 100),
-        "send_path_timeout_ms": clamp_int(raw.get("send_path_timeout_ms"), DEFAULT_GOVERNANCE_POLICY["send_path_timeout_ms"], 50, 10000),
-        "idempotency_window_seconds": clamp_int(raw.get("idempotency_window_seconds"), DEFAULT_GOVERNANCE_POLICY["idempotency_window_seconds"], 60, 86400),
-        "updated_at": str(raw.get("updated_at") or utc_now()),
-    }
-
-
-def get_governance_policy(workspace_id: str = "default") -> dict[str, Any]:
-    workspace_clean = clean_workspace_id(workspace_id)
+def save_hubspot_analysis_artifacts(request_id: str, checks: list[dict[str, Any]], findings: list[dict[str, Any]], created_at: str) -> None:
+    clean_request_id = str(request_id or "").strip()[:160]
+    if not clean_request_id:
+        return
     with connect() as conn:
-        row = execute(
-            conn,
-            "SELECT policy_json, updated_at FROM governance_policies WHERE workspace_id = ?",
-            (workspace_clean,),
-        ).fetchone()
-    if not row:
-        return normalize_governance_policy(workspace_id=workspace_clean)
-    try:
-        saved = json.loads(row["policy_json"] or "{}")
-    except json.JSONDecodeError:
-        saved = {}
-    return normalize_governance_policy({**saved, "updated_at": row["updated_at"]}, workspace_clean)
+        execute(conn, "DELETE FROM hubspot_email_checks WHERE request_id = ?", (clean_request_id,))
+        execute(conn, "DELETE FROM hubspot_email_findings WHERE request_id = ?", (clean_request_id,))
+        for check in checks[:100]:
+            execute(
+                conn,
+                """
+                INSERT INTO hubspot_email_checks (
+                  request_id, check_id, label, weight, score, status, penalty, evidence, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_request_id,
+                    str(check.get("id", ""))[:120],
+                    str(check.get("label", ""))[:160],
+                    int(check.get("weight") or 0),
+                    int(check.get("score") or 0),
+                    str(check.get("status", ""))[:80],
+                    int(check.get("penalty") or 0),
+                    _json_dump(check.get("evidence") or []),
+                    created_at,
+                ),
+            )
+        for finding in findings[:100]:
+            execute(
+                conn,
+                """
+                INSERT INTO hubspot_email_findings (
+                  request_id, finding_id, severity, title, owner_queue, blocker_level,
+                  next_step, action, evidence, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_request_id,
+                    str(finding.get("id", ""))[:120],
+                    str(finding.get("severity", ""))[:80],
+                    str(finding.get("title", ""))[:240],
+                    str(finding.get("owner_queue", ""))[:160],
+                    str(finding.get("blocker_level", ""))[:80],
+                    str(finding.get("next_step", ""))[:500],
+                    str(finding.get("action", ""))[:500],
+                    _json_dump(finding.get("evidence") or []),
+                    created_at,
+                ),
+            )
 
 
-def save_governance_policy(workspace_id: str, policy: dict[str, Any]) -> dict[str, Any]:
-    workspace_clean = clean_workspace_id(workspace_id)
-    normalized = normalize_governance_policy(policy, workspace_clean)
-    normalized["updated_at"] = utc_now()
-    with connect() as conn:
-        execute(
-            conn,
-            """
-            INSERT INTO governance_policies (workspace_id, policy_json, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(workspace_id)
-            DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at
-            """,
-            (
-                workspace_clean,
-                json.dumps(normalized, separators=(",", ":"), sort_keys=True),
-                normalized["updated_at"],
-            ),
-        )
-        history_id = f"{workspace_clean}:{normalized['policy_environment']}:{normalized['updated_at']}"
-        execute(
-            conn,
-            """
-            INSERT INTO policy_bundle_versions (id, workspace_id, environment, policy_json, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO NOTHING
-            """,
-            (
-                history_id[:240],
-                workspace_clean,
-                normalized["policy_environment"],
-                json.dumps(normalized, separators=(",", ":"), sort_keys=True),
-                normalized["updated_at"],
-            ),
-        )
-    return normalized
-
-
-def policy_bundle_history(workspace_id: str = "default", limit: int = 20) -> list[dict[str, Any]]:
-    workspace_clean = clean_workspace_id(workspace_id)
-    clean_limit = max(1, min(int(limit or 20), 100))
+def list_hubspot_normalized_findings(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "finding_id", "severity", "owner_queue", "blocker_level"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
     with connect() as conn:
         rows = execute(
             conn,
-            """
-            SELECT workspace_id, environment, policy_json, created_at
-            FROM policy_bundle_versions
-            WHERE workspace_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (workspace_clean, clean_limit),
+            f"SELECT * FROM hubspot_email_findings {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
         ).fetchall()
     return [
         {
-            "workspace_id": row["workspace_id"],
-            "environment": row["environment"],
-            "policy": json.loads(row["policy_json"] or "{}"),
+            "request_id": row["request_id"],
+            "finding_id": row["finding_id"],
+            "severity": row["severity"],
+            "title": row["title"],
+            "owner_queue": row["owner_queue"],
+            "blocker_level": row["blocker_level"],
+            "next_step": row["next_step"],
+            "action": row["action"],
+            "evidence": _json_load(row["evidence"], []),
             "created_at": row["created_at"],
         }
         for row in rows
     ]
 
 
-def analysis_enterprise_context(analysis: dict[str, Any]) -> dict[str, str]:
-    context = analysis.get("input", {}).get("enterprise_context")
-    if not isinstance(context, dict):
-        context = {}
-    return {
-        "tenant_id": str(context.get("tenant_id") or "")[:120],
-        "source_system": SAFE_EVENT_TYPE_RE.sub("_", str(context.get("source_system") or analysis.get("input", {}).get("channel") or "")).strip("_").lower()[:120],
-        "analysis_mode": SAFE_EVENT_TYPE_RE.sub("_", str(context.get("analysis_mode") or analysis.get("input", {}).get("channel") or "direct_api")).strip("_").lower()[:80],
-        "campaign_id": str(context.get("campaign_id") or "")[:160],
-        "journey_id": str(context.get("journey_id") or "")[:160],
-        "template_id": str(context.get("template_id") or "")[:160],
-        "locale": str(context.get("locale") or "")[:32],
-    }
-
-
-def save_email_findings(conn, analysis: dict[str, Any], workspace_id: str, context: dict[str, str]) -> None:
-    request_id = str(analysis.get("request_id") or "")
-    execute(conn, "DELETE FROM email_findings WHERE request_id = ?", (request_id,))
-    content_hash_value = str(analysis.get("content_hash") or "")
-    created_at = str(analysis.get("created_at") or utc_now())
-    for index, item in enumerate(analysis.get("findings") or []):
-        finding_id = f"{request_id}:{item.get('id') or index}"[:240]
-        execute(
+def list_hubspot_normalized_checks(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "check_id", "status"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
             conn,
-            """
-            INSERT INTO email_findings (
-              id, workspace_id, request_id, content_hash, rule_id, category, severity, title,
-              remediation, evidence_json, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id)
-            DO UPDATE SET
-              workspace_id = excluded.workspace_id,
-              content_hash = excluded.content_hash,
-              rule_id = excluded.rule_id,
-              category = excluded.category,
-              severity = excluded.severity,
-              title = excluded.title,
-              remediation = excluded.remediation,
-              evidence_json = excluded.evidence_json,
-              created_at = excluded.created_at
-            """,
-            (
-                finding_id,
-                workspace_id,
-                request_id,
-                content_hash_value,
-                str(item.get("id") or "")[:120],
-                str(item.get("category") or "unknown")[:80],
-                str(item.get("severity") or "info")[:40],
-                str(item.get("title") or "")[:240],
-                str(item.get("remediation") or "")[:1000],
-                json.dumps(scrub_payload(item.get("evidence") or []), separators=(",", ":"), sort_keys=True)[:12000],
-                created_at,
-            ),
-        )
+            f"SELECT * FROM hubspot_email_checks {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "check_id": row["check_id"],
+            "label": row["label"],
+            "weight": int(row["weight"] or 0),
+            "score": int(row["score"] or 0),
+            "status": row["status"],
+            "penalty": int(row["penalty"] or 0),
+            "evidence": _json_load(row["evidence"], []),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
 
 
-def save_email_analysis(analysis: dict[str, Any], source: str = "direct_api", workspace_id: str = "default") -> dict[str, Any]:
-    gate = analysis.get("policy", {}).get("gate", {})
-    request_id = str(analysis.get("request_id") or "").strip()
-    if not request_id:
-        raise ValueError("Email analysis is missing request_id.")
-    source_clean = SAFE_EVENT_TYPE_RE.sub("_", str(source or "direct_api")).strip("_")[:80] or "direct_api"
-    workspace_clean = clean_workspace_id(workspace_id or analysis.get("input", {}).get("workspace_id") or analysis.get("workspace_id"))
-    context = analysis_enterprise_context(analysis)
-    record = {
-        "workspace_id": workspace_clean,
-        "request_id": request_id,
-        "content_hash": str(analysis.get("content_hash") or ""),
-        "source": source_clean,
-        **context,
-        "policy_bundle_version": str(analysis.get("policy", {}).get("bundle_version") or ""),
-        "model_version": str(analysis.get("model", {}).get("version") or ""),
-        "gate_status": str(gate.get("status") or "unknown"),
-        "send_ready": 1 if gate.get("send_ready") else 0,
-        "route": str(gate.get("route") or ""),
-        "highest_severity": str(gate.get("highest_severity") or "none"),
-        "score": int(analysis.get("scores", {}).get("overall") or 0),
-        "finding_count": len(analysis.get("findings") or []),
-        "analysis_json": json.dumps(analysis, separators=(",", ":"), sort_keys=True),
-        "created_at": str(analysis.get("created_at") or utc_now()),
+def save_hubspot_email_analysis(record: dict[str, Any]) -> dict[str, Any]:
+    now = record.get("created_at") or utc_now()
+    values = {
+        "request_id": str(record.get("request_id", ""))[:160],
+        "workspace_id": str(record.get("workspace_id", ""))[:160],
+        "tenant_id": str(record.get("tenant_id", ""))[:160],
+        "source_system": str(record.get("source_system", "hubspot"))[:80],
+        "workflow": str(record.get("workflow", ""))[:120],
+        "analysis_mode": str(record.get("analysis_mode", ""))[:80],
+        "campaign_id": str(record.get("campaign_id", ""))[:160],
+        "journey_id": str(record.get("journey_id", ""))[:160],
+        "template_id": str(record.get("template_id", ""))[:160],
+        "contact_id": str(record.get("contact_id", ""))[:160],
+        "company_id": str(record.get("company_id", ""))[:160],
+        "deal_id": str(record.get("deal_id", ""))[:160],
+        "owner_id": str(record.get("owner_id", ""))[:160],
+        "portal_id": str(record.get("portal_id", ""))[:160],
+        "object_type": str(record.get("object_type", ""))[:120],
+        "object_id": str(record.get("object_id", ""))[:160],
+        "locale": str(record.get("locale", ""))[:40],
+        "content_hash": str(record.get("content_hash", ""))[:128],
+        "score": int(record.get("score") or 0),
+        "gate": str(record.get("gate", ""))[:80],
+        "route": str(record.get("route", ""))[:120],
+        "send_ready": 1 if record.get("send_ready") else 0,
+        "word_count": int(record.get("word_count") or 0),
+        "average_model_confidence": float(record.get("average_model_confidence") or 0),
+        "score_source": str(record.get("score_source", ""))[:500],
+        "findings": _json_dump(record.get("findings") or []),
+        "checks": _json_dump(record.get("checks") or []),
+        "policy": _json_dump(record.get("policy") or {}),
+        "context": _json_dump(record.get("context") or {}),
+        "created_at": now,
     }
+    if not values["request_id"]:
+        raise ValueError("HubSpot analysis record requires a request_id.")
     with connect() as conn:
         execute(
             conn,
             """
-            INSERT INTO email_analyses (
-              workspace_id, request_id, content_hash, source, tenant_id, source_system, analysis_mode,
-              campaign_id, journey_id, template_id, locale, policy_bundle_version, model_version,
-              gate_status, send_ready, route, highest_severity, score, finding_count,
-              analysis_json, created_at
+            INSERT INTO hubspot_email_analyses (
+              request_id, workspace_id, tenant_id, source_system, workflow, analysis_mode,
+              campaign_id, journey_id, template_id, contact_id, company_id, deal_id,
+              owner_id, portal_id, object_type, object_id, locale, content_hash, score,
+              gate, route, send_ready, word_count, average_model_confidence, score_source,
+              findings, checks, policy, context, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(request_id)
-            DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
               workspace_id = excluded.workspace_id,
-              content_hash = excluded.content_hash,
-              source = excluded.source,
               tenant_id = excluded.tenant_id,
               source_system = excluded.source_system,
+              workflow = excluded.workflow,
               analysis_mode = excluded.analysis_mode,
               campaign_id = excluded.campaign_id,
               journey_id = excluded.journey_id,
               template_id = excluded.template_id,
+              contact_id = excluded.contact_id,
+              company_id = excluded.company_id,
+              deal_id = excluded.deal_id,
+              owner_id = excluded.owner_id,
+              portal_id = excluded.portal_id,
+              object_type = excluded.object_type,
+              object_id = excluded.object_id,
               locale = excluded.locale,
-              policy_bundle_version = excluded.policy_bundle_version,
-              model_version = excluded.model_version,
-              gate_status = excluded.gate_status,
-              send_ready = excluded.send_ready,
-              route = excluded.route,
-              highest_severity = excluded.highest_severity,
+              content_hash = excluded.content_hash,
               score = excluded.score,
-              finding_count = excluded.finding_count,
-              analysis_json = excluded.analysis_json,
-              created_at = excluded.created_at
+              gate = excluded.gate,
+              route = excluded.route,
+              send_ready = excluded.send_ready,
+              word_count = excluded.word_count,
+              average_model_confidence = excluded.average_model_confidence,
+              score_source = excluded.score_source,
+              findings = excluded.findings,
+              checks = excluded.checks,
+              policy = excluded.policy,
+              context = excluded.context
             """,
-            (
-                record["workspace_id"],
-                record["request_id"],
-                record["content_hash"],
-                record["source"],
-                record["tenant_id"],
-                record["source_system"],
-                record["analysis_mode"],
-                record["campaign_id"],
-                record["journey_id"],
-                record["template_id"],
-                record["locale"],
-                record["policy_bundle_version"],
-                record["model_version"],
-                record["gate_status"],
-                record["send_ready"],
-                record["route"],
-                record["highest_severity"],
-                record["score"],
-                record["finding_count"],
-                record["analysis_json"],
-                record["created_at"],
-            ),
+            tuple(values[key] for key in values),
         )
-        save_email_findings(conn, analysis, workspace_clean, context)
-    return {
-        "workspace_id": record["workspace_id"],
-        "request_id": record["request_id"],
-        "content_hash": record["content_hash"],
-        "score": record["score"],
-        "gate": {
-            "status": record["gate_status"],
-            "send_ready": bool(record["send_ready"]),
-            "route": record["route"],
-            "highest_severity": record["highest_severity"],
-        },
-        "finding_count": record["finding_count"],
-        "highest_severity": record["highest_severity"],
-        "created_at": record["created_at"],
-        "source": record["source"],
-        "tenant_id": record["tenant_id"],
-        "source_system": record["source_system"],
-        "analysis_mode": record["analysis_mode"],
-        "campaign_id": record["campaign_id"],
-        "journey_id": record["journey_id"],
-        "template_id": record["template_id"],
-        "locale": record["locale"],
-        "policy_bundle_version": record["policy_bundle_version"],
-        "model_version": record["model_version"],
-    }
+    save_hubspot_analysis_artifacts(values["request_id"], record.get("checks") or [], record.get("findings") or [], now)
+    return values
 
 
-def recent_email_analyses(limit: int = 20, workspace_id: str = "default") -> list[dict[str, Any]]:
-    clean_limit = max(1, min(int(limit or 20), 500))
-    workspace_clean = clean_workspace_id(workspace_id)
+def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
     with connect() as conn:
         rows = execute(
             conn,
-            """
-            SELECT workspace_id, request_id, content_hash, source, tenant_id, source_system, analysis_mode,
-                   campaign_id, journey_id, template_id, locale, policy_bundle_version, model_version,
-                   gate_status, send_ready, route, highest_severity, score, finding_count, created_at
-            FROM email_analyses
-            WHERE workspace_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (workspace_clean, clean_limit),
+            f"SELECT * FROM hubspot_email_analyses {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
         ).fetchall()
-    return [analysis_summary_from_row(row) for row in rows]
+    return [_hubspot_analysis_from_row(row) for row in rows]
 
 
-def webhook_event_from_row(row) -> dict[str, Any]:
-    return {
-        "workspace_id": row["workspace_id"] if "workspace_id" in row.keys() else "default",
-        "dedupe_key": row["dedupe_key"],
-        "provider": row["provider"],
-        "event_type": row["event_type"],
-        "request_id": row["request_id"] or "",
-        "content_hash": row["content_hash"] or "",
-        "delivery_status": row["delivery_status"],
-        "signature_status": row["signature_status"] if "signature_status" in row.keys() else "not_configured",
-        "campaign_id": row["campaign_id"] if "campaign_id" in row.keys() else "",
-        "template_id": row["template_id"] if "template_id" in row.keys() else "",
-        "first_seen_at": row["first_seen_at"],
-        "last_seen_at": row["last_seen_at"],
-        "seen_count": int(row["seen_count"] or 0),
+def save_hubspot_review_event(request_id: str, action: str, payload: dict[str, Any] | None = None, actor_id: str = "", status: str = "recorded") -> dict[str, Any]:
+    clean_action = SAFE_EVENT_TYPE_RE.sub("_", str(action or "")).strip("_")[:80]
+    if clean_action not in {"copy_recommendation", "mark_reviewed", "send_to_marketing_review", "rerun_analysis", "assign_reviewer", "resolve_review", "add_review_note"}:
+        raise ValueError("Unsupported HubSpot review action.")
+    clean_request_id = str(request_id or "").strip()[:160]
+    if not clean_request_id:
+        raise ValueError("HubSpot review action requires a request_id.")
+    clean_payload = scrub_payload(payload or {})
+    event = {
+        "request_id": clean_request_id,
+        "action": clean_action,
+        "actor_id": str(actor_id or "")[:160],
+        "status": str(status or "recorded")[:80],
+        "payload": clean_payload,
+        "created_at": utc_now(),
     }
-
-
-def parse_utc_timestamp(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
-def upsert_webhook_event(
-    dedupe_key: str,
-    record: dict[str, Any],
-    raw_payload: dict[str, Any] | None = None,
-    workspace_id: str = "default",
-    dedupe_window_days: int | None = None,
-) -> tuple[dict[str, Any], bool]:
-    clean_key = str(dedupe_key or "").strip()[:180]
-    if not clean_key:
-        raise ValueError("Webhook event is missing a dedupe key.")
-    workspace_clean = clean_workspace_id(workspace_id or record.get("workspace_id"))
-    storage_key = clean_key if workspace_clean == "default" else f"{workspace_clean}:{clean_key}"[:180]
-    event_json = json.dumps(scrub_payload(raw_payload or record), separators=(",", ":"), sort_keys=True)[:12000]
-    signature_status = str(record.get("signature_status") or "not_configured")[:80]
-    campaign_id = str(record.get("campaign_id") or (raw_payload or {}).get("campaign_id") or "")[:160]
-    template_id = str(record.get("template_id") or (raw_payload or {}).get("template_id") or "")[:160]
     with connect() as conn:
-        existing = execute(conn, "SELECT * FROM webhook_events WHERE workspace_id = ? AND dedupe_key = ?", (workspace_clean, storage_key)).fetchone()
-        if existing is not None:
-            last_seen = utc_now()
-            existing_last_seen = parse_utc_timestamp(existing["last_seen_at"])
-            window_days = clamp_int(dedupe_window_days, 30, 1, 365) if dedupe_window_days else None
-            outside_window = bool(
-                window_days
-                and existing_last_seen
-                and datetime.now(timezone.utc) - existing_last_seen > timedelta(days=window_days)
-            )
-            if outside_window:
-                execute(
-                    conn,
-                    """
-                    UPDATE webhook_events
-                    SET provider = ?, event_type = ?, request_id = ?, content_hash = ?, delivery_status = ?,
-                        signature_status = ?, campaign_id = ?, template_id = ?,
-                        event_json = ?, first_seen_at = ?, last_seen_at = ?, seen_count = 1
-                    WHERE workspace_id = ? AND dedupe_key = ?
-                    """,
-                    (
-                        str(record.get("provider") or "")[:80],
-                        str(record.get("event_type") or "")[:80],
-                        str(record.get("request_id") or "")[:120],
-                        str(record.get("content_hash") or "")[:120],
-                        str(record.get("delivery_status") or "received")[:80],
-                        signature_status,
-                        campaign_id,
-                        template_id,
-                        event_json,
-                        last_seen,
-                        last_seen,
-                        workspace_clean,
-                        storage_key,
-                    ),
-                )
-                updated = execute(conn, "SELECT * FROM webhook_events WHERE workspace_id = ? AND dedupe_key = ?", (workspace_clean, storage_key)).fetchone()
-                return webhook_event_from_row(updated), False
-            execute(
-                conn,
-                """
-                UPDATE webhook_events
-                SET last_seen_at = ?, seen_count = seen_count + 1, event_json = ?, signature_status = ?
-                WHERE workspace_id = ? AND dedupe_key = ?
-                """,
-                (last_seen, event_json, signature_status, workspace_clean, storage_key),
-            )
-            updated = execute(conn, "SELECT * FROM webhook_events WHERE workspace_id = ? AND dedupe_key = ?", (workspace_clean, storage_key)).fetchone()
-            return webhook_event_from_row(updated), True
         execute(
             conn,
-            """
-            INSERT INTO webhook_events (
-              workspace_id, dedupe_key, provider, event_type, request_id, content_hash, delivery_status,
-              signature_status, campaign_id, template_id, event_json, first_seen_at, last_seen_at, seen_count
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                workspace_clean,
-                storage_key,
-                str(record.get("provider") or "")[:80],
-                str(record.get("event_type") or "")[:80],
-                str(record.get("request_id") or "")[:120],
-                str(record.get("content_hash") or "")[:120],
-                str(record.get("delivery_status") or "received")[:80],
-                signature_status,
-                campaign_id,
-                template_id,
-                event_json,
-                str(record.get("first_seen_at") or utc_now()),
-                str(record.get("last_seen_at") or utc_now()),
-                int(record.get("seen_count") or 1),
-            ),
+            "INSERT INTO hubspot_email_review_events (request_id, action, actor_id, status, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (event["request_id"], event["action"], event["actor_id"], event["status"], _json_dump(event["payload"]), event["created_at"]),
         )
-        created = execute(conn, "SELECT * FROM webhook_events WHERE workspace_id = ? AND dedupe_key = ?", (workspace_clean, storage_key)).fetchone()
-    return webhook_event_from_row(created), False
+    upsert_hubspot_review_state_from_event(event)
+    return event
 
 
-def recent_webhook_events(limit: int = 20, workspace_id: str = "default") -> list[dict[str, Any]]:
-    clean_limit = max(1, min(int(limit or 20), 200))
-    workspace_clean = clean_workspace_id(workspace_id)
-    with connect() as conn:
-        rows = execute(
-            conn,
-            "SELECT * FROM webhook_events WHERE workspace_id = ? ORDER BY last_seen_at DESC LIMIT ?",
-            (workspace_clean, clean_limit),
-        ).fetchall()
-    return [webhook_event_from_row(row) for row in rows]
-
-
-def normalize_outcome_event_type(event_type: str, delivery_status: str = "") -> str:
-    clean = SAFE_EVENT_TYPE_RE.sub("_", str(event_type or delivery_status or "received")).strip("_").lower()
-    aliases = {
-        "delivered": "delivered",
-        "delivery": "delivered",
-        "processed": "processed",
-        "open": "opened",
-        "opened": "opened",
-        "click": "clicked",
-        "clicked": "clicked",
-        "bounce": "bounced",
-        "bounced": "bounced",
-        "dropped": "suppressed",
-        "suppressed": "suppressed",
-        "spamreport": "complained",
-        "spam_report": "complained",
-        "complaint": "complained",
-        "complained": "complained",
-        "unsubscribe": "unsubscribed",
-        "unsubscribed": "unsubscribed",
+def upsert_hubspot_review_state_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    action = str(event.get("action") or "")
+    now = utc_now()
+    request_id = str(event.get("request_id") or "")[:160]
+    status = str(payload.get("review_status") or payload.get("status") or "open")[:80]
+    resolved_at = ""
+    if action == "send_to_marketing_review":
+        status = "queued"
+    elif action == "assign_reviewer":
+        status = "assigned"
+    elif action in {"mark_reviewed", "resolve_review"}:
+        status = "resolved"
+        resolved_at = now
+    elif action == "rerun_analysis":
+        status = "rerun_requested"
+    elif action == "copy_recommendation":
+        status = "open"
+    notes = str(payload.get("notes") or payload.get("recommendation") or "")[:1000]
+    state = {
+        "request_id": request_id,
+        "status": status,
+        "assigned_to": str(payload.get("assigned_to") or payload.get("reviewer") or "")[:160],
+        "owner_queue": str(payload.get("owner_queue") or payload.get("route") or "")[:160],
+        "blocker_level": str(payload.get("blocker_level") or "")[:80],
+        "sla_due_at": str(payload.get("sla_due_at") or "")[:80],
+        "resolved_at": resolved_at,
+        "notes": notes,
+        "updated_by": str(event.get("actor_id") or "")[:160],
+        "created_at": now,
+        "updated_at": now,
     }
-    return aliases.get(clean, clean or "received")
-
-
-def save_email_outcome(record: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
-    workspace_clean = clean_workspace_id(workspace_id or record.get("workspace_id"))
-    event_type = normalize_outcome_event_type(str(record.get("event_type") or ""), str(record.get("delivery_status") or ""))
-    request_id = str(record.get("request_id") or "")[:120]
-    content_hash_value = str(record.get("content_hash") or "")[:120]
-    provider = SAFE_EVENT_TYPE_RE.sub("_", str(record.get("provider") or "unknown")).strip("_").lower()[:80] or "unknown"
-    campaign_id = str(record.get("campaign_id") or "")[:160]
-    template_id = str(record.get("template_id") or "")[:160]
-    timestamp = str(record.get("event_timestamp") or record.get("last_seen_at") or utc_now())
-    outcome_id_source = "|".join([workspace_clean, request_id, content_hash_value, provider, event_type, campaign_id, template_id, timestamp])
-    outcome_id = "outcome:" + hashlib.sha256(outcome_id_source.encode("utf-8")).hexdigest()
     with connect() as conn:
+        existing = execute(conn, "SELECT created_at, resolved_at FROM hubspot_email_review_states WHERE request_id = ?", (request_id,)).fetchone()
+        created_at = existing["created_at"] if existing else now
+        resolved_value = resolved_at or (existing["resolved_at"] if existing else "")
         execute(
             conn,
             """
-            INSERT INTO email_outcomes (
-              id, workspace_id, request_id, content_hash, provider, event_type, delivery_status,
-              campaign_id, template_id, event_timestamp, created_at
+            INSERT INTO hubspot_email_review_states (
+              request_id, status, assigned_to, owner_queue, blocker_level, sla_due_at,
+              resolved_at, notes, updated_by, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id)
-            DO UPDATE SET
-              request_id = excluded.request_id,
-              content_hash = excluded.content_hash,
-              delivery_status = excluded.delivery_status,
-              event_timestamp = excluded.event_timestamp
+            ON CONFLICT(request_id) DO UPDATE SET
+              status = excluded.status,
+              assigned_to = COALESCE(NULLIF(excluded.assigned_to, ''), hubspot_email_review_states.assigned_to),
+              owner_queue = COALESCE(NULLIF(excluded.owner_queue, ''), hubspot_email_review_states.owner_queue),
+              blocker_level = COALESCE(NULLIF(excluded.blocker_level, ''), hubspot_email_review_states.blocker_level),
+              sla_due_at = COALESCE(NULLIF(excluded.sla_due_at, ''), hubspot_email_review_states.sla_due_at),
+              resolved_at = excluded.resolved_at,
+              notes = COALESCE(NULLIF(excluded.notes, ''), hubspot_email_review_states.notes),
+              updated_by = excluded.updated_by,
+              updated_at = excluded.updated_at
             """,
             (
-                outcome_id,
-                workspace_clean,
                 request_id,
-                content_hash_value,
-                provider,
-                event_type,
-                str(record.get("delivery_status") or event_type)[:80],
-                campaign_id,
-                template_id,
-                timestamp,
-                utc_now(),
+                state["status"],
+                state["assigned_to"],
+                state["owner_queue"],
+                state["blocker_level"],
+                state["sla_due_at"],
+                resolved_value,
+                state["notes"],
+                state["updated_by"],
+                created_at,
+                now,
             ),
         )
-    return {
-        "id": outcome_id,
-        "workspace_id": workspace_clean,
-        "request_id": request_id,
-        "content_hash": content_hash_value,
-        "provider": provider,
-        "event_type": event_type,
-        "delivery_status": str(record.get("delivery_status") or event_type)[:80],
-        "campaign_id": campaign_id,
-        "template_id": template_id,
-        "event_timestamp": timestamp,
-    }
+    state["created_at"] = created_at
+    state["resolved_at"] = resolved_value
+    return state
 
 
-def recent_email_outcomes(limit: int = 50, workspace_id: str = "default") -> list[dict[str, Any]]:
-    clean_limit = max(1, min(int(limit or 50), 500))
-    workspace_clean = clean_workspace_id(workspace_id)
+def list_hubspot_review_states(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "status", "owner_queue", "assigned_to"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
     with connect() as conn:
         rows = execute(
             conn,
-            """
-            SELECT id, workspace_id, request_id, content_hash, provider, event_type, delivery_status,
-                   campaign_id, template_id, event_timestamp, created_at
-            FROM email_outcomes
-            WHERE workspace_id = ?
-            ORDER BY event_timestamp DESC
-            LIMIT ?
-            """,
-            (workspace_clean, clean_limit),
+            f"SELECT * FROM hubspot_email_review_states {where} ORDER BY updated_at DESC LIMIT ?",
+            (*params, safe_limit),
         ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def joined_outcomes(limit: int = 50, workspace_id: str = "default") -> list[dict[str, Any]]:
-    clean_limit = max(1, min(int(limit or 50), 500))
-    workspace_clean = clean_workspace_id(workspace_id)
-    with connect() as conn:
-        rows = execute(
-            conn,
-            """
-            SELECT o.id, o.provider, o.event_type, o.delivery_status, o.request_id, o.content_hash,
-                   o.campaign_id AS outcome_campaign_id, o.template_id AS outcome_template_id,
-                   o.event_timestamp, a.score, a.gate_status, a.source_system, a.campaign_id, a.template_id
-            FROM email_outcomes o
-            LEFT JOIN email_analyses a
-              ON a.workspace_id = o.workspace_id
-             AND ((o.request_id <> '' AND a.request_id = o.request_id)
-               OR (o.content_hash <> '' AND a.content_hash = o.content_hash))
-            WHERE o.workspace_id = ?
-            ORDER BY o.event_timestamp DESC
-            LIMIT ?
-            """,
-            (workspace_clean, clean_limit),
-        ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def save_sample_import(summary: dict[str, Any], workspace_id: str = "default") -> dict[str, Any]:
-    import_id = str(summary.get("import_id") or "").strip()
-    if not import_id:
-        raise ValueError("Sample import is missing import_id.")
-    workspace_clean = clean_workspace_id(workspace_id or summary.get("workspace_id"))
-    created_at = str(summary.get("created_at") or utc_now())
-    chunk_index = clamp_int(summary.get("chunk_index"), 0, 0, 100000)
-    chunk_total = clamp_int(summary.get("chunk_total"), 1, 1, 100000)
-    resume_token = str(summary.get("resume_token") or "")[:180]
-    clean_summary = scrub_payload(
+    return [
         {
-            **summary,
-            "workspace_id": workspace_clean,
-            "created_at": created_at,
-            "chunk_index": chunk_index,
-            "chunk_total": chunk_total,
-            "resume_token": resume_token,
-            "resume_available": bool(resume_token),
-            "resume_digest": token_digest(resume_token) if resume_token else "",
+            "request_id": row["request_id"],
+            "status": row["status"],
+            "assigned_to": row["assigned_to"],
+            "owner_queue": row["owner_queue"],
+            "blocker_level": row["blocker_level"],
+            "sla_due_at": row["sla_due_at"],
+            "resolved_at": row["resolved_at"],
+            "notes": row["notes"],
+            "updated_by": row["updated_by"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
         }
-    )
-    storage_import_id = import_id if workspace_clean == "default" else f"{workspace_clean}:{import_id}"[:180]
+        for row in rows
+    ]
+
+
+def list_hubspot_review_events(request_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    params: tuple[Any, ...]
+    if request_id:
+        statement = "SELECT request_id, action, actor_id, status, payload, created_at FROM hubspot_email_review_events WHERE request_id = ? ORDER BY id DESC LIMIT ?"
+        params = (str(request_id)[:160], safe_limit)
+    else:
+        statement = "SELECT request_id, action, actor_id, status, payload, created_at FROM hubspot_email_review_events ORDER BY id DESC LIMIT ?"
+        params = (safe_limit,)
     with connect() as conn:
-        execute(
+        rows = execute(conn, statement, params).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "action": row["action"],
+            "actor_id": row["actor_id"],
+            "status": row["status"],
+            "payload": _json_load(row["payload"], {}),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def get_hubspot_policy_config(workspace_id: str, environment: str = "production") -> dict[str, Any] | None:
+    with connect() as conn:
+        row = execute(
             conn,
-            """
-            INSERT INTO sample_imports (workspace_id, import_id, summary_json, created_at, chunk_index, chunk_total, resume_token)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(import_id)
-            DO UPDATE SET
-              workspace_id = excluded.workspace_id,
-              summary_json = excluded.summary_json,
-              created_at = excluded.created_at,
-              chunk_index = excluded.chunk_index,
-              chunk_total = excluded.chunk_total,
-              resume_token = excluded.resume_token
-            """,
-            (workspace_clean, storage_import_id, json.dumps(clean_summary, separators=(",", ":"), sort_keys=True), created_at, chunk_index, chunk_total, resume_token),
-        )
-    return clean_summary
-
-
-def recent_sample_imports(limit: int = 10, workspace_id: str = "default") -> list[dict[str, Any]]:
-    clean_limit = max(1, min(int(limit or 10), 100))
-    workspace_clean = clean_workspace_id(workspace_id)
-    with connect() as conn:
-        rows = execute(
-            conn,
-            "SELECT summary_json FROM sample_imports WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?",
-            (workspace_clean, clean_limit),
-        ).fetchall()
-    return [json.loads(row["summary_json"] or "{}") for row in rows]
-
-
-def count_by(items: list[dict[str, Any]], key_fn) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        key = str(key_fn(item) or "unknown")
-        counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
-def query_counts(workspace_id: str, statement: str, limit: int = 20) -> list[dict[str, Any]]:
-    with connect() as conn:
-        rows = execute(conn, statement, (clean_workspace_id(workspace_id), max(1, min(int(limit or 20), 100)))).fetchall()
-    normalized = []
-    for row in rows:
-        item = dict(row)
-        if "average_score" in item and item["average_score"] is not None:
-            item["average_score"] = round(float(item["average_score"]), 1)
-        normalized.append(item)
-    return normalized
-
-
-def top_failing_rule_packs(workspace_id: str = "default", limit: int = 12) -> list[dict[str, Any]]:
-    return query_counts(
-        workspace_id,
-        """
-        SELECT category, rule_id, severity, COUNT(*) AS count
-        FROM email_findings
-        WHERE workspace_id = ?
-        GROUP BY category, rule_id, severity
-        ORDER BY count DESC, category ASC
-        LIMIT ?
-        """,
-        limit,
-    )
-
-
-def risky_templates(workspace_id: str = "default", limit: int = 12) -> list[dict[str, Any]]:
-    return query_counts(
-        workspace_id,
-        """
-        SELECT COALESCE(NULLIF(template_id, ''), 'unknown') AS template_id,
-               COALESCE(NULLIF(campaign_id, ''), 'unknown') AS campaign_id,
-               COUNT(*) AS analysis_count,
-               AVG(score) AS average_score,
-               SUM(CASE WHEN gate_status <> 'ready' THEN 1 ELSE 0 END) AS review_or_block_count
-        FROM email_analyses
-        WHERE workspace_id = ?
-        GROUP BY COALESCE(NULLIF(template_id, ''), 'unknown'), COALESCE(NULLIF(campaign_id, ''), 'unknown')
-        HAVING COUNT(*) > 0
-        ORDER BY review_or_block_count DESC, average_score ASC
-        LIMIT ?
-        """,
-        limit,
-    )
-
-
-def trend_by_source_system(workspace_id: str = "default", limit: int = 20) -> list[dict[str, Any]]:
-    return query_counts(
-        workspace_id,
-        """
-        SELECT COALESCE(NULLIF(source_system, ''), source) AS source_system,
-               gate_status,
-               COUNT(*) AS count,
-               AVG(score) AS average_score
-        FROM email_analyses
-        WHERE workspace_id = ?
-        GROUP BY COALESCE(NULLIF(source_system, ''), source), gate_status
-        ORDER BY source_system ASC, count DESC
-        LIMIT ?
-        """,
-        limit,
-    )
-
-
-def enterprise_governance_snapshot(limit: int = 20, workspace_id: str = "default") -> dict[str, Any]:
-    workspace_clean = clean_workspace_id(workspace_id)
-    analyses = recent_email_analyses(limit=500, workspace_id=workspace_clean)
-    webhook_events = recent_webhook_events(limit=limit, workspace_id=workspace_clean)
-    outcomes = recent_email_outcomes(limit=limit, workspace_id=workspace_clean)
-    sample_imports = recent_sample_imports(10, workspace_id=workspace_clean)
-    total = len(analyses)
-    gate_counts = {"ready": 0, "needs_review": 0, "blocked": 0}
-    severity_counts: dict[str, int] = {}
-    for item in analyses:
-        gate_status = item["gate"]["status"]
-        gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
-        severity = item["highest_severity"]
-        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            "SELECT policy, updated_by, updated_at FROM hubspot_policy_configs WHERE workspace_id = ? AND environment = ?",
+            (str(workspace_id or "default")[:160], str(environment or "production")[:80]),
+        ).fetchone()
+    if row is None:
+        return None
     return {
-        "workspace_id": workspace_clean,
-        "policy": get_governance_policy(workspace_clean),
-        "analysis_volume": total,
-        "average_score": round(sum(item["score"] for item in analyses) / total, 1) if total else 0,
-        "gate_counts": gate_counts,
-        "severity_counts": severity_counts,
-        "source_counts": count_by(analyses, lambda item: item.get("source")),
-        "route_counts": count_by(analyses, lambda item: item.get("gate", {}).get("route")),
-        "model_version_counts": count_by(analyses, lambda item: item.get("model_version")),
-        "webhook_status_counts": count_by(webhook_events, lambda item: item.get("delivery_status")),
-        "outcome_counts": count_by(outcomes, lambda item: item.get("event_type")),
-        "top_failing_rule_packs": top_failing_rule_packs(workspace_clean),
-        "risky_templates": risky_templates(workspace_clean),
-        "trend_by_source_system": trend_by_source_system(workspace_clean),
-        "joined_outcomes": joined_outcomes(limit=limit, workspace_id=workspace_clean),
-        "policy_bundle_history": policy_bundle_history(workspace_clean, limit=10),
-        "recent_analyses": recent_email_analyses(limit, workspace_id=workspace_clean),
-        "webhook_events": webhook_events,
-        "outcomes": outcomes,
-        "sample_imports": sample_imports,
-    }
-
-
-def field_mapping_from_row(row) -> dict[str, Any]:
-    return {
-        "workspace_id": row["workspace_id"],
-        "provider": row["provider"],
-        "mapping": json.loads(row["mapping_json"] or "{}"),
-        "validation": json.loads(row["validation_json"] or "{}"),
-        "status": row["status"],
-        "version": row["version"],
+        "workspace_id": str(workspace_id or "default")[:160],
+        "environment": str(environment or "production")[:80],
+        "policy": _json_load(row["policy"], {}),
+        "updated_by": row["updated_by"],
         "updated_at": row["updated_at"],
     }
 
 
-def save_integration_field_mapping(
-    workspace_id: str,
-    provider: str,
-    mapping: dict[str, Any],
-    validation: dict[str, Any],
-    version: str,
-) -> dict[str, Any]:
-    clean_workspace = str(workspace_id or "default").strip()[:120] or "default"
-    clean_provider = SAFE_EVENT_TYPE_RE.sub("_", str(provider or "")).strip("_").lower()[:80]
-    if not clean_provider:
-        raise ValueError("Integration field mapping is missing provider.")
-    status = str(validation.get("status") or "needs_mapping")[:80]
+def save_hubspot_policy_config(workspace_id: str, environment: str, policy: dict[str, Any], updated_by: str = "") -> dict[str, Any]:
     now = utc_now()
-    clean_mapping = scrub_payload(mapping or {})
-    clean_validation = scrub_payload(validation or {})
+    clean_workspace = str(workspace_id or "default")[:160]
+    clean_environment = str(environment or "production")[:80]
+    clean_policy = scrub_payload(policy or {})
+    clean_updated_by = str(updated_by or "")[:160]
     with connect() as conn:
         execute(
             conn,
             """
-            INSERT INTO integration_field_mappings (
-              workspace_id, provider, mapping_json, validation_json, status, version, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(workspace_id, provider)
-            DO UPDATE SET
-              mapping_json = excluded.mapping_json,
-              validation_json = excluded.validation_json,
-              status = excluded.status,
-              version = excluded.version,
-              updated_at = excluded.updated_at
+            INSERT INTO hubspot_policy_configs (workspace_id, environment, policy, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(workspace_id, environment)
+            DO UPDATE SET policy = excluded.policy, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+            """,
+            (clean_workspace, clean_environment, _json_dump(clean_policy), clean_updated_by, now),
+        )
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_policy_versions (workspace_id, environment, version, policy, updated_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 clean_workspace,
-                clean_provider,
-                json.dumps(clean_mapping, separators=(",", ":"), sort_keys=True),
-                json.dumps(clean_validation, separators=(",", ":"), sort_keys=True),
-                status,
-                str(version or "")[:80],
+                clean_environment,
+                str(clean_policy.get("version", ""))[:80],
+                _json_dump(clean_policy),
+                clean_updated_by,
                 now,
             ),
         )
-        row = execute(
-            conn,
-            "SELECT * FROM integration_field_mappings WHERE workspace_id = ? AND provider = ?",
-            (clean_workspace, clean_provider),
-        ).fetchone()
-    return field_mapping_from_row(row)
+    return {
+        "workspace_id": clean_workspace,
+        "environment": clean_environment,
+        "policy": clean_policy,
+        "updated_by": clean_updated_by,
+        "updated_at": now,
+    }
 
 
-def get_integration_field_mapping(workspace_id: str, provider: str) -> dict[str, Any] | None:
-    clean_workspace = str(workspace_id or "default").strip()[:120] or "default"
-    clean_provider = SAFE_EVENT_TYPE_RE.sub("_", str(provider or "")).strip("_").lower()[:80]
-    with connect() as conn:
-        row = execute(
-            conn,
-            "SELECT * FROM integration_field_mappings WHERE workspace_id = ? AND provider = ?",
-            (clean_workspace, clean_provider),
-        ).fetchone()
-    return field_mapping_from_row(row) if row else None
-
-
-def recent_integration_field_mappings(workspace_id: str = "default", limit: int = 20) -> list[dict[str, Any]]:
-    clean_workspace = str(workspace_id or "default").strip()[:120] or "default"
-    clean_limit = max(1, min(int(limit or 20), 100))
+def list_hubspot_policy_versions(workspace_id: str = "", environment: str = "", limit: int = 100) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    clean_workspace = str(workspace_id or "").strip()
+    clean_environment = str(environment or "").strip()
+    if clean_workspace:
+        clauses.append("workspace_id = ?")
+        params.append(clean_workspace[:160])
+    if clean_environment:
+        clauses.append("environment = ?")
+        params.append(clean_environment[:80])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
     with connect() as conn:
         rows = execute(
             conn,
-            """
-            SELECT * FROM integration_field_mappings
-            WHERE workspace_id = ?
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (clean_workspace, clean_limit),
+            f"SELECT workspace_id, environment, version, policy, updated_by, created_at FROM hubspot_policy_versions {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
         ).fetchall()
-    return [field_mapping_from_row(row) for row in rows]
+    return [
+        {
+            "workspace_id": row["workspace_id"],
+            "environment": row["environment"],
+            "version": row["version"],
+            "policy": _json_load(row["policy"], {}),
+            "updated_by": row["updated_by"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
 
 
-def governance_export_rows(kind: str, workspace_id: str = "default", limit: int = 1000) -> list[dict[str, Any]]:
-    workspace_clean = clean_workspace_id(workspace_id)
-    clean_limit = max(1, min(int(limit or 1000), 5000))
-    kind_clean = str(kind or "analyses").strip().lower()
-    statements = {
-        "analyses": """
-            SELECT workspace_id, request_id, content_hash, source, source_system, analysis_mode,
-                   campaign_id, journey_id, template_id, locale, gate_status, send_ready,
-                   route, highest_severity, score, finding_count, policy_bundle_version,
-                   model_version, created_at
-            FROM email_analyses
-            WHERE workspace_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """,
-        "findings": """
-            SELECT workspace_id, request_id, content_hash, rule_id, category, severity,
-                   title, remediation, evidence_json, created_at
-            FROM email_findings
-            WHERE workspace_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        """,
-        "outcomes": """
-            SELECT workspace_id, request_id, content_hash, provider, event_type,
-                   delivery_status, campaign_id, template_id, event_timestamp, created_at
-            FROM email_outcomes
-            WHERE workspace_id = ?
-            ORDER BY event_timestamp DESC
-            LIMIT ?
-        """,
-        "joins": """
-            SELECT o.workspace_id, o.provider, o.event_type, o.delivery_status, o.request_id,
-                   o.content_hash, o.campaign_id AS outcome_campaign_id, o.template_id AS outcome_template_id,
-                   o.event_timestamp, a.score, a.gate_status, a.source_system,
-                   a.campaign_id AS analysis_campaign_id, a.template_id AS analysis_template_id
-            FROM email_outcomes o
-            LEFT JOIN email_analyses a
-              ON a.workspace_id = o.workspace_id
-             AND ((o.request_id <> '' AND a.request_id = o.request_id)
-               OR (o.content_hash <> '' AND a.content_hash = o.content_hash))
-            WHERE o.workspace_id = ?
-            ORDER BY o.event_timestamp DESC
-            LIMIT ?
-        """,
+def save_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
+    event = {
+        "request_id": str(record.get("request_id", ""))[:160],
+        "content_hash": str(record.get("content_hash", ""))[:128],
+        "workspace_id": str(record.get("workspace_id", ""))[:160],
+        "tenant_id": str(record.get("tenant_id", ""))[:160],
+        "source_system": str(record.get("source_system", "hubspot"))[:80],
+        "event_type": SAFE_EVENT_TYPE_RE.sub("_", str(record.get("event_type") or "")).strip("_")[:80],
+        "event_id": str(record.get("event_id", ""))[:160],
+        "payload": scrub_payload(record.get("payload") if isinstance(record.get("payload"), dict) else {}),
+        "occurred_at": str(record.get("occurred_at") or utc_now())[:80],
+        "created_at": utc_now(),
     }
-    if kind_clean not in statements:
-        raise ValueError("Export kind must be analyses, findings, outcomes, or joins.")
+    if not event["event_type"]:
+        raise ValueError("Outcome event requires an event_type.")
+    if not event["request_id"] and not event["content_hash"]:
+        raise ValueError("Outcome event requires a request_id or content_hash.")
     with connect() as conn:
-        rows = execute(conn, statements[kind_clean], (workspace_clean, clean_limit)).fetchall()
-    return [dict(row) for row in rows]
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_email_outcome_events (
+              request_id, content_hash, workspace_id, tenant_id, source_system,
+              event_type, event_id, payload, occurred_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event["request_id"],
+                event["content_hash"],
+                event["workspace_id"],
+                event["tenant_id"],
+                event["source_system"],
+                event["event_type"],
+                event["event_id"],
+                _json_dump(event["payload"]),
+                event["occurred_at"],
+                event["created_at"],
+            ),
+        )
+    return event
+
+
+def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in ("request_id", "content_hash", "workspace_id", "tenant_id", "source_system", "event_type"):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value[:160])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_outcome_events {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "content_hash": row["content_hash"],
+            "workspace_id": row["workspace_id"],
+            "tenant_id": row["tenant_id"],
+            "source_system": row["source_system"],
+            "event_type": row["event_type"],
+            "event_id": row["event_id"],
+            "payload": _json_load(row["payload"], {}),
+            "occurred_at": row["occurred_at"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
+    analyses = list_hubspot_email_analyses(limit=limit)
+    outcomes = list_hubspot_outcome_events(limit=limit)
+    total = len(analyses)
+    gates: dict[str, int] = {}
+    source_scores: dict[str, list[int]] = {}
+    failed_checks: dict[str, int] = {}
+    route_counts: dict[str, int] = {}
+    outcome_counts: dict[str, int] = {}
+    blocked = []
+    outcomes_by_request: dict[str, list[dict[str, Any]]] = {}
+    outcomes_by_hash: dict[str, list[dict[str, Any]]] = {}
+    for event in outcomes:
+        outcome_counts[event["event_type"]] = outcome_counts.get(event["event_type"], 0) + 1
+        if event["request_id"]:
+            outcomes_by_request.setdefault(event["request_id"], []).append(event)
+        if event["content_hash"]:
+            outcomes_by_hash.setdefault(event["content_hash"], []).append(event)
+    for item in analyses:
+        item_outcomes = outcomes_by_request.get(item["request_id"], []) + outcomes_by_hash.get(item["content_hash"], [])
+        item["outcomes"] = item_outcomes[:20]
+        gates[item["gate"]] = gates.get(item["gate"], 0) + 1
+        route_counts[item["route"]] = route_counts.get(item["route"], 0) + 1
+        source = item["source_system"] or "unknown"
+        source_scores.setdefault(source, []).append(item["score"])
+        if item["gate"] == "blocked":
+            blocked.append(item)
+        for check in item.get("checks", []):
+            if check.get("status") != "pass":
+                label = check.get("label") or check.get("id") or "Unknown check"
+                failed_checks[label] = failed_checks.get(label, 0) + 1
+    average_by_source = {
+        source: round(sum(scores) / len(scores), 1)
+        for source, scores in source_scores.items()
+        if scores
+    }
+    return {
+        "total_analyses": total,
+        "gate_counts": gates,
+        "route_counts": route_counts,
+        "outcome_counts": outcome_counts,
+        "average_score_by_source": average_by_source,
+        "top_failed_checks": [
+            {"check": check, "count": count}
+            for check, count in sorted(failed_checks.items(), key=lambda item: item[1], reverse=True)[:10]
+        ],
+        "recent_blocked_drafts": blocked[:10],
+        "generated_at": utc_now(),
+    }
 
 
 def upsert_integration(user_id: int, provider: str, status: str, config: dict[str, Any] | None = None) -> dict[str, Any]:

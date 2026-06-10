@@ -40,55 +40,11 @@
     return data;
   }
 
-  function query(params = {}) {
-    const pairs = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "");
-    if (!pairs.length) return "";
-    return `?${new URLSearchParams(Object.fromEntries(pairs)).toString()}`;
-  }
-
   window.TextTraitsApi = {
     request,
     session: () => refreshCsrf(),
     csrfToken: () => csrfToken,
     evaluate: (payload) => request("/evaluate", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-    analyzeEmail: (payload) => request("/v1/email/analyze", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-    openApiContract: () => request("/v1/openapi.json"),
-    installKit: () => request("/v1/install-kit"),
-    enterpriseIntegrationPlan: () => request("/api/enterprise/integration-plan"),
-    integrationFlows: () => request("/v1/integrations/sandbox-flows"),
-    integrationManifests: () => request("/v1/integrations/manifests"),
-    providerManifest: (provider) => request(`/v1/integrations/${encodeURIComponent(provider)}/manifest`),
-    fieldMappings: () => request("/v1/integrations/field-mappings"),
-    validateFieldMapping: (provider, mapping) => request(`/v1/integrations/${encodeURIComponent(provider)}/field-mapping/validate`, {
-      method: "POST",
-      body: JSON.stringify({mapping}),
-    }),
-    saveFieldMapping: (provider, mapping, options = {}) => request(`/v1/integrations/${encodeURIComponent(provider)}/field-mapping`, {
-      method: "POST",
-      body: JSON.stringify({...options, mapping}),
-    }),
-    governanceDashboard: (workspace_id = "") => request(`/v1/governance/dashboard${query({workspace_id})}`),
-    governanceExport: (kind = "analyses", format = "json", workspace_id = "") => request(`/v1/governance/export${query({type: kind, format, workspace_id})}`),
-    governancePolicy: (workspace_id = "") => request(`/v1/governance/policy${query({workspace_id})}`),
-    saveGovernancePolicy: (policy, options = {}) => request("/v1/governance/policy", {
-      method: "PUT",
-      body: JSON.stringify({...options, policy}),
-    }),
-    importSamples: (samples, options = {}) => request("/v1/samples/import", {
-      method: "POST",
-      body: JSON.stringify({...options, samples}),
-    }),
-    simulateAdapter: (provider, payload) => request("/v1/integrations/simulate", {
-      method: "POST",
-      body: JSON.stringify({provider, payload}),
-    }),
-    renderTemplateTest: (payload) => request("/v1/templates/render-test", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -145,5 +101,14 @@
       method: "POST",
       body: JSON.stringify({provider, status, config}),
     }),
+    hubspotDashboard: (query = "") => request(`/api/enterprise/hubspot/dashboard${query}`),
+    hubspotPolicy: (query = "") => request(`/api/enterprise/hubspot/policy${query}`),
+    saveHubspotPolicy: (payload) => request("/api/enterprise/hubspot/policy", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+    hubspotFindings: (query = "") => request(`/api/enterprise/hubspot/findings${query}`),
+    hubspotOutcomes: (query = "") => request(`/api/enterprise/hubspot/outcomes${query}`),
+    hubspotReviewStates: (query = "") => request(`/api/enterprise/hubspot/review-states${query}`),
   };
 })();

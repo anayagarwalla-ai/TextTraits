@@ -1,2963 +1,5846 @@
-(function () {
-  const utils = window.TextTraitsUtils || {};
-  const apiClient = window.TextTraitsApi || {};
+const config = window.TEXTTRAITS_CONFIG || {};
+const apiClient = window.TextTraitsApi;
+const productConfig = window.TextTraitsProduct || {};
+const textUtils = window.TextTraitsUtils || {};
+const uiHelpers = window.TextTraitsUi || {};
+const csvUtils = window.TextTraitsCsv || {};
+const enterpriseCopy = window.TextTraitsEnterpriseCopy || {};
+const {escapeHtml, words, percent, titleCase, localStats, todayKey} = textUtils;
+const {parseCsvLine, csvCell} = csvUtils;
+let googleIdentityScriptPromise = null;
 
-  const escapeHtml = utils.escapeHtml || ((value) => String(value ?? ""));
-  const localStats = utils.localStats || ((text) => ({
-    words: String(text || "").trim().split(/\s+/).filter(Boolean).length,
-    characters: String(text || "").length,
-    sentences: 1,
-    punctuation_density: 0,
-    reading_level: "Unavailable",
-  }));
-  const titleCase = utils.titleCase || ((value) => String(value || ""));
-  const words = utils.words || ((text) => String(text || "").trim().match(/\b[\w'-]+\b/g) || []);
+const els = {
+  body: document.body,
+  announcer: document.querySelector("#announcer"),
+  heroTitle: document.querySelector("#hero-title"),
+  heroSubtitle: document.querySelector("#hero-subtitle"),
+  modeNote: document.querySelector("#mode-note"),
+  modeExplorer: document.querySelector("#mode-explorer"),
+  modeEnterprise: document.querySelector("#mode-enterprise"),
+  personaStrip: document.querySelector("#persona-strip"),
+  inputPanel: document.querySelector("#input-panel"),
+  outputPanel: document.querySelector("#output-panel"),
+  accountCard: document.querySelector("#account-card"),
+  toastStack: document.querySelector("#toast-stack"),
+  runtimeLabel: document.querySelector("#runtime-label"),
+  runtimeCopy: document.querySelector("#runtime-copy"),
+};
 
-  const els = {
-    announcer: document.querySelector("#announcer"),
-    inputPanel: document.querySelector("#input-panel"),
-    outputPanel: document.querySelector("#output-panel"),
-  };
-
-  const state = {
-    subject: "",
+const state = {
+  mode: "explorer",
+  latestData: null,
+  latestText: "",
+  compareText: "",
+  activeExplorerTab: "style",
+  activeEnterpriseTab: "dashboard",
+  activeEnterpriseTool: "batch",
+  activeChannel: "email",
+  enterpriseDraftStyle: "premium",
+  enterpriseContext: null,
+  enterpriseDrafts: [],
+  selectedVariant: "A",
+  enterpriseLandingTab: "",
+  enterpriseInputsCollapsed: false,
+  enterpriseSetupOpen: false,
+  enterpriseFocusMode: false,
+  enterpriseDraftPreviewMode: false,
+  integrationSetupOpen: false,
+  campaignSaved: false,
+  lastGeneratedAt: "",
+  lastActionNote: "",
+  lastDraftChange: "",
+  recipient: {
+    firstName: "Maya",
+    company: "Acme Revenue",
+    role: "VP Revenue",
+  },
+  savedCampaigns: [],
+  workspaceSearch: "",
+  workspaceFolder: "All",
+  workspaceStatus: "All",
+  batchInput: "",
+  batchRows: [],
+  batchErrors: [],
+  batchProgress: 0,
+  selectedProspectId: 1,
+  selectedInboxId: 0,
+  crmConnections: {
+    HubSpot: "needs credentials",
+    Salesforce: "needs credentials",
+    Outreach: "needs credentials",
+    Salesloft: "needs credentials",
+    Gmail: "needs credentials",
+    Outlook: "needs credentials",
+    "Chrome Sidebar": "packaging required",
+  },
+  inboxThreads: [],
+  winnerSamples: [],
+  outcomeStats: {
+    generated: 18,
+    sent: 11,
+    opened: 7,
+    replied: 3,
+    booked: 1,
+    rejected: 2,
+  },
+  personaLibrary: [],
+  sequenceSettings: {
+    length: 4,
+    startDay: "Monday",
+    channels: ["Email", "LinkedIn", "Email", "Call opener"],
+  },
+  explorerProfiles: [
+    {name: "Clear operator", goal: "Make decisions easier to scan", samples: 3},
+    {name: "Reflective analyst", goal: "Preserve nuance while tightening", samples: 5},
+  ],
+  explorerHistory: [],
+  explorerJournalSearch: "",
+  explorerJournalFolder: "All",
+  explorerJournalOpen: false,
+  explorerQuickChecksOpen: false,
+  explorerStyleDetailsOpen: false,
+  explorerMessageMode: "Everyday note",
+  explorerReadingName: "",
+  explorerFolder: "Daily",
+  explorerWritingGoal: "Make this clearer",
+  explorerRewriteGoal: "Make this clearer",
+  explorerRewriteMode: "clearer",
+  explorerSavedMessage: "",
+  explorerPromptTitle: "",
+  explorerPromptText: "",
+  explorerPromptSource: "",
+  batchMapping: {
+    first_name: "first_name",
+    company: "company",
+    role: "role",
+    industry: "industry",
+    signal: "signal",
+  },
+  exportHistory: [],
+  reviewQueue: [],
+  teamComments: [],
+  versionHistory: [],
+  feedbackMemory: {
+    better: 0,
+    tooFormal: 0,
+    tooVague: 0,
+    tooLong: 0,
+    moreLikeMe: 0,
+  },
+  onboarding: {
+    complete: false,
+    explorerGoal: "Clearer everyday writing",
+    enterpriseGoal: "Review outbound drafts",
+    teamSize: "1-5",
+  },
+  account: {
+    authenticated: false,
+    user: null,
+    workspaceName: "Local workspace",
+    syncStatus: "Local only",
+    lastSyncedAt: "",
+  },
+  accountRequestPending: false,
+  accountDraft: {
+    name: "",
     email: "",
-    audience: "Prospect",
-    intent: "Follow-up",
-    policyBundle: "enterprise_email_readiness",
-    latestData: null,
-    latestOptimization: null,
-    labData: null,
-    labError: "",
+    verifyToken: "",
+    resetToken: "",
+  },
+  accountResetToken: "",
+  accountCodePanelOpen: false,
+  accountDeletePending: false,
+  accountAuthMode: "signin",
+  adminSettings: {
+    workspaceName: "TextTraits Team",
+    seats: 3,
+    sso: "Not configured",
+    apiKey: "Not generated",
+    retention: "90 days",
+    auditLog: "Enabled",
+  },
+  hubspotAdmin: {
     workspaceId: "default",
-    policyEnvironment: "production",
-    adminMessage: "",
-    apiKeyMessage: "",
-    webhookMessage: "",
-    approvalMessage: "",
-    exportScheduleMessage: "",
-    dashboardFilters: {
-      date_range: "30d",
-      source_system: "all",
-      campaign_id: "",
-      template_id: "",
-      gate_status: "all",
-    },
-    enterpriseContext: {
-      source_system: "ui_enterprise_optimizer",
-      analysis_mode: "pre_send_gate",
-      campaign_id: "",
-      journey_id: "",
-      template_id: "",
-      locale: "en-US",
-      headers: '{\n  "List-Unsubscribe": "<https://example.test/unsubscribe>"\n}',
-      personalization_context: '{\n  "first_name": "Maya",\n  "company": "Acme"\n}',
-      consent_state: "subscribed",
-      delivery_provider: "ui",
-    },
-    renderBusy: false,
-    renderMessage: "",
-    renderResult: null,
-    policyBusy: false,
-    policyMessage: "",
-    simulatorProvider: "hubspot",
-    simulatorPayload: "",
-    simulatorBusy: false,
-    simulatorMessage: "",
-    simulatorResult: null,
-    exportBusy: "",
-    exportMessage: "",
-    exportResult: null,
-    setupBusyProvider: "",
-    setupProvider: "hubspot",
-    setupValidationMessage: "",
-    setupTestMessage: "",
-    promotedProviders: [],
-    apiKeys: [],
-    apiKeyForm: {
-      name: "Sandbox workflow key",
-      scopes: "default:/v1/email/analyze, default:/v1/governance",
-      environment: "sandbox",
-    },
-    webhookConfig: {
-      endpoint: "/v1/webhooks/post-send",
-      status: "Needs signing secret",
-      secretDigest: "",
-      lastTest: "",
-      signaturePreview: "",
-      eventType: "delivered",
-    },
-    webhookSecretDraft: "",
-    approvalActions: {},
-    exportSchedule: {
-      enabled: false,
-      cadence: "weekly",
-      kind: "analyses",
-      format: "csv",
-      recipients: "",
-      lastSaved: "",
-    },
-    setupMessage: "",
-    latestError: "",
-    busy: false,
+    environment: "production",
+    loading: false,
+    error: "",
+    lastLoaded: "",
+    dashboard: null,
+    policy: null,
+    history: [],
+    rulePacks: [],
+    findings: [],
+    outcomes: [],
+    reviewStates: [],
+  },
+  tabScroll: {},
+  hiddenSensitive: false,
+  technicalVisible: false,
+  sampleWorkspaceLoaded: false,
+  accountModalOpen: false,
+  accountError: "",
+};
+
+const STORAGE_KEY = "texttraits.workspace.v2";
+
+const defaultCampaigns = [
+  {name: "Forecast risk pilot", folder: "RevOps", status: "Drafts ready", updated: "Today", prospects: 42},
+  {name: "Re-engage quiet champions", folder: "Expansion", status: "Needs proof point", updated: "Yesterday", prospects: 18},
+  {name: "Event follow-up sprint", folder: "Field marketing", status: "Sequence live", updated: "May 10", prospects: 96},
+  {name: "Procurement revive", folder: "Pipeline", status: "Needs review", updated: "May 8", prospects: 24},
+];
+
+const brandVoiceProfiles = [
+  {name: "Executive concise", direct: 78, warm: 46, formal: 72, technical: 52, concise: 88, claims: ["32% less manual reporting", "2-week pilot"], forbidden: ["revolutionary", "guaranteed"], proof: ["Series B sales org", "RevOps workflow study"]},
+  {name: "Founder warm", direct: 58, warm: 78, formal: 44, technical: 38, concise: 72, claims: ["fast setup", "cleaner follow-up"], forbidden: ["synergy", "blast"], proof: ["founder-led rollout"]},
+  {name: "Technical buyer", direct: 68, warm: 42, formal: 66, technical: 84, concise: 70, claims: ["API-ready", "field-level audit trail"], forbidden: ["magic", "hands-off"], proof: ["implementation checklist"]},
+];
+
+const defaultPersonas = [
+  {role: "VP Revenue", industry: "SaaS", icp: "30+ seller teams", objection: "already has dashboards", trigger: "forecast risk"},
+  {role: "RevOps Director", industry: "SaaS", icp: "manual reporting teams", objection: "migration cost", trigger: "pipeline inspection"},
+  {role: "Founder", industry: "B2B software", icp: "lean GTM team", objection: "not this quarter", trigger: "growth planning"},
+];
+
+const sampleCsv = `first_name,company,role,industry,signal
+Maya,Acme Revenue,VP Revenue,SaaS,"Needs an earlier warning when renewal risk appears before the board forecast"
+Jordan,Northwind Ops,RevOps Director,SaaS,"Weekly deal inspection is manual and late-stage risks are hard to coach"
+Taylor,Bluepeak,Founder,B2B software,"Wants cleaner handoffs from sales calls to follow-up without adding another dashboard"`;
+
+const sampleInboxThreads = [
+  {from: "Maya at Acme", type: "objection", source: "Gmail", urgency: "High", sentiment: "Skeptical", confidence: 91, text: "We already have dashboards, but the weekly coaching gap is real.", next: "Send proof-led reply with implementation angle.", why: "The reply rejects category noise but repeats the coaching pain."},
+  {from: "Jordan at Northwind", type: "interested", source: "Outlook", urgency: "High", sentiment: "Open", confidence: 88, text: "If this does not require a migration, I can look next week.", next: "Suggest focused 15-minute fit call.", why: "The buyer named a condition and offered a near-term window."},
+  {from: "Taylor at Bluepeak", type: "referral", source: "LinkedIn", urgency: "Medium", sentiment: "Helpful", confidence: 84, text: "Our RevOps lead owns this now.", next: "Ask for referral intro and send two-bullet context.", why: "Ownership moved to another stakeholder, so the next step is an easy handoff."},
+  {from: "Priya at Gable", type: "not-now", source: "HubSpot", urgency: "Low", sentiment: "Deferred", confidence: 80, text: "Circle back after planning. We are heads down on the board deck this month.", next: "Schedule a light follow-up tied to planning completion.", why: "Timing is the blocker, not the problem fit."},
+  {from: "Sam at Meridian", type: "unsubscribe", source: "Gmail", urgency: "High", sentiment: "Closed", confidence: 96, text: "Please remove me from this sequence.", next: "Mark handled and suppress future outreach.", why: "Explicit opt-out language should stop the workflow."},
+];
+
+const sampleWinnerEmails = [
+  "Short opener, one specific pain, proof before product, direct 15-minute CTA.",
+  "Referenced forecast risk, avoided dashboard language, used manager coaching proof.",
+  "Won reply by naming the handoff problem and offering a two-bullet summary.",
+];
+
+const outboundTemplates = [
+  "Pain-led cold email",
+  "Reply follow-up",
+  "Executive referral ask",
+  "Event follow-up",
+  "Competitor displacement",
+];
+
+const industryPlaybooks = [
+  "SaaS pipeline inspection",
+  "Healthcare workflow risk",
+  "Financial services compliance",
+  "Manufacturing operations",
+  "Retail field teams",
+];
+
+const dailyPrompts = [
+  {
+    title: "One thing you understood better today",
+    prompt: "Write about one thing that became clearer today. Use your own words and include what changed in how you see it.",
+  },
+  {
+    title: "A decision you made today",
+    prompt: "Write about a decision you made today, why you made it, and what the next step is.",
+  },
+  {
+    title: "A problem you are working through",
+    prompt: "Write about a problem you are working through. Name what feels messy and what would make the next step smaller.",
+  },
+  {
+    title: "Something harder than expected",
+    prompt: "Write about something that felt harder than expected. Try to separate the facts from the worry around it.",
+  },
+  {
+    title: "One idea to remember tomorrow",
+    prompt: "Write down one idea you want to remember tomorrow and why it matters.",
+  },
+  {
+    title: "A message that could be clearer and kinder",
+    prompt: "Draft a message that could be clearer and kinder. Keep the boundary, remove extra frustration, and make the next step obvious.",
+  },
+  {
+    title: "Something you noticed today",
+    prompt: "Write about something you noticed today. Include what happened and what it might teach you for tomorrow.",
+  },
+];
+
+const consumerPromptLibrary = [
+  {name: "Journal", prompt: "Write six sentences about what felt most important today.", goal: "Build a daily reflection habit"},
+  {name: "Hard message", prompt: "Draft the message you are avoiding in the kindest clear version you can.", goal: "Make hard conversations easier"},
+  {name: "Work email", prompt: "Explain the decision, the reason, and the next step in one short email.", goal: "Write clearer at work"},
+  {name: "Essay", prompt: "State your main idea, then add one example that makes it easier to picture.", goal: "Make school writing stronger"},
+  {name: "Feedback", prompt: "Describe what worked, what was confusing, and one useful next step.", goal: "Give clearer feedback"},
+  {name: "Apology", prompt: "Say what happened, what you understand now, and what you will do differently.", goal: "Sound accountable"},
+];
+
+const explorerFolders = ["Daily", "Work", "School", "Personal", "Drafts"];
+const explorerGoals = ["Make this clearer", "Make this warmer", "Make this shorter", "Sound more confident", "Sound less harsh"];
+const explorerRewriteGoals = productConfig.rewriteGoals || ["Send as email", "Make it kinder", "Sound confident", "School-ready", "Apology", "Essay", "Feedback", "Conflict", "Cover letter", "Text message"];
+const primaryRewriteGoals = explorerRewriteGoals.slice(0, 4);
+const secondaryRewriteGoals = explorerRewriteGoals.slice(4);
+const messageModeOptions = [
+  {label: "Everyday note", short: "Note", source: "", rewriteGoal: "Make this clearer", hint: "A thought, journal note, or paragraph you want to improve."},
+  {label: "Text message", short: "Text", source: "text message", rewriteGoal: "Text message", hint: "A short message where tone and next step matter."},
+  {label: "Email", short: "Email", source: "email", rewriteGoal: "Send as email", hint: "A work or personal email that should be easy to answer."},
+  {label: "Reply triage", short: "Reply", source: "reply", rewriteGoal: "Make it kinder", hint: "A reply you received and want to understand before answering."},
+  {label: "Decision note", short: "Decision", source: "decision note", rewriteGoal: "Make this clearer", hint: "Messy thoughts that need context, options, recommendation, and next step."},
+  {label: "Apology", short: "Apology", source: "apology", rewriteGoal: "Apology", hint: "A repair message that should sound accountable without overexplaining."},
+  {label: "Conflict", short: "Conflict", source: "conflict", rewriteGoal: "Conflict", hint: "A hard message where you need a clear boundary and calmer wording."},
+  {label: "Essay / school", short: "School", source: "essay", rewriteGoal: "School-ready", hint: "An essay, class paragraph, or application draft."},
+];
+
+function withTerminalPunctuation(text = "") {
+  const clean = String(text || "").trim();
+  return clean && !/[.!?]"?$/.test(clean) ? `${clean}.` : clean;
+}
+
+function loadWorkspace() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    if (saved.recipient) state.recipient = {...state.recipient, ...saved.recipient};
+    if (Array.isArray(saved.savedCampaigns)) state.savedCampaigns = saved.savedCampaigns;
+    if (Array.isArray(saved.batchRows)) state.batchRows = saved.batchRows;
+    if (Array.isArray(saved.batchErrors)) state.batchErrors = saved.batchErrors;
+    if (Array.isArray(saved.inboxThreads)) state.inboxThreads = saved.inboxThreads;
+    if (Array.isArray(saved.winnerSamples)) state.winnerSamples = saved.winnerSamples;
+    if (Array.isArray(saved.personaLibrary)) state.personaLibrary = saved.personaLibrary;
+    if (saved.outcomeStats) state.outcomeStats = {...state.outcomeStats, ...saved.outcomeStats};
+    if (saved.crmConnections) state.crmConnections = {...state.crmConnections, ...saved.crmConnections};
+    if (saved.sequenceSettings) state.sequenceSettings = {...state.sequenceSettings, ...saved.sequenceSettings};
+    if (Array.isArray(saved.explorerHistory)) state.explorerHistory = saved.explorerHistory;
+    if (Array.isArray(saved.exportHistory)) state.exportHistory = saved.exportHistory;
+    if (Array.isArray(saved.reviewQueue)) state.reviewQueue = saved.reviewQueue;
+    if (Array.isArray(saved.teamComments)) state.teamComments = saved.teamComments;
+    if (saved.batchMapping) state.batchMapping = {...state.batchMapping, ...saved.batchMapping};
+    if (Array.isArray(saved.versionHistory)) state.versionHistory = saved.versionHistory;
+    if (saved.feedbackMemory) state.feedbackMemory = {...state.feedbackMemory, ...saved.feedbackMemory};
+    if (saved.onboarding) state.onboarding = {...state.onboarding, ...saved.onboarding};
+    if (saved.adminSettings) state.adminSettings = {...state.adminSettings, ...saved.adminSettings};
+    if (typeof saved.explorerFolder === "string") state.explorerFolder = saved.explorerFolder;
+    if (typeof saved.explorerJournalSearch === "string") state.explorerJournalSearch = saved.explorerJournalSearch;
+    if (typeof saved.explorerJournalFolder === "string") state.explorerJournalFolder = saved.explorerJournalFolder;
+    if (typeof saved.explorerWritingGoal === "string") state.explorerWritingGoal = saved.explorerWritingGoal;
+    if (typeof saved.explorerRewriteGoal === "string") state.explorerRewriteGoal = saved.explorerRewriteGoal;
+    if (typeof saved.explorerMessageMode === "string") state.explorerMessageMode = saved.explorerMessageMode;
+    if (typeof saved.explorerPromptTitle === "string") state.explorerPromptTitle = saved.explorerPromptTitle;
+    if (typeof saved.explorerPromptText === "string") state.explorerPromptText = saved.explorerPromptText;
+    if (typeof saved.explorerPromptSource === "string") state.explorerPromptSource = saved.explorerPromptSource;
+    if (saved.enterpriseContext) state.enterpriseContext = saved.enterpriseContext;
+    if (typeof saved.mode === "string") state.mode = saved.mode;
+  } catch (error) {
+    console.warn("Workspace restore failed", error);
+  }
+  if (!state.savedCampaigns.length) state.savedCampaigns = [...defaultCampaigns];
+  if (!state.inboxThreads.length) state.inboxThreads = [...sampleInboxThreads];
+  if (!state.winnerSamples.length) state.winnerSamples = [...sampleWinnerEmails];
+  if (!state.personaLibrary.length) state.personaLibrary = [...defaultPersonas];
+  normalizePreviewConnections();
+}
+
+function persistWorkspace() {
+  const payload = workspacePayload();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  queueServerSync(payload);
+}
+
+function workspacePayload() {
+  return {
+    mode: state.mode,
+    latestText: "",
+    recipient: state.recipient,
+    enterpriseContext: state.enterpriseContext,
+    savedCampaigns: state.savedCampaigns.slice(0, 12),
+    batchRows: state.batchRows.slice(0, 150),
+    batchErrors: state.batchErrors.slice(0, 20),
+    inboxThreads: state.inboxThreads.slice(0, 25),
+    winnerSamples: state.winnerSamples.slice(0, 25),
+    personaLibrary: state.personaLibrary.slice(0, 25),
+    outcomeStats: state.outcomeStats,
+    crmConnections: state.crmConnections,
+    sequenceSettings: state.sequenceSettings,
+    enterpriseDraftPreviewMode: state.enterpriseDraftPreviewMode,
+    explorerHistory: state.explorerHistory.slice(0, 20),
+    explorerFolder: state.explorerFolder,
+    explorerJournalSearch: state.explorerJournalSearch,
+    explorerJournalFolder: state.explorerJournalFolder,
+    explorerWritingGoal: state.explorerWritingGoal,
+    explorerRewriteGoal: state.explorerRewriteGoal,
+    explorerMessageMode: state.explorerMessageMode,
+    explorerPromptTitle: state.explorerPromptTitle,
+    explorerPromptText: state.explorerPromptText,
+    explorerPromptSource: state.explorerPromptSource,
+    batchMapping: state.batchMapping,
+    exportHistory: state.exportHistory.slice(0, 30),
+    reviewQueue: state.reviewQueue.slice(0, 50),
+    teamComments: state.teamComments.slice(0, 25),
+    versionHistory: state.versionHistory.slice(0, 80),
+    feedbackMemory: state.feedbackMemory,
+    onboarding: state.onboarding,
+    adminSettings: state.adminSettings,
   };
+}
 
-  const samples = [
-    {
-      label: "Follow-up",
-      subject: "Next step after Tuesday",
-      audience: "Prospect",
-      intent: "Follow-up",
-      email: "Hi Maya, thanks for walking through the renewal workflow on Tuesday. The strongest gap I heard was that managers see risk after the forecast is already under pressure. If helpful, I can send a two-minute benchmark showing how teams flag coaching moments earlier. Would Thursday afternoon work for a quick fit check?",
-    },
-    {
-      label: "Cold outreach",
-      subject: "Forecast risk visibility",
-      audience: "Prospect",
-      intent: "Cold outreach",
-      email: "Hi Jordan, I noticed Northwind is hiring more RevOps support, which usually makes weekly forecast inspection harder to keep consistent. TextTraits helps teams grade existing outreach and manager notes for clarity, specificity, and send readiness before messages leave Gmail or Outreach. Is improving review quality a priority this quarter?",
-    },
-    {
-      label: "Reply",
-      subject: "Re: dashboard question",
-      audience: "Prospect",
-      intent: "Reply",
-      email: "Thanks for saying this directly. If the concern is adding another writing tool, the better fit is using TextTraits as a scoring layer beside the tools your team already uses. The report flags length, specificity, CTA clarity, and model separation without drafting the response. Should I share the checklist format?",
-    },
-  ];
+function applyWorkspacePayload(payload = {}) {
+  const currentMode = state.mode;
+  Object.entries(payload).forEach(([key, value]) => {
+    if (key === "account") return;
+    if (key in state) state[key] = value;
+  });
+  state.mode = payload.mode || currentMode || state.mode;
+  if (!state.savedCampaigns.length) state.savedCampaigns = [...defaultCampaigns];
+  if (!state.inboxThreads.length) state.inboxThreads = [...sampleInboxThreads];
+  if (!state.winnerSamples.length) state.winnerSamples = [...sampleWinnerEmails];
+  if (!state.personaLibrary.length) state.personaLibrary = [...defaultPersonas];
+  normalizePreviewConnections();
+}
 
-  const audiences = ["Prospect", "Customer", "Executive buyer", "Internal reviewer"];
-  const intents = ["Cold outreach", "Follow-up", "Reply", "Renewal", "Internal handoff"];
-  const simulatorPayloads = {
-    hubspot: {
-      inputFields: {
-        email_subject: "Renewal workflow follow-up",
-        email_body: "Hi Jordan, your team mentioned renewal risk reviews are happening later than planned. Could we review the current manager handoff on Thursday?",
-        lifecyclestage: "Customer",
-        workflow_name: "Renewal workflow",
-      },
-    },
-    braze: {
-      source_system: "braze",
-      analysis_mode: "pre_send_gate",
-      canvas_step: {
-        subject: "Quick check for {{ first_name }}",
-        body: "Hi {{ first_name }}, your team can review the renewal checklist by Thursday. Manage preferences here: https://example.test/prefs",
-        template_id: "braze_canvas_email",
-      },
-      personalization_context: {first_name: "Maya"},
-      headers: {"List-Unsubscribe": "<https://example.test/unsub>"},
-    },
-    warehouse: {
-      rows: [
-        {
-          subject: "Forecast risk follow-up",
-          body: "Hi Maya, could we review the forecast handoff on Thursday?",
-          campaign_id: "cmp_internal_demo",
-          template_id: "tmpl_followup",
-          event_type: "delivered",
-        },
-      ],
+function normalizePreviewConnections() {
+  if (config.app?.integrations_live) return;
+  Object.keys(state.crmConnections).forEach((name) => {
+    if (state.crmConnections[name] === "connected" || state.crmConnections[name] === "exported") {
+      state.crmConnections[name] = name === "Chrome Sidebar" ? "packaging required" : "needs credentials";
+    }
+  });
+}
+
+let workspaceSyncTimer = null;
+function queueServerSync(payload = workspacePayload()) {
+  if (!state.account.authenticated) return;
+  state.account.syncStatus = "Saving...";
+  renderAccountCard();
+  clearTimeout(workspaceSyncTimer);
+  workspaceSyncTimer = setTimeout(() => syncWorkspace(payload), 450);
+}
+
+async function syncWorkspace(payload = workspacePayload()) {
+  if (!state.account.authenticated) return;
+  try {
+    const data = await apiClient.saveWorkspace(state.account.workspaceName, payload);
+    state.account.workspaceName = data.workspace?.name || state.account.workspaceName;
+    state.account.lastSyncedAt = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    state.account.syncStatus = `Synced ${state.account.lastSyncedAt}`;
+  } catch (error) {
+    state.account.syncStatus = "Sync paused";
+  }
+  renderAccountCard();
+}
+
+function trackEvent(eventType, payload = {}) {
+  apiClient.event(eventType, {mode: state.mode, ...payload}).catch(() => {});
+}
+
+function readHubspotAdminFilters() {
+  const workspace = document.querySelector("#hubspot-admin-workspace")?.value?.trim();
+  const environment = document.querySelector("#hubspot-admin-environment")?.value?.trim();
+  if (workspace) state.hubspotAdmin.workspaceId = workspace;
+  if (environment) state.hubspotAdmin.environment = environment;
+}
+
+async function loadHubspotAdminConsole({silent = false} = {}) {
+  readHubspotAdminFilters();
+  state.hubspotAdmin.loading = true;
+  state.hubspotAdmin.error = "";
+  if (!silent && state.latestData) renderEnterpriseResult(state.latestData);
+  try {
+    const query = hubspotAdminQuery();
+    const limitedQuery = `${query}&limit=25`;
+    const [dashboard, policy, findings, outcomes, reviewStates] = await Promise.all([
+      apiClient.hubspotDashboard("?limit=500"),
+      apiClient.hubspotPolicy(query),
+      apiClient.hubspotFindings("?limit=25"),
+      apiClient.hubspotOutcomes(limitedQuery),
+      apiClient.hubspotReviewStates("?limit=25"),
+    ]);
+    state.hubspotAdmin.dashboard = dashboard.dashboard || null;
+    state.hubspotAdmin.policy = policy.policy || null;
+    state.hubspotAdmin.history = policy.history || [];
+    state.hubspotAdmin.rulePacks = policy.rule_packs || [];
+    state.hubspotAdmin.findings = findings.findings || [];
+    state.hubspotAdmin.outcomes = outcomes.events || [];
+    state.hubspotAdmin.reviewStates = reviewStates.review_states || [];
+    state.hubspotAdmin.lastLoaded = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  } catch (error) {
+    state.hubspotAdmin.error = error.status === 401
+      ? "Sign in before loading enterprise governance data."
+      : error.status === 403
+        ? "Your account is not on the enterprise admin allowlist for this deployment."
+        : error.message || "Could not load HubSpot governance data.";
+  } finally {
+    state.hubspotAdmin.loading = false;
+    if (state.latestData) renderEnterpriseResult(state.latestData);
+  }
+}
+
+function numberPolicyValue(id, fallback) {
+  const value = Number(document.querySelector(id)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function hubspotPolicyPayloadFromForm() {
+  readHubspotAdminFilters();
+  return {
+    workspace_id: state.hubspotAdmin.workspaceId || "default",
+    environment: state.hubspotAdmin.environment || "production",
+    policy: {
+      version: document.querySelector("#hubspot-policy-version")?.value?.trim() || "admin-ui-policy",
+      rule_pack: document.querySelector("#hubspot-policy-rule-pack")?.value || "general",
+      ready_score_threshold: numberPolicyValue("#hubspot-policy-ready", 78),
+      review_score_threshold: numberPolicyValue("#hubspot-policy-review", 70),
+      block_score_threshold: numberPolicyValue("#hubspot-policy-block", 50),
+      min_body_words: numberPolicyValue("#hubspot-policy-min-words", 25),
+      max_body_words: numberPolicyValue("#hubspot-policy-max-words", 220),
+      required_template_tokens: parsePolicyList(document.querySelector("#hubspot-policy-required-tokens")?.value || ""),
+      required_headers: parsePolicyList(document.querySelector("#hubspot-policy-required-headers")?.value || ""),
+      custom_risk_phrases: parsePolicyList(document.querySelector("#hubspot-policy-risk")?.value || ""),
+      custom_vague_phrases: parsePolicyList(document.querySelector("#hubspot-policy-vague")?.value || ""),
+      block_if_no_cta: Boolean(document.querySelector("#hubspot-policy-block_if_no_cta")?.checked),
+      block_high_severity_findings: Boolean(document.querySelector("#hubspot-policy-block_high_severity_findings")?.checked),
+      compliance_review_on_risk_terms: Boolean(document.querySelector("#hubspot-policy-compliance_review_on_risk_terms")?.checked),
+      require_personalization: Boolean(document.querySelector("#hubspot-policy-require_personalization")?.checked),
     },
   };
+}
 
-  const modelTargets = [
-    {key: "gender", title: "Language-association target"},
-    {key: "mbti", title: "16-class style target"},
-    {key: "age_bucket", title: "Age-bucket target"},
-    {key: "age_estimate", title: "Age-estimate target"},
-  ];
+async function saveHubspotPolicyFromConsole(button) {
+  const payload = hubspotPolicyPayloadFromForm();
+  state.hubspotAdmin.loading = true;
+  state.hubspotAdmin.error = "";
+  if (state.latestData) renderEnterpriseResult(state.latestData);
+  try {
+    const saved = await apiClient.saveHubspotPolicy(payload);
+    state.hubspotAdmin.policy = saved.policy || state.hubspotAdmin.policy;
+    state.hubspotAdmin.lastLoaded = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    await loadHubspotAdminConsole({silent: true});
+    showToast(button || document.body, "HubSpot policy saved and history updated.");
+  } catch (error) {
+    state.hubspotAdmin.error = error.message || "Could not save HubSpot policy.";
+  } finally {
+    state.hubspotAdmin.loading = false;
+    if (state.latestData) renderEnterpriseResult(state.latestData);
+  }
+}
 
-  const dimensionTargets = [
-    {key: "energy", title: "Energy"},
-    {key: "information", title: "Information"},
-    {key: "decisions", title: "Decision"},
-    {key: "structure", title: "Structure"},
-  ];
+window.addEventListener("error", (event) => {
+  apiClient.clientError?.({
+    message: event.message,
+    source: event.filename,
+    line: event.lineno,
+    column: event.colno,
+  }).catch(() => {});
+});
 
-  const vagueTerms = ["stuff", "things", "maybe", "probably", "kind of", "sort of", "really", "very", "a lot", "somewhat"];
-  const hypeTerms = ["revolutionary", "game-changing", "guaranteed", "disruptive", "world-class", "best-in-class"];
-  const ctaPattern = /(would you|could we|can we|are you open|does .* work|reply|send|share|schedule|meet|call|next step|fit check|\?)/i;
-  const datePattern = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|next week|this week|q[1-4]|\d{1,2}\/\d{1,2}|\d+%|\$\d+|\d+\s?(minute|day|week|month|year)s?)\b/i;
-  const statusLabels = {
-    ready: "Ready",
-    sandbox: "Sandbox",
-    configured: "Configured",
-    needs_mapping: "Needs mapping",
-    production_blocked: "Production blocked",
-    needs_review: "Needs review",
-    blocked: "Blocked",
-    fail_open: "Fail open",
-    fail_closed: "Fail closed",
-    review: "Review",
-    human_review_queue: "Human review queue",
-    approved_to_send: "Approved to send",
-    compliance_or_manager_review: "Compliance or manager review",
-    forward_to_provider: "Forward to provider",
-    hold_for_review: "Hold for review",
-    metadata_only: "Metadata only",
-    hash_only: "Hash only",
-    pre_send_gate: "Pre-send gate",
-    send_path_middleware: "Send-path middleware",
-    post_send_analytics: "Post-send analytics",
-    authoring_lint: "Authoring lint",
-    batch_feedback: "Batch feedback",
-    direct_api: "Direct API",
+const explorerSamples = [
+  {
+    label: "Reflective note",
+    tag: "reflection",
+    text: "I keep returning to the same question after each planning session: what are people telling us indirectly through the way they describe a problem? The clearest notes are rarely dramatic. They are careful, specific, and honest about uncertainty, which makes them useful without pretending to settle everything.",
+  },
+  {
+    label: "Project email",
+    tag: "email",
+    text: "Thanks for sending the proposal. I reviewed the timeline, added notes on the assumptions, and flagged the parts that still depend on user research. My main concern is that we are treating the launch window as fixed before we know whether the onboarding changes solve the support issues.",
+  },
+  {
+    label: "Forum reply",
+    tag: "comment",
+    text: "I do not think the real test is whether the idea sounds clever in a meeting. The harder question is whether it still works when people are tired, distracted, and using it in messy real-world conditions where they cannot stop to decode every label or hidden assumption.",
+  },
+];
+
+const enterpriseSamples = [
+  {
+    label: "Founder reply",
+    tag: "reply",
+    source: "Reply",
+    note: "Use when a prospect has already pushed back or named a buying condition.",
+    text: "Appreciate the note. We are not evaluating new platforms this quarter unless they can show a direct connection to renewal risk and the weekly coaching moments managers keep missing. The team already has enough dashboards, so the only useful conversation would be around cleaner handoffs, faster account reviews, and fewer surprises before board forecast.",
+    context: {stage: "Evaluating", source: "Reply", pain: "renewal risk and missed coaching moments", trigger: "board forecast cleanup"},
+  },
+  {
+    label: "LinkedIn bio",
+    tag: "bio",
+    source: "LinkedIn",
+    note: "Use when you only have public profile language.",
+    text: "Revenue leader focused on practical operating systems for high-growth teams. I care about cleaner handoffs, stronger manager coaching, and better signal from frontline conversations. The best tools remove noise, make priorities obvious, and help teams spend more time on the accounts that can actually move.",
+    context: {stage: "Problem-aware", source: "LinkedIn bio", pain: "cleaner handoffs and stronger coaching", trigger: "profile research"},
+  },
+  {
+    label: "RevOps email",
+    tag: "email",
+    source: "Email",
+    note: "Use when a buyer has explained what would make a meeting worthwhile.",
+    text: "The main issue is not activity volume. We need a cleaner way to see which accounts are actually moving, where managers should intervene, and how to spot renewal risk before it becomes a forecast problem. If your product helps with that without forcing a heavy migration, I am open to seeing a focused walkthrough.",
+    context: {stage: "Evaluating", source: "Previous email", pain: "late renewal risk and coaching gaps", trigger: "focused walkthrough request"},
+  },
+  {
+    label: "Website copy",
+    tag: "website",
+    source: "Website",
+    note: "Use when you are researching an account before first touch.",
+    text: "Our revenue operations team helps regional leaders build repeatable systems for pipeline inspection, forecast rhythm, and frontline coaching. We prioritize simple workflows, clear accountability, and fewer manual reporting loops so managers can focus on the accounts and conversations that matter.",
+    context: {stage: "Unaware", source: "Website copy", pain: "manual reporting loops", trigger: "account research"},
+  },
+];
+
+const campaignCards = [
+  ["Forecast risk pilot", "RevOps", "Executive", "42 accounts", "Drafts ready"],
+  ["Re-engage quiet champions", "Expansion", "Friendly", "18 contacts", "Needs proof point"],
+  ["Event follow-up sprint", "Field marketing", "Concise", "96 leads", "Sequence live"],
+];
+
+const tiers = [
+  ["Free Explorer", "Single-sample analysis, style map, and technical readout."],
+  ["Enterprise Workspace", "Campaign briefs, variants, exports, and team review screens."],
+  ["Enterprise Team", "Coming soon: SSO, admin settings, API keys, usage analytics, and approvals."],
+];
+
+const goals = ["Book call", "Revive lead", "Follow up", "Expand account", "Event invite"];
+const presets = ["Concise", "Premium", "Technical", "Executive", "Friendly", "Direct"];
+const channels = ["Email", "LinkedIn", "SMS", "Call opener"];
+const industries = ["SaaS", "Financial services", "Healthcare", "Manufacturing", "Retail", "Professional services"];
+const seniorities = ["Executive", "VP", "Director", "Manager", "Individual contributor"];
+const buyingStages = ["Unaware", "Problem-aware", "Evaluating", "Procurement", "Expansion"];
+const sources = ["Reply", "LinkedIn bio", "Transcript", "Website copy", "Previous email"];
+const regions = ["North America", "EMEA", "APAC", "LATAM", "Global"];
+
+function dailyPrompt() {
+  const start = new Date(new Date().getFullYear(), 0, 0);
+  const diff = new Date() - start;
+  const day = Math.floor(diff / 86400000);
+  return dailyPrompts[day % dailyPrompts.length];
+}
+
+function dailyPromptTitle() {
+  return dailyPrompt().title || dailyPrompt();
+}
+
+function dailyPromptInstruction() {
+  const prompt = dailyPrompt();
+  return prompt.prompt || `Write your own response to this prompt: ${dailyPromptTitle()}.`;
+}
+
+function activeExplorerPrompt() {
+  if (!state.explorerPromptTitle || !state.explorerPromptText) return null;
+  return {
+    title: state.explorerPromptTitle,
+    text: state.explorerPromptText,
+    source: state.explorerPromptSource || "Prompt",
   };
-  const ownerByCategory = {
-    compliance: "Compliance owner",
-    unsubscribe: "Lifecycle operations",
-    personalization: "Marketing operations",
-    cta: "Campaign owner",
-    clarity: "Content reviewer",
-    specificity: "Campaign owner",
-    format: "Deliverability owner",
-    subject: "Campaign owner",
-  };
-  const roleProfiles = [
-    {role: "Admin", detail: "Owns workspace setup, environments, key profiles, webhooks, and policy promotion.", permissions: ["Manage policy", "Manage integrations", "Export governance data", "Approve promotion"]},
-    {role: "Reviewer", detail: "Reviews routed messages, resolves findings, and approves or holds sends.", permissions: ["Review findings", "Approve or hold", "Add notes"]},
-    {role: "Analyst", detail: "Reads governance dashboards, outcome trends, exports, and model-performance context.", permissions: ["View dashboards", "Download exports", "Inspect trends"]},
-    {role: "Developer", detail: "Validates payloads, mapping contracts, sandbox adapters, API scopes, and webhook signatures.", permissions: ["Run simulator", "Manage key profiles", "Test webhooks"]},
-  ];
-  const freePitchChecks = [
-    ["Workflow story", "Ready", "Analyze existing messages, return send-readiness decisions, and keep the sending tool in control."],
-    ["Demo evidence", "Ready", "Example workspace rows show campaigns, templates, outcomes, and review queues when a fresh workspace has no data yet."],
-    ["Trust packet", "Ready", "Privacy, terms, security, deployment, and model-card pages are available from the app footer."],
-    ["Integration proof", "Ready", "Adapter simulator, OpenAPI export, setup manifests, and field mappings run without paid third-party accounts."],
-    ["Pilot controls", "Drafted", "Free pilot plan separates what works now from later customer-provided credentials and sample data."],
-    ["Production traffic", "External", "Live provider credentials, hosted infrastructure, SSO, legal review, and customer data are intentionally not mocked."],
-  ];
-  const deploymentChecks = [
-    ["Secrets", "TEXTTRAITS_SECRET_KEY, hashed API key digests, timestamped webhook signing secrets, and OAuth client secrets are managed outside source control."],
-    ["Postgres", "Production uses hosted Postgres with SSL instead of local SQLite."],
-    ["HTTPS", "Public base URL is HTTPS and secure cookies are enabled."],
-    ["Workers", "Gunicorn or an equivalent WSGI runner is configured behind the hosting platform."],
-    ["Monitoring", "Error reporting, request logs, and latency alerts are connected before launch."],
-    ["Backups", "Database backups, retention windows, and restore testing are owned by an admin."],
-  ];
+}
 
-  hydrateLocalAdminState();
+function explorerPlaceholder() {
+  const prompt = activeExplorerPrompt();
+  const mode = currentMessageMode();
+  if (!prompt) return `${mode.hint} Paste your own words here.`;
+  return `Write your own response to: ${prompt.title}. Nothing will be filled in for you.`;
+}
 
-  function announce(message) {
-    if (els.announcer) els.announcer.textContent = message;
+function explorerPromptGuidance() {
+  const prompt = activeExplorerPrompt();
+  if (!prompt) return "";
+  return `
+    <aside class="selected-prompt" aria-label="Selected writing prompt">
+      <span class="label">${escapeHtml(prompt.source)}</span>
+      <strong>${escapeHtml(prompt.title)}</strong>
+      <p>${escapeHtml(prompt.text)}</p>
+      <button class="quiet-button" type="button" data-clear-explorer-prompt>Clear prompt</button>
+    </aside>
+  `;
+}
+
+function selectExplorerPrompt({title, text, source = "Prompt"}) {
+  state.explorerPromptTitle = title;
+  state.explorerPromptText = text;
+  state.explorerPromptSource = source;
+  if (!state.explorerReadingName) state.explorerReadingName = title;
+  state.latestData = null;
+  persistWorkspace();
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector("#explorer-text")?.focus();
+    uiHelpers.announce?.(els.announcer, `${title} selected. Write your own response in the writing sample box.`);
+  });
+}
+
+function currentMessageMode() {
+  return messageModeOptions.find((item) => item.label === state.explorerMessageMode) || messageModeOptions[0];
+}
+
+function messageModeSource(mode = currentMessageMode(), text = state.latestText) {
+  if (!mode?.source) return "";
+  if (mode.source === "reply" && !looksLikeReply(text)) return "reply";
+  return mode.source;
+}
+
+function messageModeHint() {
+  const mode = currentMessageMode();
+  return mode?.hint || "Paste your own writing and choose one useful next step.";
+}
+
+function sourceDisplayLabel(sourceType, fallback = currentMessageMode().label) {
+  if (sourceType === "reply") return "Reply triage";
+  if (sourceType === "decision note") return "Decision note";
+  if (sourceType === "text message") return "Text message";
+  if (sourceType === "email") return "Email";
+  if (sourceType === "essay") return "Essay / school";
+  if (sourceType === "apology") return "Apology";
+  if (sourceType === "conflict") return "Conflict";
+  return fallback;
+}
+
+function setMessageMode(label) {
+  const mode = messageModeOptions.find((item) => item.label === label) || messageModeOptions[0];
+  state.explorerMessageMode = mode.label;
+  state.explorerRewriteGoal = mode.rewriteGoal || state.explorerRewriteGoal || "Make this clearer";
+  state.explorerWritingGoal = mode.label === "Apology" || mode.label === "Conflict" ? "Sound less harsh" : state.explorerWritingGoal;
+  persistWorkspace();
+}
+
+function modeFromPath(pathname = window.location.pathname) {
+  const clean = String(pathname || "").replace(/\/+$/, "");
+  if (clean.endsWith("/enterprise")) return "enterprise";
+  if (clean.endsWith("/explorer")) return "explorer";
+  return "";
+}
+
+function productPath(mode) {
+  return mode === "enterprise" ? "/enterprise" : "/explorer";
+}
+
+function updateModeRoute(mode, replace = false) {
+  if (!window.history?.pushState) return;
+  const nextPath = productPath(mode);
+  if (window.location.pathname === nextPath) return;
+  const method = replace ? "replaceState" : "pushState";
+  const query = replace ? window.location.search : "";
+  window.history[method]({mode}, "", `${nextPath}${query}`);
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  state.latestData = null;
+  state.latestText = "";
+  state.enterpriseDrafts = [];
+  state.campaignSaved = false;
+  state.enterpriseSetupOpen = false;
+  state.activeExplorerTab = "style";
+  state.activeEnterpriseTab = "dashboard";
+  state.activeEnterpriseTool = "batch";
+  els.body.dataset.mode = mode;
+  els.modeExplorer.setAttribute("aria-pressed", String(mode === "explorer"));
+  els.modeEnterprise.setAttribute("aria-pressed", String(mode === "enterprise"));
+  updateModeRoute(mode);
+
+  renderModeChrome();
+
+  persistWorkspace();
+  render();
+  uiHelpers.announce?.(els.announcer, mode === "enterprise" ? "Enterprise workspace opened." : "Explorer writing coach opened.");
+  uiHelpers.focusWithin?.(els.body, mode === "enterprise" ? "#enterprise-text, #output-panel" : "#explorer-text, #output-panel");
+}
+
+function renderModeChrome() {
+  if (state.mode === "enterprise") {
+    els.heroTitle.textContent = state.latestData ? "Enterprise review room" : productConfig.products?.enterprise?.headline || "Today’s outreach work, in order.";
+    els.heroSubtitle.textContent = state.latestData ? "Drafts, approvals, exports, and outcomes stay in one line of sight." : productConfig.products?.enterprise?.promise || "Import, draft, review, export, and track from one focused workspace.";
+    els.modeNote.textContent = "Enterprise keeps integrations visibly disabled until real accounts are connected.";
+    els.personaStrip.setAttribute("hidden", "");
+    els.personaStrip.innerHTML = "";
+    return;
   }
 
-  function trackEvent(event_type, payload = {}) {
-    apiClient.event?.(event_type, payload).catch(() => {});
-  }
+  els.heroTitle.textContent = state.latestData ? "Explorer writing coach" : productConfig.products?.explorer?.headline || "One paragraph. One clearer version.";
+  els.heroSubtitle.textContent = state.latestData ? "Read it once, improve it once, save it if it helped." : productConfig.products?.explorer?.promise || "A daily writing coach for ordinary notes, emails, and hard messages.";
+  els.modeNote.textContent = "Explorer is for personal writing. Enterprise is a separate outreach workspace.";
+  els.personaStrip.setAttribute("hidden", "");
+  els.personaStrip.innerHTML = "";
+}
 
-  function percent(value) {
-    return `${Math.round(Number(value || 0) * 100)}%`;
-  }
+function renderAccountCard() {
+  if (!els.accountCard) return;
+  const signedIn = state.account.authenticated && state.account.user;
+  const label = signedIn ? (state.account.user.name || "Account") : "Account";
+  const avatar = signedIn
+    ? (state.account.user.name || state.account.user.email || "U").slice(0, 1).toUpperCase()
+    : "TT";
+  const status = signedIn
+    ? `${state.account.workspaceName || "Personal workspace"} / ${state.account.syncStatus || "Synced"}`
+    : "Local workspace";
+  const errorHtml = state.accountError ? `<p class="error-text">${escapeHtml(state.accountError)}</p>` : "";
+  const deleteWarning = state.accountDeletePending
+    ? `<div class="account-warning" role="status"><strong>Delete account?</strong><span>Enter your password, then confirm. This removes synced workspace data for this account.</span></div>`
+    : "";
 
-  function numberLabel(value, digits = 3) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return "n/a";
-    return number.toFixed(digits);
-  }
-
-  function displayLabel(value) {
-    const clean = String(value ?? "").trim();
-    if (!clean) return "Not set";
-    const key = clean.toLowerCase();
-    if (statusLabels[key]) return statusLabels[key];
-    return key
-      .replace(/[_-]+/g, " ")
-      .replace(/\b\w/g, (letter) => letter.toUpperCase())
-      .replace(/\bApi\b/g, "API")
-      .replace(/\bSes\b/g, "SES")
-      .replace(/\bCta\b/g, "CTA");
-  }
-
-  function shortHash(value) {
-    const clean = String(value || "");
-    return clean.length > 22 ? `${clean.slice(0, 18)}...` : clean || "n/a";
-  }
-
-  function summarySnippet(value, fallback = "Not set") {
-    const clean = String(value || "").replace(/\s+/g, " ").trim();
-    if (!clean) return fallback;
-    const withoutHtmlLikeTags = clean.replace(/<\/?[a-z][^>]{0,80}>/gi, " [HTML tag] ").replace(/\s+/g, " ").trim();
-    return withoutHtmlLikeTags.length > 120 ? `${withoutHtmlLikeTags.slice(0, 117)}...` : withoutHtmlLikeTags;
-  }
-
-  function cssEscape(value) {
-    return window.CSS?.escape ? window.CSS.escape(String(value)) : String(value).replace(/["\\]/g, "\\$&");
-  }
-
-  function statusBadge(label, tone = "neutral") {
-    return `<span class="status-badge status-${escapeHtml(tone)}">${escapeHtml(label)}</span>`;
-  }
-
-  function daysAgoIso(days) {
-    const date = new Date(Date.now() - Number(days || 0) * 24 * 60 * 60 * 1000);
-    return date.toISOString();
-  }
-
-  function dashboardHasEvidence(dashboard = {}) {
-    return Boolean(
-      Number(dashboard.analysis_volume || 0) ||
-      (dashboard.recent_analyses || []).length ||
-      (dashboard.top_failing_rule_packs || []).length ||
-      (dashboard.risky_templates || []).length ||
-      (dashboard.trend_by_source_system || []).length ||
-      (dashboard.joined_outcomes || []).length ||
-      (dashboard.outcomes || []).length ||
-      (dashboard.sample_imports || []).length
-    );
-  }
-
-  function exampleDashboardSnapshot(base = {}) {
-    const policy = base.policy || {};
-    const recent = [
-      {
-        request_id: "demo_req_braze_renewal_01",
-        content_hash: "demo_hash_renewal_01",
-        source: "adapter_simulator",
-        source_system: "braze",
-        analysis_mode: "pre_send_gate",
-        campaign_id: "cmp_renewal_risk",
-        journey_id: "canvas_q2_expansion",
-        template_id: "tmpl_renewal_manager_handoff",
-        locale: "en-US",
-        score: 84,
-        gate_status: "ready",
-        gate: {status: "ready", send_ready: true, route: "forward_to_provider", highest_severity: "none"},
-        highest_severity: "none",
-        finding_count: 0,
-        created_at: daysAgoIso(1),
-      },
-      {
-        request_id: "demo_req_marketo_claims_02",
-        content_hash: "demo_hash_claims_02",
-        source: "adapter_simulator",
-        source_system: "marketo",
-        analysis_mode: "authoring_lint",
-        campaign_id: "cmp_q2_webinar",
-        journey_id: "program_revops_webinar",
-        template_id: "tmpl_webinar_invite_v3",
-        locale: "en-US",
-        score: 66,
-        gate_status: "needs_review",
-        gate: {status: "needs_review", send_ready: false, route: "human_review_queue", highest_severity: "high"},
-        highest_severity: "high",
-        finding_count: 3,
-        created_at: daysAgoIso(3),
-      },
-      {
-        request_id: "demo_req_iterable_unsub_03",
-        content_hash: "demo_hash_unsub_03",
-        source: "adapter_simulator",
-        source_system: "iterable",
-        analysis_mode: "pre_send_gate",
-        campaign_id: "cmp_product_update",
-        journey_id: "journey_onboarding_nurture",
-        template_id: "tmpl_product_update_v7",
-        locale: "en-US",
-        score: 51,
-        gate_status: "blocked",
-        gate: {status: "blocked", send_ready: false, route: "compliance_or_manager_review", highest_severity: "critical"},
-        highest_severity: "critical",
-        finding_count: 4,
-        created_at: daysAgoIso(5),
-      },
-      {
-        request_id: "demo_req_hubspot_followup_04",
-        content_hash: "demo_hash_followup_04",
-        source: "adapter_simulator",
-        source_system: "hubspot",
-        analysis_mode: "pre_send_gate",
-        campaign_id: "cmp_midmarket_followup",
-        journey_id: "workflow_demo_followup",
-        template_id: "tmpl_followup_fit_check",
-        locale: "en-US",
-        score: 78,
-        gate_status: "ready",
-        gate: {status: "ready", send_ready: true, route: "forward_to_provider", highest_severity: "low"},
-        highest_severity: "low",
-        finding_count: 1,
-        created_at: daysAgoIso(8),
-      },
-      {
-        request_id: "demo_req_sendgrid_cta_05",
-        content_hash: "demo_hash_cta_05",
-        source: "send_path_middleware",
-        source_system: "sendgrid_ses",
-        analysis_mode: "send_path_middleware",
-        campaign_id: "cmp_expansion_offer",
-        journey_id: "transactional_followup",
-        template_id: "tmpl_expansion_offer_v2",
-        locale: "en-US",
-        score: 62,
-        gate_status: "needs_review",
-        gate: {status: "needs_review", send_ready: false, route: "human_review_queue", highest_severity: "medium"},
-        highest_severity: "medium",
-        finding_count: 2,
-        created_at: daysAgoIso(13),
-      },
-    ];
-    return {
-      ...base,
-      __example: true,
-      workspace_id: base.workspace_id || state.workspaceId || "default",
-      policy,
-      analysis_volume: recent.length,
-      average_score: 68.2,
-      gate_counts: {ready: 2, needs_review: 2, blocked: 1},
-      severity_counts: {none: 1, low: 1, medium: 1, high: 1, critical: 1},
-      source_counts: {adapter_simulator: 4, send_path_middleware: 1},
-      route_counts: {forward_to_provider: 2, human_review_queue: 2, compliance_or_manager_review: 1},
-      model_version_counts: {"local-texttraits-bundle": recent.length},
-      webhook_status_counts: {delivered: 3, opened: 2, complained: 1},
-      outcome_counts: {delivered: 3, opened: 2, clicked: 1, complained: 1, unsubscribed: 1},
-      top_failing_rule_packs: [
-        {category: "unsubscribe", rule_id: "unsubscribe.path_missing", severity: "critical", count: 2},
-        {category: "cta", rule_id: "cta.too_many_actions", severity: "high", count: 3},
-        {category: "personalization", rule_id: "template.unresolved_token", severity: "medium", count: 4},
-        {category: "clarity", rule_id: "specificity.low", severity: "medium", count: 5},
-      ],
-      risky_templates: [
-        {template_id: "tmpl_product_update_v7", campaign_id: "cmp_product_update", analysis_count: 4, average_score: 54.5, review_or_block_count: 3},
-        {template_id: "tmpl_webinar_invite_v3", campaign_id: "cmp_q2_webinar", analysis_count: 6, average_score: 66.2, review_or_block_count: 4},
-        {template_id: "tmpl_expansion_offer_v2", campaign_id: "cmp_expansion_offer", analysis_count: 3, average_score: 62.0, review_or_block_count: 2},
-      ],
-      trend_by_source_system: [
-        {source_system: "braze", gate_status: "ready", count: 1, average_score: 84},
-        {source_system: "marketo", gate_status: "needs_review", count: 1, average_score: 66},
-        {source_system: "iterable", gate_status: "blocked", count: 1, average_score: 51},
-        {source_system: "hubspot", gate_status: "ready", count: 1, average_score: 78},
-        {source_system: "sendgrid_ses", gate_status: "needs_review", count: 1, average_score: 62},
-      ],
-      joined_outcomes: [
-        {event_type: "delivered", delivery_status: "delivered", request_id: "demo_req_braze_renewal_01", content_hash: "demo_hash_renewal_01", source_system: "braze"},
-        {event_type: "opened", delivery_status: "opened", request_id: "demo_req_hubspot_followup_04", content_hash: "demo_hash_followup_04", source_system: "hubspot"},
-        {event_type: "complained", delivery_status: "complained", request_id: "demo_req_iterable_unsub_03", content_hash: "demo_hash_unsub_03", source_system: "iterable"},
-      ],
-      policy_bundle_history: [
-        {policy_environment: policy.policy_environment || "production", version: "2026.05.25", created_at: daysAgoIso(9), updated_at: daysAgoIso(2)},
-        {policy_environment: "staging", version: "2026.05.18", created_at: daysAgoIso(16), updated_at: daysAgoIso(12)},
-      ],
-      recent_analyses: recent,
-      webhook_events: [
-        {event_type: "delivered", delivery_status: "delivered", dedupe_key: "demo_event_delivered_01", first_seen_at: daysAgoIso(1), last_seen_at: daysAgoIso(1)},
-        {event_type: "complained", delivery_status: "complained", dedupe_key: "demo_event_complained_03", first_seen_at: daysAgoIso(4), last_seen_at: daysAgoIso(4)},
-      ],
-      outcomes: [
-        {event_type: "delivered", delivery_status: "delivered", request_id: "demo_req_braze_renewal_01", event_timestamp: daysAgoIso(1)},
-        {event_type: "opened", delivery_status: "opened", request_id: "demo_req_hubspot_followup_04", event_timestamp: daysAgoIso(2)},
-        {event_type: "complained", delivery_status: "complained", request_id: "demo_req_iterable_unsub_03", event_timestamp: daysAgoIso(4)},
-      ],
-      sample_imports: [
-        {import_id: "demo_import_q2_templates", accepted: 25, rejected: 0, average_score: 71.4, blocked_or_review: 9, created_at: daysAgoIso(6)},
-      ],
-    };
-  }
-
-  function displayDashboardSnapshot(dashboard = {}) {
-    if (dashboardHasEvidence(dashboard)) return {...dashboard, __example: false};
-    return exampleDashboardSnapshot(dashboard);
-  }
-
-  function dashboardDataNotice(dashboard = {}) {
-    if (!dashboard.__example) return "";
-    return `
-      <div class="demo-data-notice" role="note">
-        ${statusBadge("Example data", "warning")}
-        <p>This workspace has no saved governance rows yet, so the dashboard is showing clearly labeled synthetic examples. Run analyses, imports, or webhooks to replace this with real workspace data.</p>
-      </div>
-    `;
-  }
-
-  function readLocalSetting(key, fallback) {
-    try {
-      const raw = window.localStorage?.getItem(`texttraits.enterprise.${key}`);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (error) {
-      return fallback;
-    }
-  }
-
-  function writeLocalSetting(key, value) {
-    try {
-      window.localStorage?.setItem(`texttraits.enterprise.${key}`, JSON.stringify(value));
-    } catch (error) {
-      state.adminMessage = "Local browser storage is unavailable; settings will reset on refresh.";
-    }
-  }
-
-  function defaultApiKeys() {
-    return [
-      {
-        id: "sbx_default_governance",
-        name: "Sandbox governance key",
-        environment: "sandbox",
-        scopes: ["default:/v1/email/analyze", "default:/v1/governance"],
-        status: "Sandbox",
-        secretPreview: "No credential material stored",
-        created_at: new Date().toISOString(),
-        last_used: "Not used",
-      },
-    ];
-  }
-
-  function normalizeLocalKeyProfile(profile) {
-    return {
-      ...(profile || {}),
-      secretPreview: "No credential material stored",
-    };
-  }
-
-  function hydrateLocalAdminState() {
-    state.apiKeys = readLocalSetting("apiKeys", defaultApiKeys()).map(normalizeLocalKeyProfile);
-    state.webhookConfig = readLocalSetting("webhookConfig", state.webhookConfig);
-    state.approvalActions = readLocalSetting("approvalActions", {});
-    state.exportSchedule = readLocalSetting("exportSchedule", state.exportSchedule);
-    state.promotedProviders = readLocalSetting("promotedProviders", []);
-  }
-
-  function persistLocalAdminState() {
-    writeLocalSetting("apiKeys", state.apiKeys);
-    writeLocalSetting("webhookConfig", state.webhookConfig);
-    writeLocalSetting("approvalActions", state.approvalActions);
-    writeLocalSetting("exportSchedule", state.exportSchedule);
-    writeLocalSetting("promotedProviders", state.promotedProviders);
-  }
-
-  function parseJsonObject(value, fallback = {}) {
-    const clean = String(value || "").trim();
-    if (!clean) return fallback;
-    const parsed = JSON.parse(clean);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("Expected a JSON object.");
-    }
-    return parsed;
-  }
-
-  function currentEnterpriseContext() {
-    const context = state.enterpriseContext;
-    return {
-      workspace_id: state.workspaceId || "default",
-      source_system: context.source_system || "ui_enterprise_optimizer",
-      analysis_mode: context.analysis_mode || "pre_send_gate",
-      campaign_id: context.campaign_id || "",
-      journey_id: context.journey_id || "",
-      template_id: context.template_id || "",
-      locale: context.locale || "",
-      headers: parseJsonObject(context.headers, {}),
-      personalization_context: parseJsonObject(context.personalization_context, {}),
-      consent_context: {state: context.consent_state || "unknown"},
-      delivery_context: {provider: context.delivery_provider || context.source_system || "ui"},
-    };
-  }
-
-  function renderTestSummary(result) {
-    const test = result?.render_test || result || {};
-    const unresolved = test.unresolved_tokens || [];
-    const unsubscribe = test.unsubscribe || {};
-    return `
-      <div class="render-test-summary">
-        ${statusBadge(unresolved.length ? `${unresolved.length} unresolved token${unresolved.length === 1 ? "" : "s"}` : "Tokens resolved", unresolved.length ? "warning" : "success")}
-        ${statusBadge(unsubscribe.header_present ? "List-Unsubscribe header" : "No List-Unsubscribe header", unsubscribe.header_present ? "success" : "warning")}
-        ${statusBadge(`${test.link_count || 0} links`, "neutral")}
-        ${unresolved.length ? `<small>First unresolved token: ${escapeHtml(unresolved[0].token || unresolved[0].key || "unknown")}</small>` : `<small>Template preview is safe to analyze with the supplied sample context.</small>`}
-      </div>
-    `;
-  }
-
-  function cleanModelLabel(value) {
-    const raw = String(value || "Unavailable").replace(/^source label:\s*/i, "");
-    if (/^[a-z]{4}$/i.test(raw)) return raw.toUpperCase();
-    if (/\d/.test(raw)) return raw;
-    return titleCase(raw);
-  }
-
-  function predictionLabel(prediction) {
-    return cleanModelLabel(prediction?.label);
-  }
-
-  function getPrediction(predictions, key) {
-    if (key === "age_estimate") return predictions?.age_estimate;
-    return predictions?.[key];
-  }
-
-  function confidenceBand(prediction) {
-    const value = Number(prediction?.confidence || 0);
-    const margin = Number(prediction?.margin || 0);
-    if (!prediction?.alternatives?.length) return "No distribution";
-    if (value >= 0.78 && margin >= 0.18) return "High separation";
-    if (value >= 0.58 && margin >= 0.08) return "Medium separation";
-    return "Low separation";
-  }
-
-  function cueTerms(prediction) {
-    const terms = prediction?.cue_terms || [];
-    if (!terms.length) return `<span class="muted">No cue terms returned.</span>`;
-    return terms
-      .slice(0, 8)
-      .map((item) => `<span class="chip">${escapeHtml(item.term || item)}</span>`)
-      .join("");
-  }
-
-  function distributionBars(prediction) {
-    const alternatives = prediction?.alternatives || [];
-    if (!alternatives.length) {
-      return `<p class="muted">This target does not include a probability distribution.</p>`;
-    }
-    return `
-      <div class="bars optimizer-bars">
-        ${alternatives.slice(0, 5).map((item) => `
-          <div class="bar-row">
-            <span>${escapeHtml(cleanModelLabel(item.label))}</span>
-            <meter class="bar-meter" min="0" max="1" value="${Math.max(Number(item.probability || 0), 0.02)}"></meter>
-            <strong>${escapeHtml(percent(item.probability))}</strong>
+  if (signedIn) {
+    els.accountCard.innerHTML = `
+      <button class="account-trigger" type="button" data-open-account aria-haspopup="dialog" aria-expanded="${String(state.accountModalOpen)}">
+        <span class="avatar-dot">${escapeHtml(avatar)}</span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+      <div class="account-overlay ${state.accountModalOpen ? "is-open" : ""}" ${state.accountModalOpen ? "" : "hidden"} data-account-overlay>
+        <section class="account-sheet" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          <div class="sheet-head">
+            <div>
+              <p class="label">Account</p>
+              <h2 id="account-title">${escapeHtml(label)}</h2>
+              <p class="muted">${escapeHtml(status)} / ${state.account.user.email_verified ? "Email verified" : "Email not verified"}</p>
+            </div>
+            <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
           </div>
+          ${errorHtml}
+          ${deleteWarning}
+          <label class="field"><span>Password for export/delete</span><input id="account-password" type="password" autocomplete="current-password" placeholder="Enter password before sensitive account actions"></label>
+          ${privacyCenterCard()}
+          <div class="account-actions sheet-actions">
+            <button class="button-secondary" type="button" data-sync-now>Sync now</button>
+            <button class="button-secondary" type="button" data-open-onboarding>Preferences</button>
+            <button class="button-secondary" type="button" data-export-account>Export data</button>
+            <button class="button-secondary danger-button" type="button" data-delete-account>${state.accountDeletePending ? "Confirm delete account" : "Delete account"}</button>
+            <button class="button-secondary" type="button" data-logout>Sign out</button>
+          </div>
+        </section>
+      </div>
+    `;
+  } else {
+    const demoButton = config.devTools ? `<button class="button-secondary" type="button" data-demo-account>Use demo sync</button>` : "";
+    const authMode = state.accountAuthMode || "signin";
+    const authTitle = authMode === "create" ? "Create account" : authMode === "reset" ? "Reset password" : "Sign in";
+    const showName = authMode === "create";
+    const showPassword = authMode !== "reset";
+    els.accountCard.innerHTML = `
+      <button class="account-trigger" type="button" data-open-account aria-haspopup="dialog" aria-expanded="${String(state.accountModalOpen)}">
+        <span class="avatar-dot">${escapeHtml(avatar)}</span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+      <div class="account-overlay ${state.accountModalOpen ? "is-open" : ""}" ${state.accountModalOpen ? "" : "hidden"} data-account-overlay>
+        <section class="account-sheet" role="dialog" aria-modal="true" aria-labelledby="account-title">
+          <div class="sheet-head">
+            <div>
+              <p class="label">Account</p>
+              <h2 id="account-title">Save your workspace</h2>
+              <p class="muted">Sign in when you want your work to follow you across devices. Local demo data stays in this browser.</p>
+            </div>
+            <button class="button-secondary sheet-close" type="button" data-close-account>Close</button>
+          </div>
+          ${errorHtml}
+          <div class="auth-mode-tabs" role="tablist" aria-label="Account action">
+            <button class="button-secondary" type="button" data-auth-mode="signin" role="tab" aria-selected="${String(authMode === "signin")}">Sign in</button>
+            <button class="button-secondary" type="button" data-auth-mode="create" role="tab" aria-selected="${String(authMode === "create")}">Create account</button>
+            <button class="button-secondary" type="button" data-auth-mode="reset" role="tab" aria-selected="${String(authMode === "reset")}">Reset</button>
+          </div>
+          <div class="auth-social-panel">
+            <button class="button-secondary google-auth-button" type="button" data-google-account>Continue with Google</button>
+            <p>${config.app?.google_auth ? "Use your verified Google email for a faster sign-in." : "Google sign-in is ready for production OAuth setup. Email sign-in works here now."}</p>
+          </div>
+          ${authMode === "create" ? "" : `
+            <div class="account-benefits compact-benefits" aria-label="What account sync saves">
+              <article><strong>Explorer</strong><span>Journal, streaks, recaps.</span></article>
+              <article><strong>Enterprise</strong><span>Campaigns, drafts, queues.</span></article>
+            </div>
+          `}
+          <div class="auth-grid auth-grid-focused" aria-label="${escapeHtml(authTitle)} form">
+            ${showName ? `<label class="field"><span>Name</span><input id="auth-name" autocomplete="name" value="${escapeHtml(state.accountDraft.name)}" placeholder="Your name"></label>` : ""}
+            <label class="field"><span>Email</span><input id="auth-email" autocomplete="email" value="${escapeHtml(state.accountDraft.email)}" placeholder="you@example.com"></label>
+            ${showPassword ? `<label class="field"><span>Password</span><input id="auth-password" type="password" autocomplete="${authMode === "create" ? "new-password" : "current-password"}" placeholder="${authMode === "create" ? "At least 12 characters" : "Your password"}"></label>` : ""}
+            <div class="auth-actions">
+              ${authMode === "create" ? `<button type="button" data-signup>Email me a code</button><button class="button-secondary" type="button" data-auth-mode="signin">Sign in instead</button>` : ""}
+              ${authMode === "signin" ? `<button type="button" data-login>Sign in</button><button class="button-secondary" type="button" data-auth-mode="create">Create account</button>` : ""}
+              ${authMode === "reset" ? `<button type="button" data-request-reset>Send reset code</button><button class="button-secondary" type="button" data-auth-mode="signin">Back to sign in</button>` : ""}
+              ${demoButton}
+              ${authMode !== "reset" ? `<button class="button-secondary quiet-button" type="button" data-auth-mode="reset">Reset password</button>` : ""}
+            </div>
+            <details class="account-code-panel" ${state.accountCodePanelOpen || state.accountResetToken ? "open" : ""}>
+              <summary>Have a 6-digit email code?</summary>
+              <label class="field"><span>Verification code</span><input id="verify-token" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" value="${escapeHtml(state.accountDraft.verifyToken)}" placeholder="123456"></label>
+              <button class="button-secondary" type="button" data-submit-verification>Create verified account</button>
+              <label class="field"><span>Reset code</span><input id="reset-token" autocomplete="one-time-code" value="${escapeHtml(state.accountResetToken || state.accountDraft.resetToken)}" placeholder="Paste reset code"></label>
+              <label class="field"><span>New password</span><input id="reset-new-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
+              <button class="button-secondary" type="button" data-submit-reset>Update password</button>
+            </details>
+          </div>
+          ${authMode === "create" ? "" : privacyCenterCard()}
+        </section>
+      </div>
+    `;
+  }
+  wireAccountCard();
+}
+
+function privacyCenterCard() {
+  const signedIn = state.account.authenticated && state.account.user;
+  return `
+    <details class="privacy-center-card">
+      <summary><span><strong>Privacy Center</strong><small>${signedIn ? "Cloud sync can be exported or deleted." : "Local browser storage until you sign in."}</small></span></summary>
+      <div class="privacy-center-grid">
+        <article><strong>Storage</strong><p>${signedIn ? "Workspace data syncs to your TextTraits account when available." : "This demo stores saved work in this browser only."}</p></article>
+        <article><strong>Control</strong><p>Use account export/delete for synced data. Clear browser storage to remove local demo data.</p></article>
+        <article><strong>Integrations</strong><p>CRM, email, and sidebar tools stay preview-only until credentials are connected.</p></article>
+        <article><strong>Production note</strong><p>Before a public launch, connect hosted auth, email delivery, monitoring, and a reviewed privacy policy.</p></article>
+      </div>
+    </details>
+  `;
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function passwordPolicyMessage(password, email = "") {
+  const clean = String(password || "").trim();
+  if (clean.length < 12) return "Use at least 12 characters for the password.";
+  const localPart = String(email || "").split("@", 1)[0].toLowerCase();
+  if (localPart && clean.toLowerCase().includes(localPart)) return "Use a password that does not include your email name.";
+  return "";
+}
+
+function syncAccountDraftFromFields() {
+  const name = els.accountCard?.querySelector("#auth-name");
+  const email = els.accountCard?.querySelector("#auth-email");
+  const verifyToken = els.accountCard?.querySelector("#verify-token");
+  const resetToken = els.accountCard?.querySelector("#reset-token");
+  if (name) state.accountDraft.name = name.value;
+  if (email) state.accountDraft.email = email.value;
+  if (verifyToken) state.accountDraft.verifyToken = verifyToken.value;
+  if (resetToken) state.accountDraft.resetToken = resetToken.value;
+}
+
+function showAccountError(message) {
+  syncAccountDraftFromFields();
+  state.accountError = message;
+  state.accountModalOpen = true;
+  els.announcer.textContent = message;
+  renderAccountCard();
+}
+
+function scrollAccountCodePanelIntoView() {
+  requestAnimationFrame(() => {
+    const panel = els.accountCard?.querySelector(".account-code-panel");
+    if (!panel?.open) return;
+    panel.scrollIntoView({block: "nearest", behavior: "smooth"});
+  });
+}
+
+function googleClientId() {
+  return config.app?.google_client_id || "";
+}
+
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleIdentityScriptPromise) return googleIdentityScriptPromise;
+  googleIdentityScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    const nonce = document.querySelector("script[nonce]")?.nonce;
+    if (nonce) script.nonce = nonce;
+    script.addEventListener("load", resolve, {once: true});
+    script.addEventListener("error", () => reject(new Error("Google sign-in could not load. Use email sign-in for now.")), {once: true});
+    document.head.appendChild(script);
+  });
+  return googleIdentityScriptPromise;
+}
+
+async function handleGoogleCredential(response) {
+  if (!response?.credential) {
+    showAccountError("Google sign-in did not return an account. Use email sign-in for now.");
+    return;
+  }
+  try {
+    const data = await apiClient.googleLogin(response.credential);
+    applyAuthenticatedAccount(data, "Google sign-in");
+  } catch (error) {
+    showAccountError(error.message || "Google sign-in failed. Use email sign-in for now.");
+  }
+}
+
+async function startGoogleAccountAuth(button) {
+  syncAccountDraftFromFields();
+  const clientId = googleClientId();
+  if (!clientId) {
+    showAccountError("Google sign-in is not connected in this local demo yet. Use email and the 6-digit code for now.");
+    return;
+  }
+  try {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    await loadGoogleIdentityScript();
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: handleGoogleCredential,
+      cancel_on_tap_outside: false,
+    });
+    window.google.accounts.id["prompt"]((notification) => {
+      if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.()) {
+        showAccountError("Google sign-in could not open in this browser. Use email sign-in for now.");
+      }
+    });
+  } catch (error) {
+    showAccountError(error.message || "Google sign-in could not start. Use email sign-in for now.");
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+function wireAccountCard() {
+  els.accountCard?.querySelector("[data-open-account]")?.addEventListener("click", () => {
+    state.accountModalOpen = true;
+    state.accountError = "";
+    state.accountDeletePending = false;
+    state.accountAuthMode = state.accountAuthMode || "signin";
+    renderAccountCard();
+    requestAnimationFrame(() => {
+      els.accountCard.querySelector("#auth-email, [data-sync-now], [data-close-account]")?.focus?.();
+    });
+  });
+  els.accountCard?.querySelector("[data-close-account]")?.addEventListener("click", () => {
+    state.accountModalOpen = false;
+    state.accountError = "";
+    state.accountDeletePending = false;
+    state.accountCodePanelOpen = false;
+    renderAccountCard();
+  });
+  els.accountCard?.querySelector("[data-account-overlay]")?.addEventListener("click", (event) => {
+    if (event.target !== event.currentTarget) return;
+    state.accountModalOpen = false;
+    state.accountError = "";
+    state.accountDeletePending = false;
+    state.accountCodePanelOpen = false;
+    renderAccountCard();
+  });
+  els.accountCard?.querySelector("[data-sync-now]")?.addEventListener("click", () => syncWorkspace());
+  els.accountCard?.querySelector("[data-google-account]")?.addEventListener("click", (event) => startGoogleAccountAuth(event.currentTarget));
+  els.accountCard?.querySelectorAll("#auth-name, #auth-email, #verify-token, #reset-token").forEach((field) => {
+    field.addEventListener("input", syncAccountDraftFromFields);
+  });
+  els.accountCard?.querySelectorAll("[data-auth-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      syncAccountDraftFromFields();
+      state.accountAuthMode = button.dataset.authMode || "signin";
+      state.accountError = "";
+      renderAccountCard();
+      requestAnimationFrame(() => els.accountCard.querySelector("#auth-email, [data-close-account]")?.focus?.());
+    });
+  });
+  els.accountCard?.querySelector(".account-code-panel")?.addEventListener("toggle", (event) => {
+    state.accountCodePanelOpen = event.currentTarget.open;
+    if (state.accountCodePanelOpen) scrollAccountCodePanelIntoView();
+  });
+  els.accountCard?.querySelector("[data-open-onboarding]")?.addEventListener("click", () => {
+    state.onboarding.complete = false;
+    state.accountModalOpen = false;
+    render();
+  });
+  els.accountCard?.querySelector("[data-logout]")?.addEventListener("click", async () => {
+    try {
+      await apiClient.logout();
+      state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+      state.accountModalOpen = false;
+      state.accountDeletePending = false;
+      state.accountCodePanelOpen = false;
+      renderAccountCard();
+    } catch (error) {
+      state.accountError = error.message || "Sign out failed.";
+      renderAccountCard();
+    }
+  });
+  els.accountCard?.querySelector("[data-export-account]")?.addEventListener("click", async (event) => {
+    const password = els.accountCard.querySelector("#account-password")?.value || "";
+    if (!password) {
+      showToast(event.currentTarget, "Enter your password before exporting account data.");
+      return;
+    }
+    try {
+      const data = await apiClient.exportAccount(password);
+      downloadText("texttraits-account-export.json", JSON.stringify(data, null, 2));
+      showToast(event.currentTarget, "Account export downloaded.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Account export failed.");
+    }
+  });
+  els.accountCard?.querySelector("[data-delete-account]")?.addEventListener("click", async (event) => {
+    if (!state.accountDeletePending) {
+      state.accountDeletePending = true;
+      state.accountError = "";
+      renderAccountCard();
+      requestAnimationFrame(() => els.accountCard.querySelector("#account-password")?.focus?.());
+      return;
+    }
+    const password = els.accountCard.querySelector("#account-password")?.value || "";
+    if (!password) {
+      showToast(event.currentTarget, "Enter your password before deleting the account.");
+      return;
+    }
+    try {
+      await apiClient.deleteAccount(password);
+      state.account = {...state.account, authenticated: false, user: null, syncStatus: "Local only", workspaceName: "Local workspace"};
+      state.accountModalOpen = false;
+      state.accountDeletePending = false;
+      renderAccountCard();
+      showToast(event.currentTarget, "Account deleted.");
+      render();
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Account deletion failed.");
+    }
+  });
+  els.accountCard?.querySelector("[data-signup]")?.addEventListener("click", () => authRequest("signup"));
+  els.accountCard?.querySelector("[data-login]")?.addEventListener("click", () => authRequest("login"));
+  els.accountCard?.querySelector("[data-demo-account]")?.addEventListener("click", () => authRequest("demo"));
+  els.accountCard?.querySelector("[data-request-reset]")?.addEventListener("click", async (event) => {
+    const email = els.accountCard.querySelector("#auth-email")?.value || "";
+    if (!isValidEmail(email)) {
+      showAccountError("Enter the email for your account first.");
+      return;
+    }
+    try {
+      const response = await apiClient.requestPasswordReset(email);
+      state.accountCodePanelOpen = true;
+      showToast(event.currentTarget, response.dev_reset_url ? "Reset helper created for local development." : "Check your email for a reset code.");
+      renderAccountCard();
+      scrollAccountCodePanelIntoView();
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Enter the email for your account.");
+    }
+  });
+  els.accountCard?.querySelector("[data-submit-verification]")?.addEventListener("click", async (event) => {
+    const email = els.accountCard.querySelector("#auth-email")?.value || state.accountDraft.email || "";
+    const token = els.accountCard.querySelector("#verify-token")?.value || "";
+    if (!isValidEmail(email)) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the email address that received the code.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    if (!token.trim()) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the verification code from your email.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    try {
+      const data = await apiClient.verifyEmail(token, email);
+      applyAuthenticatedAccount(data, "Email verified");
+      showToast(event.currentTarget, "Account created.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Verification code expired.");
+    }
+  });
+  els.accountCard?.querySelector("[data-submit-reset]")?.addEventListener("click", async (event) => {
+    const token = els.accountCard.querySelector("#reset-token")?.value || "";
+    const password = els.accountCard.querySelector("#reset-new-password")?.value || "";
+    if (!token.trim()) {
+      state.accountCodePanelOpen = true;
+      showAccountError("Enter the reset code from your email.");
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    const policyMessage = passwordPolicyMessage(password);
+    if (policyMessage) {
+      state.accountCodePanelOpen = true;
+      showAccountError(policyMessage);
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    try {
+      const data = await apiClient.resetPassword(token, password);
+      state.accountResetToken = "";
+      applyAuthenticatedAccount(data, "Password reset");
+      showToast(event.currentTarget, "Password updated.");
+    } catch (error) {
+      showToast(event.currentTarget, error.message || "Reset code expired.");
+    }
+  });
+}
+
+function applyAuthenticatedAccount(data, statusText = "Signed in") {
+  state.account.authenticated = true;
+  state.account.user = data.user;
+  state.account.workspaceName = data.workspace?.name || `${data.user.name}'s workspace`;
+  state.account.syncStatus = statusText;
+  state.accountModalOpen = false;
+  state.accountError = "";
+  state.accountDeletePending = false;
+  state.accountCodePanelOpen = false;
+  state.accountDraft = {name: "", email: "", verifyToken: "", resetToken: ""};
+  if (data.workspace?.data) applyWorkspacePayload(data.workspace.data);
+  persistWorkspace();
+  renderAccountCard();
+  renderModeChrome();
+  render();
+}
+
+async function authRequest(action) {
+  if (state.accountRequestPending) return;
+  const emailField = els.accountCard.querySelector("#auth-email");
+  const passwordField = els.accountCard.querySelector("#auth-password");
+  const nameField = els.accountCard.querySelector("#auth-name");
+  const payload = action === "demo"
+    ? {email: "demo@texttraits.local", password: "texttraits-demo", name: "Demo Workspace"}
+    : {email: emailField?.value || "", password: passwordField?.value || "", name: nameField?.value || ""};
+  if (action !== "demo") {
+    if (!isValidEmail(payload.email)) {
+      showAccountError("Enter a valid email address.");
+      return;
+    }
+    if (!payload.password) {
+      showAccountError("Enter your password.");
+      return;
+    }
+    if (action === "signup") {
+      const policyMessage = passwordPolicyMessage(payload.password, payload.email);
+      if (policyMessage) {
+        showAccountError(policyMessage);
+        return;
+      }
+    }
+  }
+  try {
+    state.accountRequestPending = true;
+    const clickedButton = els.accountCard.querySelector(action === "login" ? "[data-login]" : action === "signup" ? "[data-signup]" : "[data-demo-account]");
+    if (clickedButton) {
+      clickedButton.disabled = true;
+      clickedButton.setAttribute("aria-busy", "true");
+    }
+    let data;
+    if (action === "login") data = await apiClient.login(payload);
+    else {
+      try {
+        data = await apiClient.signup(payload);
+      } catch (error) {
+        if (action === "demo" && error.status === 409) data = await apiClient.login(payload);
+        else throw error;
+      }
+    }
+    if (!data.authenticated || !data.user) {
+      if (action === "demo") {
+        data = await apiClient.login(payload);
+        applyAuthenticatedAccount(data);
+        return;
+      }
+      state.accountDraft.email = payload.email;
+      state.accountDraft.name = payload.name || state.accountDraft.name;
+      state.accountCodePanelOpen = true;
+      els.announcer.textContent = data.message || "Check your email for a 6-digit code.";
+      state.accountError = data.message || "Check your email for a 6-digit code.";
+      state.accountModalOpen = true;
+      renderAccountCard();
+      scrollAccountCodePanelIntoView();
+      return;
+    }
+    applyAuthenticatedAccount(data);
+  } catch (error) {
+    els.announcer.textContent = error.message || "Sign-in failed.";
+    state.account.syncStatus = error.message || "Sign-in failed";
+    state.accountError = error.message || "Sign-in failed.";
+    state.accountModalOpen = true;
+    renderAccountCard();
+  } finally {
+    state.accountRequestPending = false;
+  }
+}
+
+async function initAccount() {
+  renderAccountCard();
+  try {
+    const sessionData = await apiClient.session();
+    if (!sessionData.authenticated) return;
+    const workspaceData = await apiClient.workspace();
+    state.account.authenticated = true;
+    state.account.user = sessionData.user;
+    state.account.workspaceName = workspaceData.workspace?.name || `${sessionData.user.name}'s workspace`;
+    state.account.syncStatus = `Synced ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
+    applyWorkspacePayload(workspaceData.workspace?.data || {});
+    renderAccountCard();
+    renderModeChrome();
+    render();
+  } catch (error) {
+    state.account.syncStatus = "Local only";
+    renderAccountCard();
+  }
+}
+
+async function handleAccountLinkTokens() {
+  const params = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#\??/, ""));
+  const verifyToken = params.get("verify_token") || hashParams.get("verify_token");
+  const resetToken = params.get("reset_token") || hashParams.get("reset_token");
+  let changed = false;
+
+  if (verifyToken) {
+    state.accountDraft.verifyToken = verifyToken.replace(/\D+/g, "").slice(0, 6);
+    state.accountCodePanelOpen = true;
+    state.accountModalOpen = true;
+    state.accountAuthMode = "create";
+    state.accountError = "Enter the email address that received this code.";
+    renderAccountCard();
+    requestAnimationFrame(() => els.accountCard.querySelector("#auth-email")?.focus?.());
+    params.delete("verify_token");
+    hashParams.delete("verify_token");
+    changed = true;
+  }
+
+  if (resetToken) {
+    state.accountResetToken = resetToken;
+    state.accountCodePanelOpen = true;
+    state.accountModalOpen = true;
+    state.accountAuthMode = "reset";
+    state.accountError = "Enter a new password to finish resetting your account.";
+    renderAccountCard();
+    requestAnimationFrame(() => els.accountCard.querySelector("#reset-new-password")?.focus?.());
+    params.delete("reset_token");
+    hashParams.delete("reset_token");
+    changed = true;
+  }
+
+  if (changed && window.history?.replaceState) {
+    const query = params.toString();
+    const hash = hashParams.toString();
+    window.history.replaceState({mode: state.mode}, "", `${window.location.pathname}${query ? `?${query}` : ""}${hash ? `#${hash}` : ""}`);
+  }
+}
+
+function modelReadyLabel() {
+  return config.publicModel?.demo ? "Demo model" : "Local model ready";
+}
+
+function sampleButtons(samples, targetId) {
+  return `
+    <div class="sample-grid" aria-label="Input examples">
+      ${samples.map((sample, index) => `
+        <button class="sample-card" type="button" data-sample-target="${targetId}" data-sample-index="${index}">
+          <strong>${escapeHtml(sample.label)}</strong>
+          <span>${escapeHtml(sample.source || sample.tag)} sample / ${words(sample.text).length} words</span>
+          ${sample.note ? `<small>${escapeHtml(sample.note)}</small>` : ""}
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderExplorerInput() {
+  if (state.latestData) {
+    const stats = localStats(state.latestText);
+    els.inputPanel.innerHTML = `
+      <div class="panel-head compact-head">
+        <div>
+          <h2>Explorer sample</h2>
+          <p class="helper">${stats.words} words / ${escapeHtml(stats.reading_level)} density</p>
+        </div>
+        <button id="clear-explorer" class="button-secondary" type="button">New sample</button>
+      </div>
+      <details class="advanced-card">
+        <summary>Show analyzed text</summary>
+        <p class="muted">${escapeHtml(state.latestText.slice(0, 340))}${state.latestText.length > 340 ? "..." : ""}</p>
+      </details>
+    `;
+    return;
+  }
+  els.inputPanel.innerHTML = `
+    <div class="panel-head">
+      <div>
+        <h2>Today’s writing</h2>
+        <p class="helper">Paste one paragraph. Get one plain summary and one useful rewrite.</p>
+      </div>
+      <span class="status-pill">Ready</span>
+    </div>
+
+    <section class="message-coach-strip" aria-label="Message Coach Mode">
+      <div class="mode-chip-row">
+        ${messageModeOptions.map((mode) => `
+          <button class="mode-chip" type="button" data-message-mode="${escapeHtml(mode.label)}" aria-pressed="${String(mode.label === currentMessageMode().label)}">
+            ${escapeHtml(mode.short)}
+          </button>
+        `).join("")}
+      </div>
+      <div class="message-mode-detail">
+        <span class="label">Message Coach Mode</span>
+        <strong>${escapeHtml(currentMessageMode().label)}</strong>
+        <p>${escapeHtml(messageModeHint())}</p>
+      </div>
+    </section>
+
+    <div class="field">
+      <label for="explorer-text">Writing sample</label>
+      ${explorerPromptGuidance()}
+      <textarea id="explorer-text" placeholder="${escapeHtml(explorerPlaceholder())}">${escapeHtml(state.latestText)}</textarea>
+    </div>
+
+    <div class="quality-row">
+      <span id="explorer-count">0 words</span>
+      <span id="explorer-quality">Add text to analyze.</span>
+    </div>
+    <div class="meter"><progress id="explorer-meter" max="100" value="0">0%</progress></div>
+
+    <details class="advanced-card quiet-more-drawer">
+      <summary>More</summary>
+      <p class="muted">Only use these when you want to save, name, or try an example. The main path is still write, analyze, rewrite.</p>
+      <div class="field">
+        <label for="reading-name">Name this sample</label>
+        <input id="reading-name" value="${escapeHtml(state.explorerReadingName)}" placeholder="Daily journal, project email, class note">
+      </div>
+      <div class="field-grid">
+        ${choicePillGroup("explorerFolder", "Private folder", explorerFolders, state.explorerFolder)}
+        ${choicePillGroup("explorerWritingGoal", "Writing goal", explorerGoals, state.explorerWritingGoal)}
+      </div>
+
+      <details class="history-card sample-drawer">
+        <summary>Try an example</summary>
+        ${sampleButtons(explorerSamples, "explorer-text")}
+      </details>
+      <details class="history-card explorer-settings-drawer">
+        <summary>Journal, prompts, and advanced settings</summary>
+        <div class="field">
+          <label for="compare-text">Compare two samples</label>
+          <textarea id="compare-text" class="compact-textarea" placeholder="Optional: paste a second sample for a before/after or comparison view.">${escapeHtml(state.compareText)}</textarea>
+        </div>
+
+        <details class="history-card">
+          <summary>Writing log</summary>
+          ${explorerHistoryList()}
+        </details>
+        <details class="history-card">
+          <summary>Prompt library</summary>
+          <div class="prompt-library">
+            ${consumerPromptLibrary.map((item, index) => `
+              <button class="prompt-card" type="button" data-prompt-index="${index}">
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.goal)}</span>
+                <small>${escapeHtml(item.prompt)}</small>
+              </button>
+            `).join("")}
+          </div>
+        </details>
+        <details class="history-card">
+          <summary>Technical preferences</summary>
+          <div class="field-grid">
+            <label class="field"><span>Writing style only</span><select id="style-only"><option>No</option><option>Yes</option></select></label>
+            <label class="field"><span>Technical details</span><select id="technical-visible"><option value="hide">Hide</option><option value="show">Show</option></select></label>
+            <label class="field"><span>Sensitive labels</span><select id="sensitive-hidden"><option value="show">Show expanded section</option><option value="hide">Hide permanently</option></select></label>
+            <label class="field"><span>Output focus</span><select id="explorer-focus"><option>Simple summary</option><option>What stands out</option><option>Rewrite guidance</option></select></label>
+          </div>
+        </details>
+      </details>
+    </details>
+
+    <div class="action-row sticky">
+      <button id="analyze-explorer" type="button">Analyze text</button>
+      <button id="clear-explorer" class="button-secondary" type="button">Clear</button>
+      <button id="copy-explorer-input" class="button-secondary" type="button">Copy input</button>
+    </div>
+  `;
+}
+
+function renderEnterpriseInput() {
+  const ctx = state.enterpriseContext || {};
+  if (state.latestData && state.enterpriseInputsCollapsed) {
+    els.inputPanel.innerHTML = `
+      <div class="panel-head compact-head input-mini-head">
+        <div>
+          <h2>${escapeHtml(ctx.project || "Outbound campaign")}</h2>
+          <p class="helper">${escapeHtml(ctx.role || "VP Revenue")} / ${escapeHtml(ctx.company || "TextTraits")} / ${escapeHtml(ctx.goal || "Book call")}</p>
+        </div>
+        <button id="edit-enterprise-inputs" class="button-secondary" type="button">Edit inputs</button>
+      </div>
+      <div class="compact-summary compact-summary-tight">
+        ${summaryItem("Prospect words", `${localStats(state.latestText).words}`)}
+        ${summaryItem("Pain", ctx.pain || "forecast risk")}
+      </div>
+    `;
+    return;
+  }
+
+  els.inputPanel.innerHTML = `
+    <div class="panel-head enterprise-setup-head">
+      <div>
+        <h2>Quick draft setup</h2>
+        <p class="helper">Paste the buyer's own words first. Use the rest only when it helps the draft sound more specific.</p>
+      </div>
+      <span class="interface-label">Draft setup</span>
+    </div>
+
+    <div class="field">
+      <label for="enterprise-text">Prospect context</label>
+      <textarea id="enterprise-text" class="enterprise-compact-textarea" placeholder="Paste a reply, LinkedIn bio, transcript, website paragraph, or previous email.">${escapeHtml(state.latestText)}</textarea>
+    </div>
+
+    <div class="quality-row">
+      <span id="enterprise-count">0 words</span>
+      <span id="enterprise-quality">Add prospect language to generate a brief.</span>
+    </div>
+    <div class="meter"><progress id="enterprise-meter" max="100" value="0">0%</progress></div>
+
+    <details class="advanced-card primary-context compact-context">
+      <summary>Campaign basics</summary>
+      <div class="enterprise-field-grid field-grid-spaced compact-enterprise-fields">
+        ${field("project", "Campaign name", ctx.project || "Forecast risk pilot")}
+        ${field("offer", "What do you sell?", ctx.offer || "a review workspace for outbound drafts, replies, and campaign outcomes")}
+      </div>
+    </details>
+
+    <details class="advanced-card">
+      <summary>Edit setup</summary>
+      <div class="enterprise-field-grid">
+        ${field("role", "Who are you writing to?", ctx.role || "VP Revenue")}
+        ${selectField("goal", "Campaign goal", goals, ctx.goal)}
+        ${field("folder", "Folder", ctx.folder || "RevOps")}
+        ${field("company", "Your company", ctx.company || "TextTraits")}
+        ${field("pain", "Pain hypothesis", ctx.pain || "renewal risk and missed coaching moments")}
+        ${field("proof", "Proof point", ctx.proof || "reduced manual reporting by 32%")}
+        ${selectField("preset", "Output preset", presets, ctx.preset)}
+        ${selectField("industry", "Industry", industries, ctx.industry)}
+        ${selectField("seniority", "Seniority", seniorities, ctx.seniority)}
+        ${field("segment", "Market segment", ctx.segment || "Mid-market SaaS")}
+        ${selectField("stage", "Buying stage", buyingStages, ctx.stage)}
+        ${selectField("source", "Signal source", sources, ctx.source)}
+        ${selectField("region", "Region", regions, ctx.region)}
+        ${field("trigger", "Trigger event", ctx.trigger || "pipeline inspection redesign")}
+        ${field("icp", "ICP fit", ctx.icp || "Revenue teams with 30+ sellers")}
+        ${field("caseStudy", "Case study", ctx.caseStudy || "Series B sales org")}
+        ${field("competitor", "Competitor displacement", ctx.competitor || "spreadsheet-heavy review process")}
+      </div>
+    </details>
+
+    <details class="advanced-card">
+      <summary>Brand voice and recipient preview</summary>
+      <div class="section-title">
+        <strong>Company voice</strong>
+        ${selectField("brandVoice", "Saved profile", brandVoiceProfiles.map((profile) => profile.name), ctx.brandVoice)}
+      </div>
+      <div class="range-row"><span>Direct</span><input id="tone-direct" type="range" min="0" max="100" value="${escapeHtml(ctx.direct || 70)}"><strong>${escapeHtml(ctx.direct || 70)}</strong></div>
+      <div class="range-row"><span>Warm</span><input id="tone-warm" type="range" min="0" max="100" value="${escapeHtml(ctx.warm || 55)}"><strong>${escapeHtml(ctx.warm || 55)}</strong></div>
+      <div class="range-row"><span>Formal</span><input id="tone-formal" type="range" min="0" max="100" value="${escapeHtml(ctx.formal || 62)}"><strong>${escapeHtml(ctx.formal || 62)}</strong></div>
+      <div class="range-row"><span>Technical</span><input id="tone-technical" type="range" min="0" max="100" value="${escapeHtml(ctx.technical || 48)}"><strong>${escapeHtml(ctx.technical || 48)}</strong></div>
+      <div class="range-row"><span>Concise</span><input id="tone-concise" type="range" min="0" max="100" value="${escapeHtml(ctx.concise || 82)}"><strong>${escapeHtml(ctx.concise || 82)}</strong></div>
+      <div class="enterprise-field-grid field-grid-spaced">
+        ${field("firstName", "First name", state.recipient.firstName)}
+        ${field("recipientCompany", "Recipient company", state.recipient.company)}
+        ${field("recipientRole", "Recipient role", state.recipient.role)}
+        ${selectField("template", "Template", outboundTemplates, ctx.template)}
+      </div>
+    </details>
+
+    <details class="advanced-card quiet-samples">
+      <summary>Load example prospect</summary>
+      <p class="muted">Use a reply when you have one; use a bio, transcript, or website copy when you are starting cold.</p>
+      ${sampleButtons(enterpriseSamples, "enterprise-text")}
+    </details>
+
+    <div class="action-row enterprise-actions">
+      <button id="generate-enterprise" type="button">Generate drafts</button>
+      <button id="clear-enterprise" class="button-secondary" type="button">Clear prospect</button>
+    </div>
+  `;
+}
+
+function summaryItem(label, value) {
+  return `<article><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></article>`;
+}
+
+function field(id, label, value) {
+  return `<label class="field"><span>${escapeHtml(label)}</span><input id="field-${id}" value="${escapeHtml(value)}"></label>`;
+}
+
+function selectField(id, label, values, selected = "") {
+  return `
+    <label class="field">
+      <span>${escapeHtml(label)}</span>
+      <select id="field-${id}">${values.map((value) => `<option ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}</select>
+    </label>
+  `;
+}
+
+function choicePillGroup(id, label, values, selected = "") {
+  return `
+    <div class="field choice-field" role="group" aria-label="${escapeHtml(label)}">
+      <span>${escapeHtml(label)}</span>
+      <div class="choice-pill-row">
+        ${values.map((value) => `
+          <button class="choice-pill" type="button" data-choice-field="${escapeHtml(id)}" data-choice-value="${escapeHtml(value)}" aria-pressed="${String(value === selected)}">
+            ${escapeHtml(value)}
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function rewriteTitle(goal = "") {
+  const clean = String(goal || "").trim();
+  const directTitles = {
+    "make this clearer": "Clearer version",
+    "make this warmer": "Warmer version",
+    "make this shorter": "Shorter version",
+    "make it kinder": "Kinder version",
+    "send as email": "Email version",
+    "sound confident": "More confident version",
+    "sound more confident": "More confident version",
+    "sound less harsh": "Less harsh version",
+  };
+  if (!clean) return "Clearer version";
+  if (directTitles[clean.toLowerCase()]) return directTitles[clean.toLowerCase()];
+  if (/\bversion$/i.test(clean)) return clean;
+  return `${clean.replace(/^Make this /i, "").replace(/^Sound /i, "")} version`;
+}
+
+function renderExplorerEmpty() {
+  const profile = explorerProfileSummary();
+  const hasJournal = state.explorerHistory.length >= 2;
+  const latest = state.explorerHistory[0];
+  const streak = explorerStreak();
+  const hasAnyHistory = state.explorerHistory.length > 0;
+  els.outputPanel.innerHTML = `
+    <div class="empty-layout fade-in calm-empty explorer-daily-home">
+      <section class="daily-home-card">
+        <div>
+          <span class="label">Today’s coach</span>
+          <h2>${escapeHtml(dailyPromptTitle())}</h2>
+          <p>${escapeHtml(dailyPromptInstruction())}</p>
+        </div>
+        <button type="button" data-use-daily-prompt>Use prompt</button>
+      </section>
+
+      <article class="today-focus-card">
+        <div>
+          <span class="label">${hasAnyHistory ? "Welcome back" : "First step"}</span>
+          <strong>${hasAnyHistory ? "Write one paragraph for today." : "Start with any real paragraph."}</strong>
+          <p>${hasAnyHistory ? `Current streak: ${streak || 0} day${streak === 1 ? "" : "s"}. ${tomorrowTinyGoal()}` : "Explorer will show how it comes across, one practical edit, and a rewrite you can use."}</p>
+        </div>
+        <button class="button-secondary" type="button" data-open-home-journal>${hasAnyHistory ? "Open journal" : "Show progress"}</button>
+      </article>
+
+      <details class="advanced-card daily-progress-drawer" ${hasAnyHistory ? "" : ""}>
+        <summary>Journal and progress</summary>
+        <div class="daily-home-stats">
+        <article>
+          <span>Streak</span>
+          <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+          <p>${escapeHtml(streakMilestone())}</p>
+        </article>
+        <article>
+          <span>Last entry</span>
+          <strong>${latest ? escapeHtml(latest.name || "Saved reading") : "None yet"}</strong>
+          <p>${latest ? escapeHtml(latest.summary || latest.sourceExcerpt || "Ready for the next reading.") : "Paste one paragraph to begin."}</p>
+        </article>
+        <article>
+          <span>One goal</span>
+          <strong>${escapeHtml(state.explorerWritingGoal || "Make this clearer")}</strong>
+          <p>${escapeHtml(profile.ready ? todayVsLastWeek() || profile.traits.join(" / ") : profile.copy)}</p>
+        </article>
+        <article>
+          <span>Weekly preview</span>
+          <strong>${escapeHtml(state.explorerHistory.length >= 3 ? weeklyRecap() : "Build your recap")}</strong>
+          <p>${escapeHtml(state.explorerHistory.length >= 3 ? "Your weekly recap updates as you save readings." : "Save three readings to unlock trends.")}</p>
+        </article>
+        <article>
+          <span>Tomorrow</span>
+          <strong>One tiny goal</strong>
+          <p>${escapeHtml(tomorrowTinyGoal())}</p>
+        </article>
+        </div>
+
+      ${hasJournal ? `
+      <div class="daily-product-grid daily-home-focus">
+        <article class="guide-card profile-preview-card">
+          <span class="label">${escapeHtml(profile.title)}</span>
+          <strong>${escapeHtml(profile.ready ? "Profile ready" : "Keep saving readings")}</strong>
+          <p>${escapeHtml(profile.copy)}</p>
+        </article>
+        <article class="guide-card">
+          <span class="label">Weekly recap</span>
+          <strong>${escapeHtml(weeklyRecap())}</strong>
+          <p>Save a few short readings to see how your writing changes over time.</p>
+        </article>
+      </div>
+      ` : `
+      <article class="guide-card one-action-card">
+        <span class="label">First step</span>
+        <strong>Write one paragraph.</strong>
+        <p>After the first read, Explorer shows how it comes across, one practical edit, and a rewrite you can use.</p>
+      </article>
+      `}
+      </details>
+    </div>
+  `;
+  els.outputPanel.querySelector("[data-open-home-journal]")?.addEventListener("click", () => {
+    const drawer = els.outputPanel.querySelector(".daily-progress-drawer");
+    if (!drawer) return;
+    drawer.open = true;
+    drawer.scrollIntoView({behavior: "smooth", block: "start"});
+  });
+}
+
+function renderEnterpriseEmpty() {
+  const setupOpen = Boolean(state.enterpriseSetupOpen);
+  const setupHeroAction = setupOpen
+    ? `<span class="setup-open-status" role="status">Draft setup is open</span>`
+    : `<button type="button" data-focus-enterprise-input>Create campaign</button>`;
+  const setupStartAction = setupOpen
+    ? `<span class="setup-open-status" role="status">Draft setup open</span>`
+    : `<button class="button-secondary" type="button" data-focus-enterprise-input>Open draft setup</button>`;
+  els.outputPanel.innerHTML = `
+    <div class="empty-layout fade-in enterprise-empty calm-enterprise-home">
+      <section class="enterprise-today-hero">
+        <div>
+          <span class="interface-label">Workspace</span>
+          <h2>Today's work</h2>
+          <p>Review one buyer signal, approve the best draft, and export only when the setup is connected.</p>
+        </div>
+        ${setupHeroAction}
+      </section>
+
+      <div class="today-grid quiet-dashboard enterprise-start-grid single-start">
+        <article class="strategy-card featured start-card">
+          <span class="label">Start here</span>
+          <strong>Paste a prospect signal.</strong>
+          <p>Generate the first drafts, then move directly into the review queue. Campaign setup stays hidden until you need it.</p>
+          ${setupStartAction}
+        </article>
+      </div>
+
+      <details class="advanced-card enterprise-sample-drawer" ${state.sampleWorkspaceLoaded ? "open" : ""}>
+        <summary>Load sample workspace</summary>
+        <div class="sample-preview-grid">
+          <article>
+            <strong>${state.sampleWorkspaceLoaded ? "Sample workspace loaded" : "Sample workspace"}</strong>
+            ${state.sampleWorkspaceLoaded ? `
+              <div class="queue-list">
+                <span>${state.batchRows.length ? `${state.batchRows.length} prospects to draft` : "Sample: 12 prospects to draft"}</span>
+                <span>${state.inboxThreads.filter((thread) => !thread.handled).length ? `${state.inboxThreads.filter((thread) => !thread.handled).length} replies to answer` : "Sample: 5 replies to answer"}</span>
+                <span>${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length ? `${state.savedCampaigns.filter((campaign) => /review|draft/i.test(campaign.status)).length} campaigns needing review` : "Sample: 3 campaigns needing review"}</span>
+              </div>
+              <div class="result-actions">
+                <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
+                <button class="button-secondary" type="button" data-load-sample-workspace>Refresh sample data</button>
+              </div>
+            ` : `
+              <p class="muted">Use this only when you want a populated demo. It is separate from the main campaign path.</p>
+              <div class="result-actions">
+                <button class="button-secondary" type="button" data-generate-sample-drafts>Generate sample drafts</button>
+                <button class="button-secondary" type="button" data-load-sample-workspace>Load full sample data</button>
+              </div>
+            `}
+          </article>
+          <article>
+            <strong>Preview-only setup</strong>
+            <p class="muted">CRM, inbox, Chrome sidebar, and admin tools stay marked as setup required until credentials are connected.</p>
+          </article>
+        </div>
+        <details class="preview-note nested-preview-note">
+          <summary>Workflow, preferences, and setup notes</summary>
+          <div class="flow-path enterprise-flow-drawer">
+            ${["Import prospects", "Generate drafts", "Review", "Export/send", "Track outcomes"].map((step, index) => `
+              <article class="${index === 0 ? "is-active" : ""}">
+                <span>${index + 1}</span>
+                <strong>${escapeHtml(step)}</strong>
+              </article>
+            `).join("")}
+          </div>
+          ${renderOnboardingCard("enterprise")}
+          <div class="feature-list">
+            ${[
+              "Saved campaigns",
+              "Project sidebar tree",
+              "Admin settings",
+              "API keys",
+              "Usage analytics",
+              "Approval workflow",
+              "Reusable outbound templates",
+              "Inbox and reply analysis mode",
+              "Sequence calendar with follow-up timing",
+              "Team comments and approvals",
+              "Learn from winning replies",
+              "Manager coaching dashboard",
+            ].map((item) => `<span>${escapeHtml(item)} / setup</span>`).join("")}
+          </div>
+        </details>
+      </details>
+    </div>
+  `;
+  els.outputPanel.querySelectorAll("[data-focus-enterprise-input]").forEach((button) => button.addEventListener("click", () => {
+    state.enterpriseSetupOpen = true;
+    persistWorkspace();
+    render();
+    requestAnimationFrame(() => document.querySelector("#enterprise-text")?.focus());
+  }));
+  els.outputPanel.querySelector("[data-load-sample-workspace]")?.addEventListener("click", (event) => {
+    state.sampleWorkspaceLoaded = true;
+    state.batchInput = sampleCsv;
+    state.batchErrors = [];
+    state.batchRows = parseCsv(sampleCsv, state.batchMapping);
+    state.batchProgress = state.batchRows.length ? 100 : 0;
+    state.inboxThreads = sampleInboxThreads.map((thread) => ({
+      ...thread,
+      reply: inboxReply(thread, enterpriseContext()),
+    }));
+    state.lastActionNote = "Sample workspace loaded for preview.";
+    persistWorkspace();
+    showToast(event.currentTarget, "Sample workspace loaded.");
+    renderEnterpriseEmpty();
+  });
+  els.outputPanel.querySelector("[data-generate-sample-drafts]")?.addEventListener("click", () => {
+    const sample = enterpriseSamples[0];
+    state.latestText = sample.text;
+    state.latestData = null;
+    state.enterpriseDrafts = [];
+    state.enterpriseContext = {...(state.enterpriseContext || {}), ...(sample.context || {})};
+    state.enterpriseSetupOpen = false;
+    state.enterpriseLandingTab = "dashboard";
+    persistWorkspace();
+    runAnalysis(sample.text);
+  });
+}
+
+function renderOnboardingCard(mode) {
+  if (state.onboarding.complete) return "";
+  if (mode === "enterprise") {
+    return `
+      <details class="onboarding-card onboarding-drawer">
+        <summary><span><strong>Personalize workspace</strong><small>Optional first-run setup</small></span></summary>
+        <strong>What should this workspace help your team improve?</strong>
+        <div class="field-grid">
+          ${selectField("onboardingEnterpriseGoal", "Primary workflow", ["Review outbound drafts", "Answer replies faster", "Import and approve batches", "Track campaign outcomes"], state.onboarding.enterpriseGoal)}
+          ${selectField("onboardingTeamSize", "Team size", ["1-5", "6-25", "26-100", "100+"], state.onboarding.teamSize)}
+        </div>
+        <div class="result-actions">
+          <button type="button" data-save-onboarding="enterprise">Save workspace setup</button>
+          <button class="button-secondary" type="button" data-skip-onboarding>Skip for now</button>
+        </div>
+      </details>
+    `;
+  }
+  return `
+    <details class="onboarding-card onboarding-drawer">
+      <summary><span><strong>Personalize your coach</strong><small>Optional first-run setup</small></span></summary>
+      <strong>What are you here to improve?</strong>
+      <div class="field-grid">
+        ${selectField("onboardingExplorerGoal", "Writing goal", ["Clearer everyday writing", "Warmer messages", "Better essays", "Professional confidence", "Hard conversations"], state.onboarding.explorerGoal)}
+        ${selectField("onboardingPlan", "Coach plan", ["7-day plan", "30-day plan", "Weekly check-in"], state.onboarding.plan || "7-day plan")}
+      </div>
+      <div class="result-actions">
+        <button type="button" data-save-onboarding="explorer">Save writing setup</button>
+        <button class="button-secondary" type="button" data-skip-onboarding>Skip for now</button>
+      </div>
+    </details>
+  `;
+}
+
+async function evaluateText(text) {
+  return apiClient.evaluate({text, model: "local"});
+}
+
+function score(prediction) {
+  if (!prediction?.alternatives?.length) return 0;
+  return Math.max(Number(prediction.confidence || 0) - 0.5, 0) * 2;
+}
+
+function separation(prediction) {
+  const value = score(prediction);
+  if (value > 0.66) return "high";
+  if (value > 0.33) return "medium";
+  return "low";
+}
+
+function mbtiLetter(prediction, options) {
+  const raw = String(prediction?.label || prediction?.raw_label || "").toLowerCase();
+  return options[raw] || "?";
+}
+
+function mbtiCode(dims) {
+  if (!dims) return "----";
+  return [
+    mbtiLetter(dims.energy, {extraverted: "E", introverted: "I"}),
+    mbtiLetter(dims.information, {sensing: "S", intuitive: "N"}),
+    mbtiLetter(dims.decisions, {thinking: "T", feeling: "F"}),
+    mbtiLetter(dims.structure, {judging: "J", perceiving: "P"}),
+  ].join("");
+}
+
+function mbtiMeaning(code) {
+  const map = {
+    E: "expressive energy",
+    I: "measured energy",
+    S: "concrete detail",
+    N: "conceptual framing",
+    T: "logic-led decisions",
+    F: "people-aware decisions",
+    J: "structured pacing",
+    P: "open-ended pacing",
+  };
+  return code.split("").map((letter) => map[letter] || "mixed signal").join(", ");
+}
+
+function readingEffortLabel(stats) {
+  const wordsPerSentence = Number(stats?.words || 0) / Math.max(Number(stats?.sentences || 1), 1);
+  if (wordsPerSentence < 12) return "Easy read";
+  if (wordsPerSentence < 20) return "Comfortable read";
+  return "Needs a slower read";
+}
+
+function readingEffortCopy(stats) {
+  const label = readingEffortLabel(stats);
+  if (label === "Easy read") return "Shorter sentence groups make this quick to follow.";
+  if (label === "Comfortable read") return "The writing has useful detail without feeling too heavy.";
+  return "The writing asks the reader to hold several ideas at once, so breaking it up may help.";
+}
+
+function dimensionLabel(prediction, dimension) {
+  const raw = String(prediction?.label || prediction?.raw_label || "").toLowerCase();
+  const labels = {
+    energy: {extraverted: "Sounds energetic", introverted: "Sounds calm"},
+    information: {sensing: "You explain with examples", intuitive: "You lead with the big idea"},
+    decisions: {thinking: "You make the point directly", feeling: "You consider how it lands"},
+    structure: {judging: "It feels organized", perceiving: "It leaves room to explore"},
+  };
+  return labels[dimension]?.[raw] || "Mixed";
+}
+
+function dimensionCopy(prediction, dimension) {
+  const raw = String(prediction?.label || prediction?.raw_label || "").toLowerCase();
+  const copy = {
+    energy: {
+      extraverted: "This sounds animated and outward-facing, like it is trying to move the reader along.",
+      introverted: "This sounds calm and careful, like it is choosing words without extra drama.",
+    },
+    information: {
+      sensing: "This uses practical details and real situations instead of staying abstract.",
+      intuitive: "This focuses on the bigger idea more than step-by-step details.",
+    },
+    decisions: {
+      thinking: "This gets to the point and explains the reason behind the thought.",
+      feeling: "This pays attention to people, expectations, and how the message might land.",
+    },
+    structure: {
+      judging: "This feels organized and moves toward a clear takeaway.",
+      perceiving: "This feels more exploratory and leaves room for possibilities.",
+    },
+  };
+  return copy[dimension]?.[raw] || "This part of the style is mixed, so treat it as a light clue.";
+}
+
+function signalStrength(prediction) {
+  const value = score(prediction);
+  if (value > 0.66) return "clear";
+  if (value > 0.33) return "moderate";
+  return "subtle";
+}
+
+function dimensionRows(dims) {
+  return [
+    {key: "energy", title: "How it sounds", prediction: dims.energy},
+    {key: "information", title: "What it pays attention to", prediction: dims.information},
+    {key: "decisions", title: "How it makes its point", prediction: dims.decisions},
+    {key: "structure", title: "How organized it feels", prediction: dims.structure},
+  ];
+}
+
+function plainStyleSummary(stats, dims, strongest) {
+  const strongestKey = strongest?.[2] || "information";
+  const strongestPrediction = strongest?.[1];
+  const strongestLabel = dimensionLabel(strongestPrediction, strongestKey);
+  return `${readingEffortCopy(stats)} The clearest thing about it: ${styleSentence(strongestLabel)} Keep that strength, then make the main point easy to spot.`;
+}
+
+function humanFirstRead(stats, strongest, source = "note") {
+  const noun = source === "text message" ? "message" : source === "email" ? "email" : source === "essay" ? "paragraph" : source === "reply" ? "reply" : source === "decision note" ? "decision note" : "note";
+  const key = strongest?.[2] || "";
+  const label = dimensionLabel(strongest?.[1], key);
+  if (key === "energy" && label === "Sounds calm") {
+    return {
+      title: `This ${noun} sounds calm and careful`,
+      copy: "It gives the reader a steady feeling. Add the next step a little earlier so they know what to do with it.",
+    };
+  }
+  if (key === "energy" && label === "Sounds energetic") {
+    return {
+      title: `This ${noun} sounds lively and ready to move`,
+      copy: "The energy helps the message feel active. Cutting one extra phrase will make the point land faster.",
+    };
+  }
+  if (key === "information" && label === "You explain with examples") {
+    return {
+      title: "You make it easier to picture",
+      copy: `This ${noun} uses real details instead of staying vague. Add one sentence that says why those details matter.`,
+    };
+  }
+  if (key === "information" && label === "You lead with the big idea") {
+    return {
+      title: "You start with the big idea",
+      copy: "The direction is easy to understand. One everyday example would make it feel more concrete.",
+    };
+  }
+  if (key === "decisions" && label === "You consider how it lands") {
+    return {
+      title: `This ${noun} sounds thoughtful`,
+      copy: "It pays attention to how the reader may feel. Make the ask or takeaway a little more direct.",
+    };
+  }
+  if (key === "decisions") {
+    return {
+      title: "This gets to the point",
+      copy: "The reason behind the message is visible. Add one warmer phrase if the reader may need reassurance.",
+    };
+  }
+  if (key === "structure" && label === "It feels organized") {
+    return {
+      title: `This ${noun} feels organized`,
+      copy: "The order helps the reader follow you. The next improvement is making the main sentence stand out.",
+    };
+  }
+  return {
+    title: `This ${noun} has a steady shape`,
+    copy: `${readingEffortCopy(stats)} Pick one sentence to make simpler and the whole piece will feel easier to read.`,
+  };
+}
+
+function styleSentence(label) {
+  const clean = String(label || "Mixed").toLowerCase();
+  if (clean.startsWith("you ")) return `${clean}.`;
+  if (clean.startsWith("it ")) return `${clean}.`;
+  if (clean.startsWith("sounds ")) return `it ${clean}.`;
+  return `${clean}.`;
+}
+
+function nextWritingAction(stats, strongest) {
+  const strongestKey = strongest?.[2] || "";
+  const label = dimensionLabel(strongest?.[1], strongestKey);
+  if (readingEffortLabel(stats) === "Needs a slower read") return "Try splitting the longest sentence into two shorter ones.";
+  if (strongestKey === "energy" && label === "Sounds calm") return "Add one sentence that says what you want the reader to do next.";
+  if (strongestKey === "energy" && label === "Sounds energetic") return "Keep the energy, but cut one extra phrase so the point lands faster.";
+  if (strongestKey === "information" && label === "You explain with examples") return "Keep the examples and add one short sentence that explains why they matter.";
+  if (strongestKey === "information" && label === "You lead with the big idea") return "Add one concrete example so the idea is easier to picture.";
+  if (strongestKey === "decisions") return "Make the main takeaway visible in the first or last sentence.";
+  return "Read it once out loud and mark the sentence you would keep if you could only keep one.";
+}
+
+function explorerLogSummary() {
+  const runs = state.explorerHistory.length;
+  const today = state.explorerHistory.filter((item) => item.day === todayKey()).length;
+  if (!runs) return "No saved readings yet. Analyze a sample to start your writing log.";
+  return `${runs} saved ${runs === 1 ? "reading" : "readings"}${today ? `, ${today} today` : ""}.`;
+}
+
+function explorerStreak() {
+  const days = [...new Set(state.explorerHistory.map((item) => item.day))].sort().reverse();
+  if (!days.length) return 0;
+  let streak = 0;
+  const current = new Date();
+  for (let offset = 0; offset < 30; offset += 1) {
+    const key = new Date(current.getFullYear(), current.getMonth(), current.getDate() - offset).toISOString().slice(0, 10);
+    if (!days.includes(key)) break;
+    streak += 1;
+  }
+  return streak;
+}
+
+function usualWritingSummary() {
+  if (state.explorerHistory.length < 3) return "Save 3 readings to unlock your usual writing profile.";
+  const recent = state.explorerHistory.slice(0, 5);
+  const counts = recent.reduce((acc, item) => {
+    acc[item.feel] = (acc[item.feel] || 0) + 1;
+    return acc;
+  }, {});
+  const [feel] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0] || ["steady"];
+  return `You usually write in a ${String(feel).toLowerCase()} style, with ${recent.length} recent samples saved.`;
+}
+
+function clarityScore(stats, strongest) {
+  const base = 72;
+  const lengthBoost = Math.min(Number(stats.words || 0), 90) / 90 * 10;
+  const sentencePenalty = readingEffortLabel(stats) === "Needs a slower read" ? -8 : readingEffortLabel(stats) === "Easy read" ? 5 : 2;
+  const strengthBoost = score(strongest?.prediction) * 10;
+  return Math.max(42, Math.min(98, Math.round(base + lengthBoost + sentencePenalty + strengthBoost)));
+}
+
+function clarityBand(scoreValue) {
+  if (scoreValue >= 86) return "Easy to follow";
+  if (scoreValue >= 72) return "Mostly clear";
+  if (scoreValue >= 58) return "Needs a little cleanup";
+  return "Hard to follow";
+}
+
+function streakCopy() {
+  const streak = explorerStreak();
+  if (!streak) return "Save today’s reading, then come back tomorrow for the next prompt.";
+  if (streak === 1) return "You wrote today. Come back tomorrow to keep the rhythm.";
+  return `${streak} days in a row. Come back tomorrow for the next small improvement.`;
+}
+
+function tomorrowTinyGoal() {
+  const history = state.explorerHistory;
+  if (!history.length) return "Write one honest paragraph and make one sentence easier to read.";
+  const last = history[0];
+  const clue = String(last.primaryClue || last.clue || "").toLowerCase();
+  if (clue.includes("organized")) return "Keep the structure, then make the first sentence warmer.";
+  if (clue.includes("examples") || clue.includes("detail")) return "Keep one concrete example and cut one extra setup line.";
+  if (clue.includes("calm")) return "Keep the calm tone and add the next step earlier.";
+  if (clue.includes("direct")) return "Keep the direct point and soften one phrase for the reader.";
+  return "Write a shorter version of one message you already need to send.";
+}
+
+function dailyCompletionMessage() {
+  const savedToday = state.explorerHistory.some((item) => item.day === todayKey());
+  if (savedToday) return "Nice, today’s note is logged. Come back tomorrow for one small writing rep.";
+  return "You have a useful read for today. Save it when you want this to count toward your streak.";
+}
+
+function milestoneCardText() {
+  const count = state.explorerHistory.length;
+  if (count >= 10) return "10 saved readings: you can now see your usual strengths and cleanup spots.";
+  if (count >= 5) return "5 saved readings: your personal writing profile is starting to feel useful.";
+  if (count >= 3) return "3 saved readings: your weekly recap is ready.";
+  return `${Math.max(1, 3 - count)} more saved reading${3 - count === 1 ? "" : "s"} unlocks a weekly recap.`;
+}
+
+function streakMilestone() {
+  const streak = explorerStreak();
+  if (!streak) return "Today can be day one.";
+  if (streak < 3) return `${3 - streak} more day${3 - streak === 1 ? "" : "s"} to a 3-day rhythm.`;
+  if (streak < 7) return `${7 - streak} more day${7 - streak === 1 ? "" : "s"} to a weekly streak.`;
+  return "Weekly rhythm unlocked. Keep it light and repeatable.";
+}
+
+function todayVsLastWeek() {
+  if (state.explorerHistory.length < 6) return "";
+  const recent = state.explorerHistory.slice(0, 3);
+  const previous = state.explorerHistory.slice(3, 6);
+  const avg = (items) => Math.round(items.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / Math.max(items.length, 1));
+  const diff = avg(recent) - avg(previous);
+  if (Math.abs(diff) < 2) return "Your clarity is holding steady compared with your previous saved samples.";
+  return diff > 0 ? `Your recent writing is ${diff} points easier to follow than the previous set.` : `Your recent writing needs ${Math.abs(diff)} points more cleanup than the previous set.`;
+}
+
+function filteredExplorerHistory() {
+  const query = state.explorerJournalSearch.trim().toLowerCase();
+  return state.explorerHistory.filter((entry) => {
+    const folder = entry.folder || "Daily";
+    const matchesFolder = state.explorerJournalFolder === "All" || folder === state.explorerJournalFolder;
+    const haystack = `${entry.name || ""} ${folder} ${entry.goal || ""} ${entry.clue || ""} ${entry.summary || ""} ${entry.sourceExcerpt || ""}`.toLowerCase();
+    return matchesFolder && (!query || haystack.includes(query));
+  });
+}
+
+function weeklyRecapCards(profile) {
+  const entries = state.explorerHistory;
+  const streak = explorerStreak();
+  const avgClarity = entries.length ? Math.round(entries.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / entries.length) : 0;
+  const avgWords = entries.length ? Math.round(entries.reduce((sum, item) => sum + Number(item.words || 0), 0) / entries.length) : 0;
+  const folderSummary = folderCounts().filter(([, count]) => count).map(([folder, count]) => `${folder}: ${count}`).join(" / ") || "No folders yet";
+  return `
+    <div class="weekly-recap-page">
+      <article>
+        <span class="label">Streak</span>
+        <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+        <p>${escapeHtml(streakCopy())}</p>
+      </article>
+      <article>
+        <span class="label">Average clarity</span>
+        <strong>${avgClarity ? clarityBand(avgClarity) : "Not enough yet"}</strong>
+        <p>${avgClarity ? `${avgClarity}/100 across ${entries.length} saved readings.` : "Save readings to build a weekly trend."}</p>
+      </article>
+      <article>
+        <span class="label">Usual length</span>
+        <strong>${avgWords ? `${avgWords} words` : "No average yet"}</strong>
+        <p>${escapeHtml(folderSummary)}</p>
+      </article>
+      <article>
+        <span class="label">${escapeHtml(profile.title)}</span>
+        <strong>${escapeHtml(profile.ready ? profile.traits[0] : "Keep saving")}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </article>
+    </div>
+  `;
+}
+
+function journalMonthLabel(entry) {
+  const date = new Date(entry.timestamp || entry.day || Date.now());
+  if (Number.isNaN(date.getTime())) return "Saved readings";
+  return date.toLocaleDateString([], {month: "long", year: "numeric"});
+}
+
+function explorerJournalEntryHtml(entry, index) {
+  return `
+    <article class="journal-entry">
+      <time>${escapeHtml(entry.date || entry.day || "Saved reading")}</time>
+      <div class="journal-entry-card">
+        <div class="section-title">
+          <div>
+            <strong>${escapeHtml(entry.name || `Reading ${index + 1}`)}</strong>
+            <span>${escapeHtml(entry.folder || "Daily")} / ${escapeHtml(entry.goal || "Make this clearer")}</span>
+          </div>
+          <em>${escapeHtml(clarityBand(entry.clarity || 70))}</em>
+        </div>
+        <p>${escapeHtml(entry.summary || entry.sourceExcerpt || entry.feel || "Saved writing sample")}</p>
+        <div class="journal-before-after">
+          <span><strong>Before</strong>${escapeHtml(entry.sourceExcerpt || "Original text saved in this browser.")}</span>
+          <span><strong>Trend</strong>${escapeHtml(index === 0 ? (todayVsLastWeek() || "Newest saved reading.") : entry.clue || "Style note")}</span>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function explorerJournalPanel() {
+  const entries = filteredExplorerHistory().slice(0, 8);
+  const total = state.explorerHistory.length;
+  if (!total) return `<p class="muted">No saved readings yet. Save a reading to start your journal.</p>`;
+  const grouped = entries.reduce((acc, entry, index) => {
+    const label = journalMonthLabel(entry);
+    if (!acc[label]) acc[label] = [];
+    acc[label].push([entry, index]);
+    return acc;
+  }, {});
+  return `
+    <div class="journal-tools">
+      <label class="field"><span>Search journal</span><input id="journal-search" value="${escapeHtml(state.explorerJournalSearch)}" placeholder="Search saved readings"></label>
+      ${selectField("journalFolder", "Folder", ["All", ...explorerFolders], state.explorerJournalFolder)}
+      <div class="journal-filter-actions">
+        <button class="button-secondary" type="button" data-apply-journal-filter>Apply</button>
+        <button class="button-secondary quiet-button" type="button" data-clear-journal-filter>Clear</button>
+      </div>
+      <span class="saved-state">${entries.length} of ${total} shown</span>
+    </div>
+    ${entries.length ? "" : `<p class="muted">No readings match this filter.</p>`}
+    <div class="journal-timeline" aria-label="Saved writing timeline">
+      ${Object.entries(grouped).map(([month, monthEntries]) => `
+        <section class="journal-month-group" aria-label="${escapeHtml(month)}">
+          <h3>${escapeHtml(month)}</h3>
+          ${monthEntries.map(([entry, index]) => explorerJournalEntryHtml(entry, index)).join("")}
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
+function weeklyRecapPanel(profile) {
+  return `
+    <div class="weekly-recap-panel">
+      <article>
+        <span class="label">This week</span>
+        <strong>${escapeHtml(weeklyRecap())}</strong>
+        <p>${escapeHtml(todayVsLastWeek() || "Save a few more readings to compare this week with previous samples.")}</p>
+      </article>
+      <article>
+        <span class="label">${escapeHtml(profile.title)}</span>
+        <strong>${escapeHtml(profile.ready ? profile.traits[0] : "Profile in progress")}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </article>
+    </div>
+  `;
+}
+
+function explorerProfileSummary() {
+  if (state.explorerHistory.length < 3) {
+    return {
+      ready: false,
+      title: "Personal style profile",
+      copy: `${Math.max(0, 3 - state.explorerHistory.length)} more saved readings unlock a more useful profile.`,
+      traits: ["Usual strengths", "Common cleanup", "Weekly trend"],
+    };
+  }
+  const recent = state.explorerHistory.slice(0, 8);
+  const avgWords = Math.round(recent.reduce((sum, item) => sum + Number(item.words || 0), 0) / recent.length);
+  const avgScore = Math.round(recent.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / recent.length);
+  const common = Object.entries(recent.reduce((acc, item) => {
+    acc[item.primaryClue || item.feel] = (acc[item.primaryClue || item.feel] || 0) + 1;
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1])[0]?.[0] || "clear and steady";
+  return {
+    ready: true,
+    title: "You usually write...",
+    copy: `Your recent samples average ${avgWords} words with a ${avgScore}/100 clarity score. The most common pattern is ${common.toLowerCase()}.`,
+    traits: [`${avgScore}/100 clarity`, `${avgWords} words`, common],
+  };
+}
+
+function looksLikeReply(text = "") {
+  const clean = String(text || "").toLowerCase();
+  return [
+    /\b(not now|unsubscribe|remove me|already have|send over|circle back)\b/,
+    /\b(next week|who owns|talk to|intro|referral|loop in)\b/,
+    /\b(sounds good|interested|no budget|not this quarter|can look|worth a call)\b/,
+  ].some((pattern) => pattern.test(clean));
+}
+
+function replyTriage(text = "") {
+  const clean = String(text || "").toLowerCase();
+  if (/\b(unsubscribe|remove me|stop emailing)\b/.test(clean)) {
+    return {
+      type: "Unsubscribe",
+      urgency: "Handle now",
+      meaning: "They are asking to stop the conversation.",
+      next: "Acknowledge it once, mark it handled, and do not keep following up.",
+      reply: "Understood. I will remove you from this sequence.",
+    };
+  }
+  if (/\b(interested|send|next week|worth|look|call|meeting|talk)\b/.test(clean)) {
+    return {
+      type: "Interested",
+      urgency: "High",
+      meaning: "They are open, but they still need a simple next step.",
+      next: "Answer the condition they named, then suggest one clear time or action.",
+      reply: "Thanks, that makes sense. The simplest next step is a short look at the exact concern you named. Would a focused 15 minutes next week work?",
+    };
+  }
+  if (/\b(already have|budget|not a priority|too busy|no need|not this quarter)\b/.test(clean)) {
+    return {
+      type: "Objection",
+      urgency: "Medium",
+      meaning: "They are pushing back on timing, category, or need.",
+      next: "Do not argue. Reflect the concern and offer a smaller, lower-pressure next step.",
+      reply: "That makes sense. I am not trying to add another thing to evaluate; the useful question is whether the specific issue you mentioned is worth a smaller fix later.",
+    };
+  }
+  if (/\b(loop|intro|talk to|owns this|right person|forward)\b/.test(clean)) {
+    return {
+      type: "Referral",
+      urgency: "Medium",
+      meaning: "They are redirecting you to someone else.",
+      next: "Make forwarding easy with two short bullets and no extra ask.",
+      reply: "Thanks, that helps. I can send two bullets you can forward, or I am happy to write the note directly to the right owner.",
+    };
+  }
+  return {
+    type: "Needs context",
+    urgency: "Low",
+    meaning: "The reply is not giving a strong yes or no yet.",
+    next: "Ask one clarifying question instead of sending a long explanation.",
+    reply: "Thanks for the context. What would be the most useful next step from here?",
+  };
+}
+
+function decisionDraft(text = "") {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const context = sentences[0] || "The decision needs a little more context.";
+  const options = (clean.match(/\b(option|either|or|instead|alternative)\b/i))
+    ? "Name the two or three choices explicitly before the recommendation."
+    : "Add the real choices so the reader can see what you considered.";
+  const recommendation = (clean.match(/\b(i think|recommend|should|best|i want)\b/i)?.[0])
+    ? "Move the recommendation into its own sentence so it is hard to miss."
+    : "Add one sentence that says which choice you recommend.";
+  const next = extractActionPhrase(clean) || "name the owner and the next step";
+  return {context, options, recommendation, next};
+}
+
+function explorerWorkflowCards(text, sourceType) {
+  const cards = [];
+  if (sourceType === "reply" || looksLikeReply(text)) {
+    const triage = replyTriage(text);
+    cards.push(`
+      <article class="strategy-card workflow-card triage-card">
+        <span class="label">Reply triage</span>
+        <strong>${escapeHtml(triage.type)} / ${escapeHtml(triage.urgency)}</strong>
+        <div class="mini-grid">
+          <span><b>What they mean</b>${escapeHtml(triage.meaning)}</span>
+          <span><b>What to say next</b>${escapeHtml(triage.next)}</span>
+        </div>
+        <p class="suggested-reply">${escapeHtml(triage.reply)}</p>
+        <button class="button-secondary" type="button" data-copy-reply-triage>Copy suggested reply</button>
+      </article>
+    `);
+  }
+  if (sourceType === "decision note" || /\b(decision|option|recommend|should we|next step|tradeoff|priority)\b/i.test(text)) {
+    const draft = decisionDraft(text);
+    cards.push(`
+      <article class="strategy-card workflow-card decision-card">
+        <span class="label">Decision Draft Mode</span>
+        <strong>Turn this into a clear decision note</strong>
+        <div class="mini-grid">
+          <span><b>Context</b>${escapeHtml(draft.context)}</span>
+          <span><b>Options</b>${escapeHtml(draft.options)}</span>
+          <span><b>Recommendation</b>${escapeHtml(draft.recommendation)}</span>
+          <span><b>Next step</b>${escapeHtml(draft.next)}</span>
+        </div>
+      </article>
+    `);
+  }
+  return cards.length ? `<div class="coach-insight-grid ${cards.length === 1 ? "is-single" : ""}">${cards.join("")}</div>` : "";
+}
+
+function personalStyleProfileCard(profile, currentClarity) {
+  const improvement = todayVsLastWeek() || "Save a few more entries to compare this week against your earlier writing.";
+  return `
+    <article class="strategy-card personal-profile-card">
+      <div>
+        <span class="label">Personal Style Profile</span>
+        <strong>${escapeHtml(profile.title)}</strong>
+        <p>${escapeHtml(profile.copy)}</p>
+      </div>
+      <div class="profile-snapshot">
+        ${profile.traits.map((traitText) => `<span>${escapeHtml(traitText)}</span>`).join("")}
+        <span>${escapeHtml(clarityBand(currentClarity))} today</span>
+      </div>
+      <p class="muted">${escapeHtml(improvement)}</p>
+    </article>
+  `;
+}
+
+function weeklyRecap() {
+  if (!state.explorerHistory.length) return "Save readings this week to get a recap.";
+  const now = new Date();
+  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  const recent = state.explorerHistory.filter((item) => new Date(item.timestamp || item.day) >= weekAgo);
+  if (!recent.length) return "No saved readings in the last 7 days yet.";
+  const avg = Math.round(recent.reduce((sum, item) => sum + Number(item.clarity || 70), 0) / recent.length);
+  const best = [...recent].sort((a, b) => Number(b.clarity || 0) - Number(a.clarity || 0))[0];
+  return `${recent.length} readings this week. Average clarity: ${avg}/100. Clearest sample: ${best?.name || "untitled reading"}.`;
+}
+
+function folderCounts() {
+  return explorerFolders.map((folder) => [folder, state.explorerHistory.filter((item) => (item.folder || "Daily") === folder).length]);
+}
+
+function explorerHistoryList() {
+  if (!state.explorerHistory.length) return `<p class="muted">No saved readings yet.</p>`;
+  return `
+    <div class="history-list">
+      ${state.explorerHistory.slice(0, 8).map((item, index) => `
+        <article>
+          <strong>${escapeHtml(item.name || `Reading ${state.explorerHistory.length - index}`)}</strong>
+          <span>${escapeHtml(item.date)} / ${escapeHtml(item.folder || "Daily")} / ${escapeHtml(item.words)} words / ${escapeHtml(item.clarity || 70)} clarity</span>
+          <small>${escapeHtml(item.clue)}</small>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function explorerComparison(stats) {
+  const previous = state.explorerHistory[1];
+  if (!previous) return "Save another reading to compare how today's writing differs from your last sample.";
+  const delta = stats.words - Number(previous.words || 0);
+  const direction = delta === 0 ? "the same length as" : delta > 0 ? `${delta} words longer than` : `${Math.abs(delta)} words shorter than`;
+  return `Today is ${direction} your previous saved sample. Last time felt ${String(previous.feel).toLowerCase()}.`;
+}
+
+function explorerSnapshot(data, text) {
+  const stats = data.predictions.text_stats || localStats(text);
+  const dims = data.predictions.mbti_dimensions || {};
+  const strongest = dimensionRows(dims).sort((a, b) => score(b.prediction) - score(a.prediction))[0];
+  return {
+    day: todayKey(),
+    timestamp: new Date().toISOString(),
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+    name: state.explorerReadingName || "",
+    folder: state.explorerFolder || "Daily",
+    goal: state.explorerWritingGoal || "Make this clearer",
+    messageMode: state.explorerMessageMode || "Everyday note",
+    words: localStats(text).words,
+    sourceExcerpt: text.trim().replace(/\s+/g, " ").slice(0, 240),
+    feel: readingEffortLabel(stats),
+    clarity: clarityScore(stats, strongest),
+    primaryClue: dimensionLabel(strongest?.prediction, strongest?.key),
+    clue: `${strongest?.title || "Style"}: ${dimensionLabel(strongest?.prediction, strongest?.key)}`,
+    summary: plainStyleSummary(stats, dims, [strongest?.title, strongest?.prediction, strongest?.key]),
+  };
+}
+
+function ageRangeLabel(prediction) {
+  const raw = Number(prediction?.raw_value);
+  let value = Number.isFinite(raw) ? raw : NaN;
+  if (!Number.isFinite(value)) {
+    const match = String(prediction?.label || "").match(/(\d+(\.\d+)?)/);
+    value = match ? Number(match[1]) : NaN;
+  }
+  if (!Number.isFinite(value)) return String(prediction?.label || "Unavailable");
+  if (value < 25) return "Under 25 range";
+  if (value < 35) return "25 to 34 range";
+  if (value < 45) return "35 to 44 range";
+  if (value < 55) return "45 to 54 range";
+  return "55+ range";
+}
+
+function cueChips(prediction) {
+  const terms = prediction?.cue_terms || [];
+  if (!terms.length) return `<p class="muted">No standout words returned for this part.</p>`;
+  return `<div class="chip-list">${terms.map((item) => `<span class="chip">${escapeHtml(item.term)}</span>`).join("")}</div>`;
+}
+
+function cueGroups(dims) {
+  const groups = dimensionRows(dims).map((row) => [row.title, row.prediction]);
+  return `
+    <div class="cue-groups">
+      ${groups.map(([label, prediction]) => `
+        <article>
+          <strong>${escapeHtml(label)}</strong>
+          ${cueChips(prediction)}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function bars(prediction) {
+  const alternatives = prediction?.alternatives || [];
+  if (!alternatives.length) return `<p class="muted">No distribution available.</p>`;
+  return `
+    <div class="bars">
+      ${alternatives.map((item) => `
+        <div class="bar-row">
+          <span>${escapeHtml(item.label)}</span>
+          <meter class="bar-meter" min="0" max="1" value="${Math.max(Number(item.probability || 0), 0.02)}"></meter>
+          <strong>${percent(item.probability)}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderExplorerResult(data) {
+  syncBodyState();
+  const p = data.predictions;
+  const stats = p.text_stats || localStats(state.latestText);
+  const dims = p.mbti_dimensions || {};
+  const rows = dimensionRows(dims);
+  const strongestRow = rows.sort((a, b) => score(b.prediction) - score(a.prediction))[0];
+  const strongest = [strongestRow?.title, strongestRow?.prediction, strongestRow?.key];
+  const strongestLabel = dimensionLabel(strongest?.[1], strongest?.[2]);
+  const summary = plainStyleSummary(stats, dims, strongest);
+  const mode = currentMessageMode();
+  const sourceType = messageModeSource(mode, state.latestText) || inferExplorerSource(state.latestText, "");
+  const firstRead = humanFirstRead(stats, strongest, sourceType);
+  const nextAction = nextWritingAction(stats, strongest);
+  const profile = explorerProfileSummary();
+  const currentClarity = clarityScore(stats, strongestRow);
+  const rewritePreview = withTerminalPunctuation(makeExplorerRewrite(state.latestText, state.explorerRewriteMode));
+  const rewriteTitleText = rewriteTitle(state.explorerRewriteGoal);
+  const workflowCards = explorerWorkflowCards(state.latestText, sourceType);
+  const latestEntry = state.explorerHistory[0];
+  const streak = explorerStreak();
+  if (!["overview", "style", "rewrite", "technical"].includes(state.activeExplorerTab)) {
+    state.activeExplorerTab = "style";
+  }
+  if (state.activeExplorerTab === "overview" || state.activeExplorerTab === "rewrite") {
+    state.activeExplorerTab = "style";
+  }
+
+  els.outputPanel.innerHTML = `
+    <div class="result-layout explorer-result fade-in">
+      <div class="result-header">
+        <div>
+          <p class="label">Explorer coach</p>
+          <h2>How this comes across</h2>
+          <p class="muted">${stats.words} words analyzed. Start with the plain read, then choose one small rewrite.</p>
+        </div>
+        <div class="toolbar">
+          <button class="button-secondary" data-edit-explorer-input>Edit input</button>
+          <button class="button-secondary" data-new-sample>Analyze another piece</button>
+          <button class="button-secondary" type="button" data-open-journal aria-controls="explorer-journal" aria-expanded="${String(state.explorerJournalOpen)}">Open journal</button>
+        </div>
+      </div>
+
+      <div class="habit-strip" aria-label="Writing journal status">
+        <article>
+          <span>Journal</span>
+          <strong>${latestEntry ? "Saved locally" : "Ready to save"}</strong>
+        </article>
+        <article>
+          <span>Streak</span>
+          <strong>${streak ? `${streak} day${streak === 1 ? "" : "s"}` : "Start today"}</strong>
+        </article>
+        <article>
+          <span>Folder</span>
+          <strong>${escapeHtml(latestEntry?.folder || state.explorerFolder || "Daily")}</strong>
+        </article>
+        <article>
+          <span>Next</span>
+          <strong>${state.explorerHistory.length >= 3 ? "Weekly recap" : "Come back tomorrow"}</strong>
+        </article>
+      </div>
+
+      <div class="coach-flow">
+        <article class="strategy-card coach-card primary-read">
+          <span class="label">How does this come across?</span>
+          <strong>${escapeHtml(firstRead.title)}</strong>
+          <p>${escapeHtml(firstRead.copy)}</p>
+          <div class="friendly-score">
+            <strong>${escapeHtml(clarityBand(currentClarity))}</strong>
+            <span>${stats.words} words / ${escapeHtml(sourceDisplayLabel(sourceType, mode.label))} / ${escapeHtml(streakCopy())}</span>
+          </div>
+          <details class="feedback-menu">
+            <summary>Feedback</summary>
+            ${feedbackButtons("Explorer reading")}
+          </details>
+        </article>
+        <article class="strategy-card coach-card next-edit-card">
+          <span class="label">What should I change?</span>
+          <strong>${escapeHtml(nextAction)}</strong>
+          <p>Pick one goal. The rewrite keeps your meaning and changes only the delivery.</p>
+          <div class="quick-rewrite-actions primary-rewrite-actions">
+            <button type="button" data-explorer-rewrite="clearer" aria-pressed="${String(state.explorerRewriteMode === "clearer")}">Make clearer</button>
+            <button class="button-secondary" type="button" data-explorer-rewrite="warmer" aria-pressed="${String(state.explorerRewriteMode === "warmer")}">Make warmer</button>
+            <button class="button-secondary" type="button" data-explorer-rewrite="shorter" aria-pressed="${String(state.explorerRewriteMode === "shorter")}">Make shorter</button>
+          </div>
+          <div class="rewrite-goals">
+            ${primaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
+          </div>
+          ${secondaryRewriteGoals.length ? `
+            <details class="more-rewrite-goals">
+              <summary>More goals</summary>
+              <div class="rewrite-goals">
+                ${secondaryRewriteGoals.map((goal) => `<button class="button-secondary" type="button" data-rewrite-goal="${escapeHtml(goal)}" aria-pressed="${String(goal === state.explorerRewriteGoal)}">${escapeHtml(goal)}</button>`).join("")}
+              </div>
+            </details>
+          ` : ""}
+        </article>
+        <article class="strategy-card coach-card rewrite-card">
+          <span class="label">Try this rewrite</span>
+          <strong data-rewrite-title>${escapeHtml(rewriteTitleText)}</strong>
+          <p data-rewrite-preview>${escapeHtml(rewritePreview)}</p>
+          <div class="result-actions">
+            <button type="button" data-copy-rewrite>Copy rewrite</button>
+            <button class="button-secondary" type="button" data-save-reading>Update journal</button>
+          </div>
+        </article>
+      </div>
+
+      ${workflowCards}
+
+      <article class="daily-completion-card" role="status">
+        <div>
+          <span class="label">Today’s habit</span>
+          <strong>${escapeHtml(dailyCompletionMessage())}</strong>
+          <p>${escapeHtml(milestoneCardText())} Tomorrow: ${escapeHtml(tomorrowTinyGoal())}</p>
+        </div>
+        <button class="button-secondary" type="button" data-save-reading>Save today</button>
+      </article>
+
+      ${profile.ready ? personalStyleProfileCard(profile, currentClarity) : ""}
+
+      <div class="mobile-result-actions" aria-label="Explorer quick actions">
+        <button type="button" data-copy-rewrite>Copy rewrite</button>
+        <button class="button-secondary" type="button" data-save-reading>Save</button>
+        <button class="button-secondary" data-edit-explorer-input>Edit</button>
+      </div>
+
+      <details id="explorer-journal" class="secondary-result-details journal-drawer" ${state.explorerJournalOpen ? "open" : ""}>
+        <summary>Writing journal and weekly recap</summary>
+        <div class="save-reading-row">
+          <label class="field"><span>Name this reading</span><input id="result-reading-name" value="${escapeHtml(state.explorerReadingName || state.explorerHistory[0]?.name || "")}" placeholder="Daily journal, work email, class note"></label>
+          ${selectField("resultExplorerFolder", "Folder", explorerFolders, state.explorerFolder)}
+          <button class="button-secondary" type="button" data-save-reading>Update this reading</button>
+          ${state.explorerSavedMessage ? `<span class="saved-state">${escapeHtml(state.explorerSavedMessage)}</span>` : ""}
+        </div>
+        ${weeklyRecapPanel(profile)}
+        <details class="weekly-recap-drawer">
+          <summary>Open weekly writing recap</summary>
+          ${weeklyRecapCards(profile)}
+        </details>
+        ${explorerJournalPanel()}
+        <div class="result-actions">
+          <button class="button-secondary" data-copy-summary>Copy summary</button>
+          <button class="button-secondary" type="button" data-copy-explorer-report>Copy clean report</button>
+        </div>
+      </details>
+
+      <details class="secondary-result-details quick-checks" ${state.explorerQuickChecksOpen ? "open" : ""}>
+        <summary>Show quick checks</summary>
+        <div class="metric-grid">
+          <article class="metric-card"><span class="label">Length</span><div class="value">${stats.words >= 40 ? "Enough text" : "Short sample"}</div><p>${stats.words} words analyzed.</p></article>
+          <article class="metric-card"><span class="label">How easy it is to read</span><div class="value">${escapeHtml(readingEffortLabel(stats))}</div><p>${escapeHtml(readingEffortCopy(stats))}</p></article>
+          <article class="metric-card"><span class="label">How it sounds</span><div class="value">${escapeHtml(strongestLabel)}</div><p>${escapeHtml(dimensionCopy(strongest?.[1], strongest?.[2]))}</p></article>
+        </div>
+      </details>
+
+      <details class="secondary-result-details style-details" ${state.explorerStyleDetailsOpen ? "open" : ""}>
+        <summary>See what the app noticed</summary>
+        <nav class="tabs" role="tablist" aria-label="Explorer result sections">
+          ${tabButton("style", "What stands out", state.activeExplorerTab)}
+          ${tabButton("technical", "Technical details", state.activeExplorerTab)}
+        </nav>
+
+        <div id="panel-${state.activeExplorerTab}" class="tab-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeExplorerTab}">
+          ${renderExplorerTab(data)}
+        </div>
+      </details>
+    </div>
+  `;
+
+  els.outputPanel.querySelectorAll("[data-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeExplorerTab = button.dataset.tab;
+      state.explorerStyleDetailsOpen = true;
+      renderExplorerResult(data);
+      els.outputPanel.querySelector(".tab-panel")?.focus?.();
+    });
+  });
+  const quickChecks = els.outputPanel.querySelector(".quick-checks");
+  quickChecks?.addEventListener("toggle", (event) => {
+    state.explorerQuickChecksOpen = event.currentTarget.open;
+  });
+  const styleDetails = els.outputPanel.querySelector(".style-details");
+  styleDetails?.addEventListener("toggle", (event) => {
+    state.explorerStyleDetailsOpen = event.currentTarget.open;
+  });
+  bindCopy("[data-copy-summary]", `Writing style summary: ${summary}`, "Explorer summary copied.");
+  bindCopy("[data-copy-explorer-report]", explorerReportText(summary, nextAction, profile), "Clean writing report copied.");
+  bindCopy("[data-copy-reply-triage]", replyTriage(state.latestText).reply, "Suggested reply copied.");
+  els.outputPanel.querySelectorAll("[data-copy-rewrite]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      await copyTextFromButton(event.currentTarget, makeExplorerRewrite(state.latestText, state.explorerRewriteMode), "Rewrite copied.");
+    });
+  });
+  const nameField = els.outputPanel.querySelector("#result-reading-name");
+  const folderField = els.outputPanel.querySelector("#field-resultExplorerFolder");
+  const journalSearch = els.outputPanel.querySelector("#journal-search");
+  const journalFolder = els.outputPanel.querySelector("#field-journalFolder");
+  nameField?.addEventListener("input", () => {
+    state.explorerReadingName = nameField.value;
+  });
+  journalSearch?.addEventListener("change", () => {
+    state.explorerJournalSearch = journalSearch.value;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  els.outputPanel.querySelector("[data-apply-journal-filter]")?.addEventListener("click", () => {
+    state.explorerJournalSearch = journalSearch?.value || "";
+    state.explorerJournalFolder = journalFolder?.value || state.explorerJournalFolder;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  els.outputPanel.querySelector("[data-clear-journal-filter]")?.addEventListener("click", () => {
+    state.explorerJournalSearch = "";
+    state.explorerJournalFolder = "All";
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  journalFolder?.addEventListener("change", () => {
+    state.explorerJournalFolder = journalFolder.value;
+    state.explorerJournalOpen = true;
+    persistWorkspace();
+    renderExplorerResult(data);
+  });
+  folderField?.addEventListener("change", () => {
+    state.explorerFolder = folderField.value;
+    if (state.explorerHistory[0]) state.explorerHistory[0].folder = folderField.value;
+    persistWorkspace();
+  });
+  els.outputPanel.querySelectorAll("[data-save-reading]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const name = nameField?.value.trim() || state.explorerReadingName || `Reading ${state.explorerHistory.length || 1}`;
+      state.explorerReadingName = name;
+      if (folderField) state.explorerFolder = folderField.value;
+      if (state.explorerHistory[0]) {
+        state.explorerHistory[0].name = name;
+        state.explorerHistory[0].folder = state.explorerFolder;
+        state.explorerHistory[0].goal = state.explorerWritingGoal;
+      }
+      state.explorerSavedMessage = `Saved as ${name}.`;
+      trackEvent("explorer_save_reading", {folder: state.explorerFolder});
+      persistWorkspace();
+      renderExplorerResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const before = state.latestText;
+      const after = withTerminalPunctuation(makeExplorerRewrite(state.latestText, button.dataset.explorerRewrite));
+      recordVersion("Explorer rewrite", button.textContent.trim(), before, after, `${button.textContent.trim()} generated`);
+      state.activeExplorerTab = "style";
+      state.explorerRewriteMode = button.dataset.explorerRewrite;
+      persistWorkspace();
+      const title = els.outputPanel.querySelector("[data-rewrite-title]");
+      const preview = els.outputPanel.querySelector("[data-rewrite-preview]");
+      if (title) title.textContent = rewriteTitle(state.explorerRewriteGoal);
+      if (preview) preview.textContent = after;
+      els.outputPanel.querySelectorAll("[data-explorer-rewrite]").forEach((item) => {
+        item.setAttribute("aria-pressed", String(item.dataset.explorerRewrite === state.explorerRewriteMode));
+      });
+      showToast(button, `${button.textContent.trim()} version ready.`);
+    });
+  });
+  els.outputPanel.querySelector("[data-open-journal]")?.addEventListener("click", () => {
+    const drawer = els.outputPanel.querySelector(".journal-drawer");
+    if (!drawer) return;
+    state.explorerJournalOpen = true;
+    drawer.open = true;
+    persistWorkspace();
+    drawer.scrollIntoView({behavior: "smooth", block: "start"});
+    drawer.querySelector("summary")?.focus?.();
+  });
+  els.outputPanel.querySelector(".journal-drawer")?.addEventListener("toggle", (event) => {
+    state.explorerJournalOpen = event.currentTarget.open;
+    persistWorkspace();
+  });
+  els.outputPanel.querySelectorAll("[data-rewrite-goal]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.explorerRewriteGoal = button.dataset.rewriteGoal;
+      state.activeExplorerTab = "style";
+      trackEvent("explorer_rewrite_goal", {goal: state.explorerRewriteGoal});
+      persistWorkspace();
+      renderExplorerResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-feedback]").forEach((button) => {
+    button.addEventListener("click", () => {
+      recordFeedback(button.dataset.feedback, button.dataset.feedbackScope || "Explorer");
+      showToast(button, "Feedback saved. Future suggestions will adapt.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
+    button.addEventListener("click", () => {
+      restoreVersion(button.dataset.restoreVersion, "Explorer rewrite");
+      showToast(button, "Version restored into this workspace.");
+      renderExplorerResult(data);
+    });
+  });
+  els.outputPanel.querySelector("[data-new-sample]").addEventListener("click", () => {
+    state.latestData = null;
+    state.latestText = "";
+    state.explorerReadingName = "";
+    state.explorerSavedMessage = "";
+    state.explorerPromptTitle = "";
+    state.explorerPromptText = "";
+    state.explorerPromptSource = "";
+    state.explorerQuickChecksOpen = false;
+    state.explorerStyleDetailsOpen = false;
+    render();
+  });
+  els.outputPanel.querySelector("[data-edit-explorer-input]")?.addEventListener("click", () => {
+    state.latestData = null;
+    render();
+    document.querySelector("#explorer-text")?.focus();
+  });
+}
+
+function tabButton(tab, label, active) {
+  return `<button type="button" role="tab" id="tab-${tab}" data-tab="${tab}" aria-selected="${String(tab === active)}" aria-controls="panel-${tab}">${label}</button>`;
+}
+
+function enterpriseTabNote(tab) {
+  const notes = {
+    dashboard: "Dashboard open. Next: review the queue, then approve or export.",
+    drafts: "Draft editor open. Pick one variant, polish it, then approve.",
+    tools: "Operations open. Work through batch, sequence, replies, libraries, or insights from one place.",
+    analytics: "Insights open. Review outcomes, exports, integrations, and coaching notes.",
+  };
+  return notes[tab] || "Workspace ready.";
+}
+
+function enterpriseToolNote(tool) {
+  const notes = {
+    batch: "Batch tool open. Paste CSV rows or load the sample before generating.",
+    sequence: "Sequence builder open. Tune timing, channels, and stop rules.",
+    inbox: "Reply queue open. Load sample replies or connect mail later.",
+    libraries: "Libraries open. Review voice, personas, templates, and approved proof.",
+    insights: "Insights open. Review outcomes, export history, integrations, and coaching notes.",
+  };
+  return notes[tool] || "Workspace tool open.";
+}
+
+function renderExplorerTab(data) {
+  const p = data.predictions;
+  const dims = p.mbti_dimensions || {};
+  const stats = p.text_stats || localStats(state.latestText);
+  const rows = dimensionRows(dims);
+  if (state.activeExplorerTab === "style") {
+    return `
+      <div class="signal-list">
+        ${rows.map((row) => signalCard(row)).join("")}
+      </div>
+      <article class="strategy-card cue-section">
+        <strong>Words the app noticed</strong>
+        <p class="muted">These words helped shape the reading. They live here instead of the first summary so the main result stays easy to read.</p>
+        ${cueGroups(dims)}
+      </article>
+    `;
+  }
+  if (state.activeExplorerTab === "patterns") {
+    return `
+      <div class="detail-grid">
+        <article class="strategy-card"><strong>MBTI-style pattern</strong><div class="metric-card"><div class="value">${escapeHtml(mbtiCode(dims))}</div><p>${escapeHtml(mbtiMeaning(mbtiCode(dims)))}.</p></div></article>
+        <article class="strategy-card"><strong>Age and data labels</strong><p>Expanded below so Explorer can focus on style first.</p><details><summary>Show expanded data-label output</summary><p>Age range: ${escapeHtml(ageRangeLabel(p.age_estimate || p.age_bucket))}</p>${bars(p.gender)}</details></article>
+      </div>
+    `;
+  }
+  if (state.activeExplorerTab === "technical") {
+    return `
+      <div class="detail-grid technical-grid">
+        <article class="strategy-card details-soft"><strong>Pattern label</strong><div class="metric-card flat-metric"><div class="value">${escapeHtml(mbtiCode(dims))}</div><p>${escapeHtml(mbtiMeaning(mbtiCode(dims)))}.</p></div></article>
+        <article class="strategy-card details-soft"><strong>Sample profile</strong><p>${stats.words} words, ${stats.characters} characters, ${percent(stats.punctuation_density)} punctuation density.</p></article>
+        <article class="strategy-card details-soft"><strong>Age and data labels</strong><p>Expanded below so Explorer can focus on style first.</p><details><summary>Show expanded data-label output</summary><p>Age range: ${escapeHtml(ageRangeLabel(p.age_estimate || p.age_bucket))}</p>${bars(p.gender)}</details></article>
+        <article class="strategy-card details-soft"><strong>Technical bars</strong><details><summary>Show detailed bars</summary>${rows.map((row) => `<div class="technical-bars"><strong>${escapeHtml(row.title)}</strong>${bars(row.prediction)}</div>`).join("")}</details></article>
+      </div>
+    `;
+  }
+  if (state.activeExplorerTab === "rewrite") {
+    return `
+      <div class="quick-rewrite-actions primary-rewrite-actions">
+        ${["clearer", "warmer", "shorter"].map((mode) => `<button class="button-secondary" type="button" data-explorer-rewrite="${mode}" aria-pressed="${String(state.explorerRewriteMode === mode)}">Make ${escapeHtml(mode)}</button>`).join("")}
+      </div>
+      <div class="detail-grid">
+        <article class="strategy-card"><strong>Before</strong><p>${escapeHtml(state.latestText.slice(0, 360))}</p></article>
+        <article class="strategy-card"><strong>After</strong><p>${escapeHtml(makeExplorerRewrite(state.latestText, state.explorerRewriteMode))}</p></article>
+      </div>
+      <article class="strategy-card"><strong>Today vs previous</strong><p>${escapeHtml(explorerComparison(stats))}</p></article>
+      <article class="strategy-card"><strong>Version history</strong>${versionHistoryHtml("Explorer rewrite")}</article>
+      ${state.compareText ? `<article class="strategy-card"><strong>Comparison note</strong><p>The second sample is ${localStats(state.compareText).words} words. Use this area to compare how easy each version is to follow.</p></article>` : `<article class="strategy-card"><strong>Compare two samples</strong><p>Add optional comparison text in the left panel to unlock a before/after comparison note.</p></article>`}
+    `;
+  }
+  return `
+    <details class="secondary-result-details">
+      <summary>What else stands out</summary>
+      <div class="explorer-overview-grid">
+        <article class="strategy-card">
+          <strong>What stands out</strong>
+          <div class="signal-pills">
+            ${rows.map((row) => `<span>${escapeHtml(row.title)}: ${escapeHtml(dimensionLabel(row.prediction, row.key))}</span>`).join("")}
+          </div>
+        </article>
+        <article class="strategy-card">
+          <strong>Today vs previous</strong>
+          <p>${escapeHtml(explorerComparison(stats))}</p>
+        </article>
+      </div>
+    </details>
+  `;
+}
+
+function explorerReportText(summary, nextAction, profile) {
+  return [
+    "TextTraits writing report",
+    "",
+    `First read: ${summary}`,
+    `Next tiny edit: ${nextAction}`,
+    `Writing goal: ${state.explorerWritingGoal}`,
+    `Writing log: ${explorerLogSummary()}`,
+    `Profile: ${profile.copy}`,
+    `Weekly recap: ${weeklyRecap()}`,
+  ].join("\n");
+}
+
+function feedbackButtons(scope) {
+  return `
+    <div class="feedback-row" aria-label="${escapeHtml(scope)} feedback">
+      ${[
+        ["better", "Better"],
+        ["tooFormal", "Too formal"],
+        ["tooVague", "Too vague"],
+        ["tooLong", "Too long"],
+        ["moreLikeMe", "More like me"],
+      ].map(([key, label]) => `<button class="button-secondary" type="button" data-feedback="${key}" data-feedback-scope="${escapeHtml(scope)}">${escapeHtml(label)}</button>`).join("")}
+    </div>
+  `;
+}
+
+function recordFeedback(key, scope) {
+  state.feedbackMemory[key] = Number(state.feedbackMemory[key] || 0) + 1;
+  state.versionHistory = [{
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    scope,
+    title: `${titleCase(key)} feedback`,
+    before: "",
+    after: "",
+    change: `User marked ${scope} as ${titleCase(key)}.`,
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+  }, ...state.versionHistory].slice(0, 80);
+  persistWorkspace();
+}
+
+function recordVersion(scope, title, before, after, change) {
+  state.versionHistory = [{
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    scope,
+    title,
+    before,
+    after,
+    change,
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+  }, ...state.versionHistory].slice(0, 80);
+  persistWorkspace();
+}
+
+function versionHistoryHtml(scope = "") {
+  const items = state.versionHistory.filter((item) => !scope || item.scope === scope).slice(0, 8);
+  if (!items.length) return `<p class="muted">No saved versions yet. Rewrites, draft transforms, and feedback will appear here.</p>`;
+  return `
+    <div class="version-list">
+      ${items.map((item) => `
+        <article>
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.date)} / ${escapeHtml(item.change)}</span>
+          ${item.after ? `<details><summary>Restoreable version</summary><p><strong>Before:</strong> ${escapeHtml(String(item.before).slice(0, 260))}</p><p><strong>After:</strong> ${escapeHtml(String(item.after).slice(0, 260))}</p><button class="button-secondary" type="button" data-restore-version="${escapeHtml(item.id)}">Restore this version</button></details>` : ""}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function restoreVersion(id, scope) {
+  const item = state.versionHistory.find((entry) => entry.id === id);
+  if (!item?.after) return;
+  if (scope === "Enterprise draft") {
+    const draft = selectedDraft();
+    if (draft) {
+      draft.body = item.after;
+      draft.history.push(`Restored ${item.title}`);
+      state.lastActionNote = "Draft version restored.";
+    }
+  } else {
+    state.latestText = item.after;
+    state.lastActionNote = "Explorer rewrite restored.";
+  }
+  persistWorkspace();
+}
+
+function trait(name, value, label) {
+  return `<div class="trait"><meter class="trait-meter" min="0" max="1" value="${Math.max(value, 0.08)}"></meter><strong>${escapeHtml(name)}</strong><span class="muted">${escapeHtml(label)}</span></div>`;
+}
+
+function signalCard(row) {
+  const value = Math.round(score(row.prediction) * 100);
+  const width = Math.max(value, 8);
+  return `
+    <article class="signal-card">
+      <div>
+        <span class="label">${escapeHtml(row.title)}</span>
+        <strong>${escapeHtml(dimensionLabel(row.prediction, row.key))}</strong>
+        <p>${escapeHtml(dimensionCopy(row.prediction, row.key))}</p>
+      </div>
+      <div class="signal-meter" aria-label="${escapeHtml(row.title)} clue strength">
+        <progress max="100" value="${width}">${width}%</progress>
+      </div>
+      <span class="signal-strength">${escapeHtml(signalStrength(row.prediction))} clue</span>
+    </article>
+  `;
+}
+
+function makeExplorerRewrite(text, mode = "clearer") {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (!clean) return "";
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const first = sentences[0] || clean;
+  const modeConfig = currentMessageMode();
+  const goal = state.explorerRewriteGoal || modeConfig.rewriteGoal || "Make this clearer";
+  const source = messageModeSource(modeConfig, clean) || inferExplorerSource(clean, goal);
+  if (source === "reply") {
+    const triage = replyTriage(clean);
+    return triage.reply;
+  }
+  if (source === "decision note") {
+    const draft = decisionDraft(clean);
+    return `Context: ${draft.context}\n\nOptions: ${draft.options}\n\nRecommendation: ${draft.recommendation}\n\nNext step: ${draft.next}.`;
+  }
+  const goalNoun = `${/^[aeiou]/i.test(source) ? "an" : "a"} ${source.toLowerCase()}`;
+  const sourceLead = sourceRewriteLead(source, clean);
+  const mainPoint = sourceLead || sentences.slice(0, 2).join(" ").replace(/\s+/g, " ").trim() || first;
+  const cue = sampleSpecificCue(clean);
+  const cueLine = cue ? ` Since you mention ${cue}, keep that detail and put the ask beside it.` : "";
+  const warmerClose = `I want this to be easy to respond to, so the next step is clear.${cueLine}`;
+  const clearerClose = `The main point is simple: name what changed, why it matters, and what should happen next.${cueLine}`;
+  const shorterClose = `The shorter version keeps the point and trims the setup.${cueLine}`;
+  if (state.feedbackMemory.tooLong > state.feedbackMemory.better && mode !== "warmer") {
+    return `${first} ${shorterClose}`;
+  }
+  if (state.feedbackMemory.moreLikeMe > 1 && mode !== "shorter") {
+    return `${mainPoint} ${clearerClose}`;
+  }
+  const closeForMode = goalRewriteClose(goal, mode) || (mode === "shorter" ? shorterClose : mode === "warmer" ? warmerClose : `For ${goalNoun}, it is easier to follow when the main idea appears early and the last sentence says what should happen.`);
+  if (mode === "shorter") return `${first} ${closeForMode}${goalRewriteClose(goal, mode) ? cueLine : ""}`;
+  if (mode === "warmer") return `${mainPoint} ${closeForMode}${goalRewriteClose(goal, mode) ? cueLine : ""}`;
+  return `${mainPoint} ${closeForMode}${goalRewriteClose(goal, mode) ? cueLine : ""}`;
+}
+
+function sampleSpecificCue(text) {
+  const stop = new Set(["about", "after", "again", "because", "before", "being", "could", "every", "first", "should", "their", "there", "these", "thing", "think", "those", "through", "today", "wanted", "would", "without"]);
+  const counts = {};
+  words(text.toLowerCase()).forEach((word) => {
+    const clean = word.replace(/[^a-z0-9'-]/g, "");
+    if (clean.length < 5 || stop.has(clean)) return;
+    counts[clean] = (counts[clean] || 0) + 1;
+  });
+  const ranked = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .slice(0, 2)
+    .map(([word]) => word);
+  if (!ranked.length) return "";
+  return ranked.join(ranked.length > 1 ? " and " : "");
+}
+
+function inferExplorerSource(text, goal) {
+  const clean = `${goal} ${text}`.toLowerCase();
+  if (clean.includes("reply triage") || looksLikeReply(text)) return "reply";
+  if (clean.includes("decision note") || /\b(decision|options?|recommend|tradeoff|next step)\b/i.test(clean)) return "decision note";
+  if (clean.includes("apolog") || clean.includes("sorry")) return "apology";
+  if (clean.includes("essay") || clean.includes("paragraph") || clean.includes("thesis") || clean.includes("evidence")) return "essay";
+  if (clean.includes("feedback") || clean.includes("what worked") || clean.includes("next attempt")) return "feedback";
+  if (clean.includes("cover letter") || clean.includes("application")) return "cover letter";
+  if (clean.includes("text message") || clean.includes("texting") || clean.includes("mom") || clean.includes("friend")) return "text message";
+  if (clean.includes("email") || clean.includes("proposal") || /\b(dear|hi|hello)\s+\w+/i.test(text) || /\bthanks[, ]+(for|again|so much)\b/i.test(text)) return "email";
+  if (clean.includes("conflict") || clean.includes("hard conversation") || clean.includes("frustrat") || clean.includes("boundary")) return "conflict";
+  return goal || "writing sample";
+}
+
+function sourceRewriteLead(source, text) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const parts = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const first = parts[0] || clean;
+  const second = parts[1] || "";
+  const ask = extractActionPhrase(clean);
+  if (source === "email") {
+    const opener = emailRewriteOpener(first);
+    const next = ask || "name the owner, deadline, and next step in one place";
+    return `${opener}${second ? ` ${second}` : ""} The clearest next step is to ${next}.`;
+  }
+  if (source === "text message") return `${first} I want to say this clearly without making it feel bigger than it is. ${ask ? `The next step is to ${ask}.` : "One simple next step would help."}`;
+  if (source === "apology") return `${first} I understand why that mattered, and I will be clearer about what I do differently next.`;
+  if (source === "feedback") return `${first} What worked, what felt unclear, and the next step should each get their own sentence.`;
+  if (source === "essay") return `${first} The main idea is strongest when one concrete example appears right after the claim.`;
+  if (source === "conflict") return `${first} I want to keep this direct without raising the temperature. ${ask ? `The specific next step is to ${ask}.` : "A single next step will make it easier to answer."}`;
+  if (source === "cover letter") return `${first} The strongest fit point should connect directly to the role and one concrete result.`;
+  return "";
+}
+
+function emailRewriteOpener(sentence) {
+  const first = String(sentence || "").trim();
+  if (/^thanks\b/i.test(first)) return first;
+  if (/^quick update:/i.test(first)) return first;
+  if (/^quick update\b/i.test(first)) return first.replace(/^quick update\b[:,]?\s*/i, "Quick update: ");
+  if (/^a quick update\b/i.test(first)) return first.replace(/^a quick update\b[:,]?\s*/i, "Quick update: ");
+  if (/^i wanted to send\s+(?:a\s+)?quick update\s*(?:because|about|on)?\s*/i.test(first)) {
+    return first.replace(/^i wanted to send\s+(?:a\s+)?quick update\s*(?:because|about|on)?\s*/i, "Quick update: ");
+  }
+  if (/^i wanted to send\s+/i.test(first)) return first.replace(/^i wanted to send\s+/i, "Quick update: ");
+  return first;
+}
+
+function extractActionPhrase(text) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const patterns = [
+    /\b(?:i|we)\s+need\s+(?:is\s+)?([^.!?;]+)/i,
+    /\b(?:i|we)\s+want\s+([^.!?;]+)/i,
+    /\bnext steps?\s+(?:is|are|should be)\s+([^.!?;]+)/i,
+    /\bwould be around\s+([^.!?;]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = clean.match(pattern);
+    if (!match?.[1]) continue;
+    return match[1].replace(/\b(and|with|that)\s*$/i, "").trim().replace(/^to\s+/i, "");
+  }
+  return "";
+}
+
+function goalRewriteClose(goal, mode) {
+  const clean = String(goal || "").toLowerCase();
+  const map = {
+    email: {
+      clearer: "I would put the ask in the first or last sentence so the reader knows what to do.",
+      warmer: "I would add one line of context or appreciation before the ask so it feels easier to answer.",
+      shorter: "I would keep the decision, the reason, and the ask; everything else can be optional.",
+    },
+    kinder: {
+      clearer: "I would keep the boundary, add one sentence of care, and make the next step simple.",
+      warmer: "I would lead with what you understand, then make the ask without blame.",
+      shorter: "I would keep the kindest sentence and the clearest next step.",
+    },
+    confident: {
+      clearer: "I would state the point earlier and remove any phrase that sounds like you are apologizing for having an opinion.",
+      warmer: "I would keep the confidence while adding one respectful line for the reader.",
+      shorter: "I would make one direct sentence do the work.",
+    },
+    school: {
+      clearer: "I would name the main idea, give one example, and explain why that example matters.",
+      warmer: "I would keep the idea clear and make the transition easier to follow.",
+      shorter: "I would keep the claim and strongest evidence, then cut repeated setup.",
+    },
+    apology: {
+      clearer: "I would say what happened, what I understand now, and what I will do differently.",
+      warmer: "I would keep the accountability and add one sentence that acknowledges the other person’s experience.",
+      shorter: "I would remove the explanation that sounds defensive and keep the repair step.",
+    },
+    essay: {
+      clearer: "I would make the main idea explicit, then give one example that proves it.",
+      warmer: "I would keep the argument, but make the transition smoother so the reader can follow the turn.",
+      shorter: "I would keep the claim and strongest example, then cut repeated setup.",
+    },
+    feedback: {
+      clearer: "I would separate what worked, what was confusing, and the next useful step.",
+      warmer: "I would keep the point, but frame it as help for the next attempt.",
+      shorter: "I would keep one observation and one next step.",
+    },
+    conflict: {
+      clearer: "I would name the issue without escalating it, then ask for one concrete next step.",
+      warmer: "I would include one sentence that lowers the temperature before naming the boundary.",
+      shorter: "I would cut the extra history and keep the boundary plus the next step.",
+    },
+    cover: {
+      clearer: "I would connect the experience to the role in one direct sentence.",
+      warmer: "I would keep the confidence and add one human reason this role matters.",
+      shorter: "I would keep the strongest fit point and remove broad claims.",
+    },
+    text: {
+      clearer: "I would make the point in one sentence and make the next step easy.",
+      warmer: "I would add one softening phrase without hiding the ask.",
+      shorter: "I would keep it conversational and remove anything that sounds like a paragraph.",
+    },
+  };
+  const key = Object.keys(map).find((item) => clean.includes(item));
+  return key ? map[key][mode] : "";
+}
+
+function enterpriseContext() {
+  const fallback = state.enterpriseContext || {};
+  const get = (id) => document.querySelector(`#field-${id}`)?.value.trim() || fallback[id] || "";
+  const tone = (id, value) => document.querySelector(`#tone-${id}`)?.value || fallback[id] || value;
+  return {
+    project: get("project") || "Forecast risk pilot",
+    folder: get("folder") || "RevOps",
+    company: get("company") || "TextTraits",
+    offer: get("offer") || "a review workspace for outbound drafts, replies, and campaign outcomes",
+    role: get("role") || "VP Revenue",
+    goal: get("goal") || "Book call",
+    preset: get("preset") || "Premium",
+    industry: get("industry") || "SaaS",
+    seniority: get("seniority") || "Executive",
+    segment: get("segment") || "Mid-market SaaS",
+    stage: get("stage") || "Evaluating",
+    source: get("source") || "Reply",
+    region: get("region") || "North America",
+    pain: get("pain") || "renewal risk and missed coaching moments",
+    trigger: get("trigger") || "board forecast cleanup",
+    icp: get("icp") || "Revenue teams with 30+ sellers",
+    proof: get("proof") || "reduced manual reporting by 32%",
+    caseStudy: get("caseStudy") || "Series B sales org",
+    competitor: get("competitor") || "spreadsheet-heavy review process",
+    brandVoice: get("brandVoice") || "Executive concise",
+    template: get("template") || "Pain-led cold email",
+    firstName: get("firstName") || state.recipient.firstName,
+    recipientCompany: get("recipientCompany") || state.recipient.company,
+    recipientRole: get("recipientRole") || state.recipient.role,
+    direct: tone("direct", "70"),
+    warm: tone("warm", "55"),
+    formal: tone("formal", "62"),
+    technical: tone("technical", "48"),
+    concise: tone("concise", "82"),
+  };
+}
+
+function enterpriseProfile(data) {
+  const dims = data.predictions.mbti_dimensions || {};
+  const stats = data.predictions.text_stats || localStats(state.latestText);
+  const information = String(dims.information?.label || "").toLowerCase();
+  const decisions = String(dims.decisions?.label || "").toLowerCase();
+  const structure = String(dims.structure?.label || "").toLowerCase();
+  const tone = [
+    String(dims.energy?.label || "").toLowerCase() === "introverted" ? "measured" : "direct",
+    information === "intuitive" ? "strategic" : "concrete",
+    decisions === "thinking" ? "evidence-led" : "relationship-aware",
+    structure === "judging" ? "structured" : "flexible",
+  ];
+  return {dims, stats, tone};
+}
+
+function enterpriseAngles(context, profile) {
+  return [
+    ["Earlier risk visibility", 94, `Connect ${context.offer} to the buyer's need for earlier, cleaner pipeline warnings.`],
+    ["Manager coaching rhythm", 88, `Position the workflow around the exact moment managers need to intervene.`],
+    ["Low-friction implementation", 81, `Emphasize a focused pilot, not another broad reporting platform.`],
+  ];
+}
+
+function compactPhrase(value, limit = 5) {
+  return enterpriseCopy.compactPhrase(value, limit);
+}
+
+function subjectLines(context) {
+  return enterpriseCopy.subjectLines(context);
+}
+
+function ctaText(context) {
+  return enterpriseCopy.ctaText(context);
+}
+
+function buildEmailVariant(context, profile, variant) {
+  return enterpriseCopy.buildEmailVariant(context, variant, {
+    learned: winnerPatterns(),
+    feedback: state.feedbackMemory,
+  });
+}
+
+function generateDraftObjects(context, profile) {
+  return ["A", "B", "C"].map((key, index) => {
+    const raw = buildEmailVariant(context, profile, key);
+    const [subjectLine, ...body] = raw.split("\n");
+    const scores = [
+      {clarity: 94, specificity: 88, cta: 91, skimmability: 90},
+      {clarity: 89, specificity: 92, cta: 86, skimmability: 88},
+      {clarity: 87, specificity: 85, cta: 84, skimmability: 93},
+    ][index];
+    return {
+      key,
+      name: key === "A" ? "Signal-led" : key === "B" ? "Problem-led" : "Operations-led",
+      subject: subjectLine.replace(/^Subject:\s*/, ""),
+      body: body.join("\n").trim(),
+      scores,
+      status: index === 0 ? "Needs review" : "Draft",
+      owner: index === 0 ? "Maya" : "Unassigned",
+      due: index === 0 ? "Today" : "This week",
+      history: [`Generated ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`],
+      note: key === "A" ? "Best variant: highest clarity and CTA strength." : key === "B" ? "Strong when the buyer named a pain directly." : "Useful for senior operations audiences.",
+    };
+  });
+}
+
+function draftText(draft) {
+  return `Subject: ${draft.subject}\n\nHi {{first_name}},\n\n${draft.body.replace(/^Hi \{\{first_name\}\},\s*/i, "").trim()}`;
+}
+
+function selectedDraft() {
+  return state.enterpriseDrafts.find((draft) => draft.key === state.selectedVariant) || state.enterpriseDrafts[0];
+}
+
+function sendReadyChecklist(draft, context = enterpriseContext()) {
+  const safeDraft = draft || {subject: "", body: ""};
+  const text = draftText(safeDraft);
+  const mergeOk = validateMergeFields([safeDraft]).ok;
+  const proofNeedle = String(context.proof || "").split(/\s+/).find((word) => word.length > 4) || "";
+  const proofOk = Boolean(proofNeedle && text.toLowerCase().includes(proofNeedle.toLowerCase()));
+  const ctaOk = /\b(call|reply|send|worth|open to|would it help)\b/i.test(text);
+  const unsubscribeOk = text.includes("{{unsubscribe_link}}");
+  return [
+    {label: mergeOk ? "Merge fields valid" : "Fix merge fields", ok: mergeOk},
+    {label: proofOk ? "Proof point included" : "Add proof point", ok: proofOk},
+    {label: ctaOk ? "CTA clear" : "Clarify CTA", ok: ctaOk},
+    {label: unsubscribeOk ? "Unsubscribe token present" : "Add unsubscribe token before sending", ok: unsubscribeOk},
+  ];
+}
+
+function averageScore(draft) {
+  const values = Object.values(draft.scores || {});
+  if (!values.length) return 0;
+  return Math.round(values.reduce((total, value) => total + Number(value || 0), 0) / values.length);
+}
+
+function bestDraft() {
+  return [...state.enterpriseDrafts].sort((a, b) => averageScore(b) - averageScore(a))[0];
+}
+
+function buildSequence(context) {
+  return enterpriseCopy.buildSequence(context);
+}
+
+function renderEnterpriseResult(data) {
+  syncBodyState();
+  const context = enterpriseContext();
+  state.enterpriseContext = context;
+  state.recipient = {
+    firstName: context.firstName,
+    company: context.recipientCompany,
+    role: context.recipientRole,
+  };
+  const profile = enterpriseProfile(data);
+  if (!state.enterpriseDrafts.length) {
+    state.enterpriseDrafts = generateDraftObjects(context, profile);
+  }
+  const variants = state.enterpriseDrafts;
+  const angles = enterpriseAngles(context, profile);
+  const sequence = buildSequence(context);
+  const csv = makeCsv(context, variants);
+  const best = bestDraft();
+  const active = selectedDraft();
+  if (state.activeEnterpriseTab === "analytics") {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "insights";
+  }
+  const validTabs = ["dashboard", "drafts", "tools"];
+  if (!validTabs.includes(state.activeEnterpriseTab)) {
+    state.activeEnterpriseTool = ["batch", "sequence", "inbox", "libraries", "insights"].includes(state.activeEnterpriseTab) ? state.activeEnterpriseTab : state.activeEnterpriseTool;
+    state.activeEnterpriseTab = state.activeEnterpriseTab === "signals" || state.activeEnterpriseTab === "workspace" || state.activeEnterpriseTab === "brief" || state.activeEnterpriseTab === "campaign" ? "dashboard" : "tools";
+  }
+  if (!["batch", "sequence", "inbox", "libraries", "insights"].includes(state.activeEnterpriseTool)) {
+    state.activeEnterpriseTool = "batch";
+  }
+
+  els.outputPanel.innerHTML = `
+    <div class="result-layout fade-in">
+      <div class="enterprise-command-header">
+        <div class="enterprise-command-title">
+          <p class="label">Enterprise workspace</p>
+          <h2>${state.activeEnterpriseTab === "drafts" ? "Review generated drafts" : escapeHtml(context.project || `${context.role} outreach system`)}</h2>
+          <div class="command-meta">
+            <span>${escapeHtml(context.project)} / ${variants.length} drafts / ${state.lastGeneratedAt || "Just now"}</span>
+            <span class="demo-badge">Local demo / preview integrations</span>
+          </div>
+        </div>
+        <div class="command-actions">
+          ${state.activeEnterpriseTab !== "dashboard" ? `<button class="button-secondary" data-enterprise-primary-tab="dashboard">Dashboard</button>` : ""}
+          <button class="button-secondary" data-toggle-inputs>${state.enterpriseInputsCollapsed ? "Edit setup" : "Hide setup"}</button>
+          <button class="button-secondary save-campaign-button" data-save-campaign aria-label="Save campaign">${state.campaignSaved ? "Saved" : "Save"}</button>
+          <details class="action-menu">
+            <summary>More</summary>
+            <div>
+              <button class="button-secondary" data-export-csv>Export CSV</button>
+              <button class="button-secondary" data-copy-all>Copy campaign brief</button>
+              <button class="button-secondary" data-copy-subjects>Copy subject lines</button>
+              <button class="button-secondary" data-regenerate>Regenerate drafts</button>
+              <button class="button-secondary" data-open-crm-setup>CRM setup</button>
+              <button class="button-secondary" data-open-inbox-setup>Email setup</button>
+            </div>
+          </details>
+        </div>
+        <nav class="tabs workspace-tabs grouped-tabs compact-workspace-nav" role="tablist" aria-label="Enterprise workspace areas">
+          ${tabButton("dashboard", "Dashboard", state.activeEnterpriseTab)}
+          ${tabButton("drafts", "Drafts", state.activeEnterpriseTab)}
+          ${tabButton("tools", "Operations", state.activeEnterpriseTab)}
+        </nav>
+        <span class="next-action">${escapeHtml(state.lastActionNote || "Next: review generated drafts or import a prospect batch.")}</span>
+      </div>
+
+      <div class="enterprise-workspace-grid">
+        ${projectSidebar(context)}
+        <section class="workspace-main">
+          <div id="panel-${state.activeEnterpriseTab}" class="tab-panel workspace-panel" role="tabpanel" tabindex="-1" aria-labelledby="tab-${state.activeEnterpriseTab}">${renderEnterpriseTab(data, context, profile, variants, angles, sequence)}</div>
+        </section>
+      </div>
+    </div>
+  `;
+
+  els.outputPanel.querySelectorAll("[data-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.tabScroll[state.activeEnterpriseTab] = window.scrollY;
+      state.activeEnterpriseTab = button.dataset.tab;
+      state.lastActionNote = enterpriseTabNote(state.activeEnterpriseTab);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".tab-panel")?.focus?.();
+      requestAnimationFrame(() => window.scrollTo(0, state.tabScroll[state.activeEnterpriseTab] || 0));
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-tool]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeEnterpriseTool = button.dataset.tool;
+      state.activeEnterpriseTab = "tools";
+      state.lastActionNote = enterpriseToolNote(state.activeEnterpriseTool);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-tool-shortcut]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeEnterpriseTool = button.dataset.toolShortcut;
+      state.activeEnterpriseTab = "tools";
+      state.lastActionNote = enterpriseToolNote(state.activeEnterpriseTool);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-tree-shortcut]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const shortcut = button.dataset.treeShortcut;
+      if (shortcut === "campaigns") {
+        state.activeEnterpriseTab = "dashboard";
+        state.lastActionNote = "Opened the campaign dashboard.";
+      } else if (shortcut === "batch" || shortcut === "inbox") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = shortcut;
+        state.lastActionNote = enterpriseToolNote(shortcut);
+      } else if (shortcut === "personas" || shortcut === "templates") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = "libraries";
+        state.lastActionNote = shortcut === "personas" ? "Opened persona and ICP libraries." : "Opened team templates and brand voice.";
+      }
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-enterprise-primary-tab]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      state.activeEnterpriseTab = event.currentTarget.dataset.enterprisePrimaryTab;
+      state.lastActionNote = enterpriseTabNote(state.activeEnterpriseTab);
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".workspace-panel")?.focus?.();
+    });
+  });
+
+  const allText = enterpriseBriefText(context, variants, angles, sequence);
+  bindCopy("[data-copy-all]", allText, "Enterprise brief copied.");
+  bindCopy("[data-copy-subjects]", variants.map((draft) => draft.subject).join("\\n"), "Subject lines copied.");
+  els.outputPanel.querySelector("[data-export-csv]").addEventListener("click", (event) => {
+    const validation = validateExportReadiness(variants, context);
+    if (!validation.ok) {
+      showToast(event.currentTarget, validation.message);
+      return;
+    }
+    downloadCsv(csv);
+    recordExport("Campaign CSV", context.project, variants.length);
+    showToast(event.currentTarget, "CSV exported and merge fields validated.");
+  });
+  els.outputPanel.querySelector("[data-regenerate]").addEventListener("click", () => {
+    state.enterpriseDrafts = generateDraftObjects(context, profile).map((draft) => ({
+      ...draft,
+      history: [...draft.history, "Regenerated from current campaign context"],
+    }));
+    state.lastActionNote = "Regenerated variants from current inputs.";
+    state.lastGeneratedAt = new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-open-crm-setup]")?.addEventListener("click", () => {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "insights";
+    state.integrationSetupOpen = true;
+    state.lastActionNote = enterpriseToolNote("insights");
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-open-inbox-setup]")?.addEventListener("click", () => {
+    state.activeEnterpriseTab = "tools";
+    state.activeEnterpriseTool = "inbox";
+    state.lastActionNote = "Connect Gmail or Outlook before reply triage.";
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-load-hubspot-admin]")?.addEventListener("click", () => {
+    loadHubspotAdminConsole();
+  });
+  els.outputPanel.querySelector("[data-save-hubspot-policy]")?.addEventListener("click", (event) => {
+    saveHubspotPolicyFromConsole(event.currentTarget);
+  });
+  els.outputPanel.querySelector("[data-toggle-inputs]").addEventListener("click", () => {
+    state.enterpriseInputsCollapsed = !state.enterpriseInputsCollapsed;
+    render();
+  });
+  els.outputPanel.querySelector("[data-toggle-editor-focus]")?.addEventListener("click", () => {
+    state.enterpriseFocusMode = !state.enterpriseFocusMode;
+    state.lastActionNote = state.enterpriseFocusMode ? "Focused editor mode on." : "Review queue visible.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-toggle-draft-preview]")?.addEventListener("click", () => {
+    state.enterpriseDraftPreviewMode = !state.enterpriseDraftPreviewMode;
+    state.lastActionNote = state.enterpriseDraftPreviewMode ? "Resolved merge-field preview on." : "Draft editing mode on.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-save-campaign]").addEventListener("click", (event) => {
+    saveCurrentCampaign(context);
+    showToast(event.currentTarget, "Campaign saved to workspace.");
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelectorAll("[data-copy-draft]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.copyDraft);
+      await copyTextFromButton(button, draft ? draftText(draft) : "", "Variant copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-copy-row]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.copyRow));
+      await copyTextFromButton(button, row ? `${row.subject}\n${row.signal}` : "", "Brief copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-row]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.reviewRow));
+      if (!row) return;
+      row.status = "Needs review";
+      row.next = "Approve or edit";
+      state.selectedProspectId = Number(row.id);
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = `${row.first_name} at ${row.company} moved into review.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".prospect-detail-card")?.setAttribute("open", "");
+      els.outputPanel.querySelector(".draft-editor")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-export-row]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.batchRows.find((item) => String(item.id) === String(button.dataset.exportRow));
+      if (!row) return;
+      row.status = "Exported";
+      row.next = "Track outcome";
+      state.selectedProspectId = Number(row.id);
+      recordExport(`Batch row: ${row.company}`, context.project, 1);
+      state.lastActionNote = `${row.first_name} at ${row.company} marked exported.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-transform]").forEach((button) => {
+    button.addEventListener("click", () => {
+      transformDraft(button.dataset.transform, button.dataset.variant || state.selectedVariant, context);
+      state.lastActionNote = `${button.textContent.trim()} applied to Variant ${state.selectedVariant}.`;
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-feedback]").forEach((button) => {
+    button.addEventListener("click", () => {
+      recordFeedback(button.dataset.feedback, button.dataset.feedbackScope || "Enterprise");
+      state.lastActionNote = "Feedback saved. Draft guidance will adapt.";
+      updateVisibleActionNote();
+      showToast(button, "Feedback saved. Draft guidance will adapt.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-restore-version]").forEach((button) => {
+    button.addEventListener("click", () => {
+      restoreVersion(button.dataset.restoreVersion, "Enterprise draft");
+      showToast(button, "Draft version restored.");
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-select-variant]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedVariant = button.dataset.selectVariant;
+      state.activeEnterpriseTab = "drafts";
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedVariant = button.dataset.reviewDraft;
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = `Opened Variant ${state.selectedVariant} in the draft editor.`;
+      renderEnterpriseResult(data);
+      els.outputPanel.querySelector(".draft-editor")?.focus?.();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-review-prospect]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedProspectId = Number(button.dataset.reviewProspect);
+      state.selectedVariant = bestDraft()?.key || state.selectedVariant;
+      state.activeEnterpriseTab = "drafts";
+      state.lastActionNote = "Opened the prospect detail with the recommended draft.";
+      renderEnterpriseResult(data);
+      const detail = els.outputPanel.querySelector(".prospect-detail-card");
+      if (detail) detail.open = true;
+      detail?.scrollIntoView?.({behavior: "smooth", block: "nearest"});
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-approve-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.approveDraft);
+      if (!draft) return;
+      draft.status = "Approved";
+      draft.history.push("Approved for export");
+      state.lastActionNote = `Variant ${draft.key} approved.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-export-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const draft = state.enterpriseDrafts.find((item) => item.key === button.dataset.exportDraft);
+      if (!draft) return;
+      const validation = validateExportReadiness([draft], context);
+      if (!validation.ok) {
+        showToast(button, validation.message);
+        return;
+      }
+      draft.status = "Exported";
+      draft.history.push("Marked exported");
+      recordExport(`Variant ${draft.key}`, context.project, 1);
+      state.outcomeStats.sent = Number(state.outcomeStats.sent || 0) + 1;
+      state.lastActionNote = `Variant ${draft.key} marked exported.`;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-draft-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const draft = state.enterpriseDrafts.find((item) => item.key === field.dataset.variant);
+      if (!draft) return;
+      draft[field.dataset.draftField] = field.value;
+      if (!draft.history.includes("Edited manually")) draft.history.push("Edited manually");
+      persistWorkspace();
+      const preview = els.outputPanel.querySelector("[data-resolved-preview]");
+      if (preview) preview.textContent = resolveMergeFields(draftText(draft));
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-recipient-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      state.recipient[field.dataset.recipientField] = field.value;
+      persistWorkspace();
+      const preview = els.outputPanel.querySelector("[data-resolved-preview]");
+      if (preview) preview.textContent = resolveMergeFields(draftText(selectedDraft()));
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-insert-field]").forEach((button) => {
+    button.addEventListener("click", () => insertMergeField(button.dataset.insertField));
+  });
+  const workspaceSearch = els.outputPanel.querySelector("#workspace-search");
+  if (workspaceSearch) {
+    workspaceSearch.addEventListener("input", () => {
+      state.workspaceSearch = workspaceSearch.value;
+      renderEnterpriseResult(data);
+    });
+  }
+  ["workspaceFolder", "workspaceStatus"].forEach((key) => {
+    const field = els.outputPanel.querySelector(`#field-${key}`);
+    if (!field) return;
+    field.addEventListener("change", () => {
+      state[key] = field.value;
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-load-campaign]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const campaign = state.savedCampaigns.find((item) => item.name === button.dataset.loadCampaign);
+      if (!campaign) return;
+      state.enterpriseContext = {...context, project: campaign.name, folder: campaign.folder};
+      state.lastActionNote = `${campaign.name} loaded.`;
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-status-campaign]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const campaign = state.savedCampaigns.find((item) => item.name === button.dataset.statusCampaign);
+      if (campaign) campaign.status = "Reviewed";
+      state.lastActionNote = "Campaign marked reviewed.";
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-crm]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const name = button.dataset.crm;
+      const current = state.crmConnections[name];
+      if (current !== "connected") {
+        state.activeEnterpriseTab = "tools";
+        state.activeEnterpriseTool = "insights";
+        state.integrationSetupOpen = true;
+        state.lastActionNote = `${name} setup requires real credentials and provider approval.`;
+        showToast(button, `${name} needs credentials before export.`);
+        renderEnterpriseResult(data);
+        return;
+      }
+      state.crmConnections[name] = "exported";
+      state.lastActionNote = `${name} export recorded.`;
+      if (state.account.authenticated) {
+        apiClient.saveIntegration(name, state.crmConnections[name], {workspace: state.account.workspaceName}).catch(() => {});
+      }
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-outcome]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.outcomeStats[button.dataset.outcome] = Number(state.outcomeStats[button.dataset.outcome] || 0) + 1;
+      state.lastActionNote = `${titleCase(button.dataset.outcome)} outcome recorded.`;
+      persistWorkspace();
+      updateVisibleActionNote();
+      showToast(button, state.lastActionNote);
+    });
+  });
+  els.outputPanel.querySelector("[data-load-sample-csv]")?.addEventListener("click", () => {
+    state.batchInput = sampleCsv;
+    state.batchErrors = [];
+    state.batchRows = [];
+    state.batchProgress = 0;
+    state.sampleWorkspaceLoaded = true;
+    state.lastActionNote = "Loaded sample CSV with prospect rows.";
+    renderEnterpriseResult(data);
+  });
+  const batchInput = els.outputPanel.querySelector("#batch-input");
+  batchInput?.addEventListener("input", () => {
+    state.batchInput = batchInput.value;
+    state.batchProgress = 0;
+    state.batchErrors = [];
+    state.batchRows = [];
+    persistWorkspace();
+  });
+  batchInput?.addEventListener("change", () => {
+    state.batchInput = batchInput.value;
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-generate-batch]")?.addEventListener("click", () => {
+    const input = els.outputPanel.querySelector("#batch-input")?.value || "";
+    state.batchInput = input;
+    if (!input.trim()) {
+      state.batchErrors = ["Paste CSV rows or load the sample CSV first."];
+      state.batchProgress = 0;
+      state.lastActionNote = "Batch generation needs CSV input first.";
+      renderEnterpriseResult(data);
+      return;
+    }
+    ["first_name", "company", "role", "industry", "signal"].forEach((column) => {
+      const field = els.outputPanel.querySelector(`#map-${column}`);
+      if (field) state.batchMapping[column] = field.value.trim() || column;
+    });
+    state.batchRows = parseCsv(input, state.batchMapping);
+    state.batchProgress = state.batchRows.length ? 100 : 0;
+    state.outcomeStats.generated += state.batchRows.length;
+    state.lastActionNote = state.batchRows.length ? `${state.batchRows.length} batch briefs generated. Next: review rows.` : "Fix CSV issues before generating briefs.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-export-batch]")?.addEventListener("click", (event) => {
+    downloadCsv(batchCsv());
+    recordExport("Batch CSV", context.project, state.batchRows.length);
+    showToast(event.currentTarget, "Batch CSV exported.");
+  });
+  els.outputPanel.querySelector("[data-load-inbox]")?.addEventListener("click", () => {
+    state.inboxThreads = [...sampleInboxThreads];
+    state.lastActionNote = "Sample inbox replies loaded.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelector("[data-generate-next-replies]")?.addEventListener("click", () => {
+    state.inboxThreads = state.inboxThreads.map((thread) => ({
+      ...thread,
+      reply: inboxReply(thread, context),
+    }));
+    state.lastActionNote = "Next responses suggested for inbox replies.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  els.outputPanel.querySelectorAll("[data-inbox-reply]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const thread = state.inboxThreads[Number(field.dataset.inboxReply)];
+      if (!thread) return;
+      thread.reply = field.value;
+      thread.status = "Edited reply";
+      persistWorkspace();
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-copy-inbox]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const thread = state.inboxThreads[Number(button.dataset.copyInbox)];
+      const editor = button.closest("article")?.querySelector(".suggested-editor");
+      const replyText = editor?.value || thread?.reply || (thread ? inboxReply(thread, context) : "");
+      if (thread) {
+        thread.reply = replyText;
+        persistWorkspace();
+      }
+      await copyTextFromButton(button, replyText, "Next response copied.");
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-draft-inbox]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const thread = state.inboxThreads[Number(button.dataset.draftInbox)];
+      if (thread) {
+        thread.reply = inboxReply(thread, context);
+        thread.status = "Draft reply";
+      }
+      state.lastActionNote = "Reply draft prepared.";
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-snooze-inbox]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const thread = state.inboxThreads[Number(button.dataset.snoozeInbox)];
+      if (thread) thread.status = "Snoozed";
+      state.lastActionNote = "Inbox reply snoozed.";
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelectorAll("[data-mark-handled]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const thread = state.inboxThreads[Number(button.dataset.markHandled)];
+      if (thread) thread.handled = true;
+      state.lastActionNote = "Inbox reply marked handled.";
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  els.outputPanel.querySelector("[data-learn-winners]")?.addEventListener("click", () => {
+    const text = els.outputPanel.querySelector("#winner-input")?.value || "";
+    state.winnerSamples = text.split(/\n+/).map((item) => item.trim()).filter(Boolean);
+    state.lastActionNote = "Winner patterns updated.";
+    persistWorkspace();
+    renderEnterpriseResult(data);
+  });
+  const sequenceLength = els.outputPanel.querySelector("#sequence-length");
+  if (sequenceLength) {
+    sequenceLength.addEventListener("input", () => {
+      state.sequenceSettings.length = Math.max(2, Math.min(8, Number(sequenceLength.value || 4)));
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  }
+  ["sequenceStart", "sequenceLogic"].forEach((key) => {
+    const field = els.outputPanel.querySelector(`#field-${key}`);
+    if (!field) return;
+    field.addEventListener("change", () => {
+      if (key === "sequenceStart") state.sequenceSettings.startDay = field.value;
+      else state.sequenceSettings.logic = field.value;
+      persistWorkspace();
+      renderEnterpriseResult(data);
+    });
+  });
+  persistWorkspace();
+}
+
+function projectSidebar(context) {
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  const rows = state.sampleWorkspaceLoaded
+    ? [
+      ["campaigns", "Campaigns", state.savedCampaigns.length ? `Sample: ${state.savedCampaigns.length} saved` : "No saved campaigns"],
+      ["batch", "Batches", state.batchRows.length ? `${state.batchRows.length} prospects` : "Sample: 100 prospects"],
+      ["inbox", "Replies", openReplies ? `Sample: ${openReplies} open` : "No open replies"],
+      ["personas", "Personas", state.personaLibrary.length ? `Sample: ${state.personaLibrary.length} profiles` : "No profiles"],
+      ["templates", "Templates", `Sample: ${outboundTemplates.length} approved`],
+    ]
+    : [
+      ["campaigns", "Campaigns", "No saved campaigns"],
+      ["batch", "Batches", "No imported prospects"],
+      ["inbox", "Replies", "Connect inbox"],
+      ["personas", "Personas", "Create library"],
+      ["templates", "Templates", "Add templates"],
+    ];
+  return `
+    <aside class="project-sidebar" aria-label="Project sidebar">
+      <div>
+        <span class="interface-label">Workspace</span>
+        <strong>${escapeHtml(context.folder || "RevOps")}</strong>
+      </div>
+      ${rows.map(([key, label, meta]) => `<button type="button" class="tree-row" data-tree-shortcut="${escapeHtml(key)}"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta)}</small></button>`).join("")}
+    </aside>
+  `;
+}
+
+function workflowPathHtml() {
+  const labels = uiHelpers.workflowLabels?.() || productConfig.workflow || ["Import", "Draft", "Review", "Export", "Track"];
+  return `
+    <div class="flow-path compact-flow">
+      ${labels.map((step, index) => `
+        <article class="${index === 2 ? "is-active" : ""}">
+          <span>${index + 1}</span>
+          <strong>${escapeHtml(step)}</strong>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function campaignProspects(context) {
+  if (state.batchRows.length) return state.batchRows.slice(0, 8);
+  return [
+    {id: 1, first_name: context.firstName || "Maya", company: context.recipientCompany || "Acme Revenue", role: context.recipientRole || context.role, industry: context.industry, signal: context.pain, status: "Draft ready", subject: subjectLines(context)[0], next: "Review"},
+    {id: 2, first_name: "Jordan", company: "Northwind Ops", role: "RevOps Director", industry: "SaaS", signal: "Migration concern and late pipeline risk", status: "Needs proof", subject: "Idea for pipeline inspection", next: "Add proof"},
+    {id: 3, first_name: "Taylor", company: "Bluepeak", role: "Founder", industry: "B2B software", signal: "Cleaner handoffs without more dashboards", status: "Queued", subject: "Cleaner handoffs", next: "Generate"},
+  ];
+}
+
+function reviewQueueItems(context, variants) {
+  const variantRows = variants.map((draft, index) => ({
+    id: `draft-${draft.key}`,
+    draftKey: draft.key,
+    target: "draft",
+    title: `Variant ${draft.key}: ${draft.name}`,
+    owner: draft.owner || (index === 0 ? "Maya" : "Unassigned"),
+    status: draft.status || (index === 0 ? "Needs review" : "Draft"),
+    due: draft.due || "This week",
+    score: averageScore(draft),
+    next: index === 0 ? "Approve or edit" : "Compare",
+  }));
+  const prospectRows = campaignProspects(context).slice(0, 3).map((row, index) => ({
+    id: `prospect-${row.id || index}`,
+    prospectId: row.id || index,
+    target: "prospect",
+    title: `${row.first_name} at ${row.company}`,
+    owner: index === 0 ? "Revenue lead" : "SDR team",
+    status: row.status || "Queued",
+    due: index === 0 ? "Today" : "This week",
+    score: 92 - index * 4,
+    next: row.next || "Review",
+  }));
+  return [...variantRows, ...prospectRows];
+}
+
+function reviewQueueTable(context, variants, options = {}) {
+  const rows = reviewQueueItems(context, variants);
+  const visibleRows = options.limit ? rows.slice(0, options.limit) : rows;
+  const hiddenCount = Math.max(0, rows.length - visibleRows.length);
+  return `
+    <div class="review-table ${options.compact ? "is-compact-review" : ""}">
+      <div class="table-head review-head"><span>Item</span><span>Owner</span><span>Status</span><span>Due</span><span>Score</span><span>Next</span></div>
+      ${visibleRows.map((row) => `
+        <div class="table-row review-row">
+          <span><strong>${escapeHtml(row.title)}</strong></span>
+          <span data-label="Owner">${escapeHtml(row.owner)}</span>
+          <span data-label="Status"><em class="status-token">${escapeHtml(row.status)}</em></span>
+          <span data-label="Due">${escapeHtml(row.due)}</span>
+          <span data-label="Score">${escapeHtml(row.score)}</span>
+          <span data-label="Next">
+            <button
+              class="table-action"
+              type="button"
+              ${row.target === "draft" ? `data-review-draft="${escapeHtml(row.draftKey)}"` : `data-review-prospect="${escapeHtml(row.prospectId)}"`}
+              aria-label="${escapeHtml(`${row.next} ${row.title}`)}"
+            >${escapeHtml(row.next)}</button>
+          </span>
+        </div>
+      `).join("")}
+    </div>
+    ${hiddenCount ? `<p class="muted tiny-copy review-table-note">${hiddenCount} more items stay in the full review queue.</p>` : ""}
+  `;
+}
+
+function enterpriseTodaySummary(context, variants) {
+  const rows = reviewQueueItems(context, variants);
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  const exportsWaiting = variants.filter((draft) => !/exported|sent|replied|booked/i.test(draft.status || "")).length;
+  return `
+    <section class="enterprise-today-summary" aria-label="Today summary">
+      <article><span>Drafts due</span><strong>${rows.length}</strong><small>Review queue first</small></article>
+      <article><span>Replies open</span><strong>${openReplies || "0"}</strong><small>${openReplies ? "Triage in Operations" : "No open sample replies"}</small></article>
+      <article><span>Exports waiting</span><strong>${exportsWaiting}</strong><small>Setup required before CRM</small></article>
+      <article><span>Current step</span><strong>Review</strong><small>Import → Draft → Review → Export → Track</small></article>
+    </section>
+  `;
+}
+
+function enterpriseNextActionHero(context, variants) {
+  const draft = variants.find((item) => /needs review|draft/i.test(item.status || "")) || variants[0];
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  return `
+    <section class="enterprise-next-action-hero" aria-label="Next best Enterprise action">
+      <div>
+        <span class="label">Next best action</span>
+        <h3>Review ${draft ? `Variant ${escapeHtml(draft.key)}: ${escapeHtml(draft.name)}` : "one draft"}</h3>
+        <p>${draft ? `Score ${averageScore(draft)}. Approve it, edit the ask, or compare against the next variant before export.` : "Generate drafts, then review one at a time."}</p>
+      </div>
+      <div class="next-action-stack">
+        ${draft ? `<button type="button" data-review-draft="${escapeHtml(draft.key)}">Review this draft</button>` : `<button type="button" data-enterprise-primary-tab="drafts">Open drafts</button>`}
+        <button class="button-secondary" type="button" data-tool="inbox">${openReplies ? `${openReplies} replies open` : "Reply queue"}</button>
+      </div>
+    </section>
+  `;
+}
+
+function campaignHome(context, angles) {
+  const prospects = campaignProspects(context);
+  const campaigns = state.sampleWorkspaceLoaded || state.campaignSaved ? filteredCampaigns() : [];
+  const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
+  return `
+    <div class="campaign-workspace">
+      ${enterpriseNextActionHero(context, variants)}
+      ${enterpriseTodaySummary(context, variants)}
+      <section class="mobile-enterprise-path" aria-label="Mobile Enterprise path">
+        <article><span>Today</span><strong>${reviewQueueItems(context, variants).length} items</strong></article>
+        <article><span>Now</span><strong>Review one draft</strong></article>
+        <article><span>Next</span><strong>Approve or export</strong></article>
+      </section>
+
+      <article class="strategy-card review-hero-card">
+        <div class="section-title">
+          <div>
+            <span class="label">Step 3 of 5</span>
+            <strong>Review queue</strong>
+            <p>Approve drafts, assign owners, track due dates, and keep export work visible.</p>
+          </div>
+          <button type="button" data-enterprise-primary-tab="drafts">Open review queue</button>
+        </div>
+        ${reviewQueueTable(context, variants, {limit: 4, compact: true})}
+      </article>
+
+      <div class="dashboard-coaching-row">
+        ${managerCoachingCard(context, variants)}
+        ${outcomeLearningCard()}
+      </div>
+
+      <details class="secondary-workspace-section enterprise-focus-band enterprise-flow-drawer">
+        <summary>Workflow path and campaign context</summary>
+        <article class="strategy-card featured dashboard-focus-card">
+          <div class="section-title compact-dashboard-title">
+            <div>
+              <span class="label">Campaign context</span>
+              <h3>${prospects.length} prospects ready</h3>
+            </div>
+          <button class="button-secondary" type="button" data-tool="batch">Import prospects</button>
+          </div>
+          <p>Every Enterprise surface maps back to one path: Import, Draft, Review, Export, Track.</p>
+          <div class="focus-stats">
+            ${summaryItem("Status", state.campaignSaved ? "Saved" : "Drafts ready")}
+            ${summaryItem("Owner", "Revenue team")}
+            ${summaryItem("Due", "This week")}
+            ${summaryItem("Next", "Review queue")}
+          </div>
+          ${workflowPathHtml()}
+        </article>
+      </details>
+
+      <details class="secondary-workspace-section">
+        <summary>Prospects, saved workspaces, and campaign detail</summary>
+        <div class="secondary-workspace-content">
+          <article class="strategy-card">
+            <div class="section-title">
+              <div>
+                <strong>Prospect list</strong>
+                <p>Rows show draft status, reply status, and CRM readiness.</p>
+              </div>
+              <button class="button-secondary" type="button" data-tool="batch">Open batch tools</button>
+            </div>
+            <div class="prospect-table">
+              <div class="table-head"><span><input type="checkbox" aria-label="Select all prospects"></span><span>Prospect</span><span>Score</span><span>Draft</span><span>CRM</span><span>Next</span></div>
+              ${prospects.map((row, index) => `
+                <div class="table-row">
+                  <span><input type="checkbox" aria-label="Select ${escapeHtml(row.first_name)}"></span>
+                  <span><strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong><small>${escapeHtml(row.role)} / ${escapeHtml(row.signal)}</small></span>
+                  <span data-label="Score">${92 - index * 4}</span>
+                  <span data-label="Draft">${escapeHtml(row.status || "Generated")}</span>
+                  <span data-label="CRM">${index === 0 ? "Connected" : "Preview only"}</span>
+                  <span data-label="Next">${escapeHtml(row.next || "Review")}</span>
+                </div>
+              `).join("")}
+            </div>
+          </article>
+
+          <article class="strategy-card saved-workspaces-card">
+            <div class="section-title">
+              <div>
+                <strong>Saved workspaces</strong>
+                <p>${campaigns.length} results match your filters.</p>
+              </div>
+              <div class="workspace-controls compact-controls">
+                <label class="field"><span>Search</span><input id="workspace-search" value="${escapeHtml(state.workspaceSearch)}" placeholder="Search"></label>
+                ${selectField("workspaceStatus", "Status", ["All", ...uniqueValues(state.savedCampaigns, "status")], state.workspaceStatus)}
+              </div>
+            </div>
+            <div class="campaign-table dense-table">
+              ${campaigns.slice(0, 4).map((campaign) => `
+                <article>
+                  <strong>${escapeHtml(campaign.name)}</strong>
+                  <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.status)} / ${escapeHtml(campaign.prospects || 1)} prospects</span>
+                  <div class="result-actions">
+                    <button class="button-secondary" data-load-campaign="${escapeHtml(campaign.name)}">Load</button>
+                    <button class="button-secondary" data-status-campaign="${escapeHtml(campaign.name)}">Mark reviewed</button>
+                  </div>
+                </article>
+              `).join("")}
+            </div>
+          </article>
+
+          <div class="detail-grid">
+            <article class="strategy-card"><strong>Executive summary</strong><p>Lead with ${escapeHtml(angles[0][0].toLowerCase())} for ${escapeHtml(context.role)}. Anchor the message in ${escapeHtml(context.pain)} and support it with ${escapeHtml(context.proof)}.</p></article>
+            <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Likely objection</strong><p>"We already have dashboards." Answer with implementation clarity and fewer reporting loops.</p></article>
+          </div>
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+function draftsWorkspace(context, variants) {
+  const best = bestDraft();
+  const draft = selectedDraft();
+  const prospects = campaignProspects(context);
+  const selectedProspect = prospects.find((item) => item.id === state.selectedProspectId) || prospects[0];
+  const previewLines = resolveMergeFields(draftText(draft))
+    .split("\n")
+    .filter(Boolean)
+    .filter((line, index) => index !== 0 || !line.toLowerCase().startsWith("subject:"))
+    .slice(0, 8)
+    .join("\n\n");
+  const previewMode = Boolean(state.enterpriseDraftPreviewMode);
+  return `
+    <div class="drafts-workspace ${state.enterpriseFocusMode ? "is-focus-mode" : ""}">
+      <aside class="review-queue">
+        <strong>Review queue</strong>
+        <p class="muted tiny-copy">Pick a draft, polish it, then approve or export.</p>
+        ${variants.map((item) => `
+          <button type="button" data-select-variant="${item.key}" aria-pressed="${String(item.key === draft.key)}">
+            <span>Variant ${escapeHtml(item.key)}${item.key === best?.key ? " / best" : ""}</span>
+            <small>${escapeHtml(item.name)} / ${averageScore(item)} score / ${escapeHtml(item.status || "Draft")}</small>
+          </button>
+        `).join("")}
+        <details class="prospect-detail-card">
+          <summary>Prospect detail</summary>
+          <strong>${escapeHtml(selectedProspect.first_name)} at ${escapeHtml(selectedProspect.company)}</strong>
+          <p>${escapeHtml(selectedProspect.role)} / ${escapeHtml(selectedProspect.signal)}</p>
+          <small>Priority high / due today / CRM ${state.crmConnections.HubSpot === "connected" ? "ready" : "setup required"}</small>
+        </details>
+      </aside>
+      <section class="email-editor focused-editor compact-draft-workspace">
+        <article class="draft-focus-card">
+          <div class="section-title">
+            <div>
+              <span class="label">Email editor</span>
+              <strong>Variant ${escapeHtml(draft.key)}: ${escapeHtml(draft.name)}</strong>
+              <p class="muted tiny-copy">Status: ${escapeHtml(draft.status || "Draft")} / Owner: ${escapeHtml(draft.owner || "Unassigned")} / Due: ${escapeHtml(draft.due || "This week")}</p>
+            </div>
+            <div class="editor-mode-actions">
+              <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
+              <button class="button-secondary" type="button" data-toggle-draft-preview>${previewMode ? "Edit draft" : "Preview email"}</button>
+              <button class="button-secondary" type="button" data-toggle-editor-focus>${state.enterpriseFocusMode ? "Show queue" : "Focus editor"}</button>
+            </div>
+          </div>
+          ${previewMode ? `
+            <article class="resolved-card editor-preview-card">
+              <span class="label">Resolved email preview</span>
+              <strong>${escapeHtml(resolveMergeFields(draft.subject))}</strong>
+              <pre data-resolved-preview>${escapeHtml(previewLines)}</pre>
+              <small>Preview uses ${escapeHtml(state.recipient.firstName)}, ${escapeHtml(state.recipient.company)}, and ${escapeHtml(state.recipient.role)} so merge fields do not look broken before export.</small>
+            </article>
+          ` : `
+            <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
+            <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
+          `}
+          ${state.lastDraftChange ? `<div class="editor-change-note" role="status"><strong>What changed</strong><span>${escapeHtml(state.lastDraftChange)}</span></div>` : ""}
+          <details class="quality-summary">
+            <summary>Quality check: ${averageScore(draft)} overall</summary>
+            <div class="score-strip comparison-score compact-score-strip">
+              ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(scoreLabel(label))}</span>`).join("")}
+            </div>
+          </details>
+          <div class="result-actions editor-primary-actions">
+            <button type="button" data-copy-draft="${escapeHtml(draft.key)}">Copy draft</button>
+            <button class="button-secondary" type="button" data-approve-draft="${draft.key}">Approve</button>
+            <button class="button-secondary" type="button" data-transform="shorter" data-variant="${draft.key}">Make shorter</button>
+            <button class="button-secondary" type="button" data-transform="specific" data-variant="${draft.key}">Make more specific</button>
+          </div>
+          <div class="send-checklist editor-checklist">
+            <strong>Send-ready checklist</strong>
+            ${sendReadyChecklist(draft, context).map((item) => `<span class="${item.ok ? "is-ok" : "needs-work"}">${escapeHtml(item.label)}</span>`).join("")}
+          </div>
+          <details class="editor-secondary-actions">
+            <summary>More status actions</summary>
+            <div class="result-actions">
+            <button class="button-secondary" type="button" data-export-draft="${draft.key}">Mark exported</button>
+            <button class="button-secondary" type="button" data-outcome="sent">Mark sent</button>
+            <button class="button-secondary" type="button" data-outcome="replied">Mark replied</button>
+            <button class="button-secondary" type="button" data-outcome="booked">Mark booked</button>
+            </div>
+          </details>
+          <details class="feedback-menu">
+            <summary>Draft feedback</summary>
+            ${feedbackButtons("Enterprise draft")}
+          </details>
+        </article>
+
+        <aside class="draft-side-panel">
+          <article class="approval-rail" aria-label="Approve and export rail">
+            <span class="label">Approve / export</span>
+            <strong>${escapeHtml(draft.status || "Draft")}</strong>
+            <p>Finish the selected draft, then choose the next status. CRM export stays setup required until connected.</p>
+            <div class="approval-actions">
+              <button type="button" data-approve-draft="${draft.key}">Approve</button>
+              <button class="button-secondary" type="button" data-export-draft="${draft.key}">Mark exported</button>
+            </div>
+            <details>
+              <summary>Version compare</summary>
+              ${versionHistoryHtml("Enterprise draft")}
+            </details>
+          </article>
+          <article class="team-comments">
+            <strong>Team comments</strong>
+            <div class="comment-list">
+              ${(state.teamComments.length ? state.teamComments : [{author: "Manager", text: "Check the proof point before export."}]).map((comment) => `<span><strong>${escapeHtml(comment.author || "Team")}</strong>${escapeHtml(comment.text || comment)}</span>`).join("")}
+            </div>
+          </article>
+          <article class="resolved-card compact-recipient-preview">
+            <strong>Recipient preview</strong>
+            <p>${escapeHtml(state.recipient.firstName)} at ${escapeHtml(state.recipient.company)} / ${escapeHtml(state.recipient.role)}</p>
+          </article>
+        </aside>
+
+        <details class="history-panel editor-collapse">
+          <summary>Merge fields, rewrite tools, and history</summary>
+          <div class="editor-header">
+            <label class="field"><span>Variant name</span><input data-draft-field="name" data-variant="${draft.key}" value="${escapeHtml(draft.name)}"></label>
+            <span class="strength">Recommended: Variant ${escapeHtml(best?.key || "A")}</span>
+          </div>
+          <details class="history-panel rewrite-panel">
+            <summary>Rewrite tools</summary>
+            <div class="editor-actions compact-actions">
+              ${transformButtons(draft.key)}
+            </div>
+          </details>
+          <div class="recipient-preview">
+            <div class="enterprise-field-grid">
+              <label class="field"><span>First name</span><input data-recipient-field="firstName" value="${escapeHtml(state.recipient.firstName)}"></label>
+              <label class="field"><span>Company</span><input data-recipient-field="company" value="${escapeHtml(state.recipient.company)}"></label>
+              <label class="field"><span>Role</span><input data-recipient-field="role" value="${escapeHtml(state.recipient.role)}"></label>
+            </div>
+            <details class="merge-field-box">
+              <summary>Insert merge field</summary>
+              ${["{{first_name}}", "{{company}}", "{{role}}", "{{unsubscribe_link}}"].map((field) => `<button class="button-secondary" type="button" data-insert-field="${escapeHtml(field)}">${escapeHtml(field)}</button>`).join("")}
+            </details>
+          </div>
+          <details class="history-panel">
+            <summary>Draft history and version compare</summary>
+            <div class="feature-list">${draft.history.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+            ${versionHistoryHtml("Enterprise draft")}
+          </details>
+        </details>
+      </section>
+    </div>
+  `;
+}
+
+function toolsWorkspace(context, sequence, angles) {
+  const openReplies = state.inboxThreads.filter((thread) => !thread.handled).length;
+  const tools = [
+    ["batch", "Batch"],
+    ["sequence", "Sequence"],
+    ["inbox", "Inbox"],
+    ["libraries", "Libraries"],
+    ["insights", "Insights"],
+  ];
+  return `
+    <div class="tools-workspace">
+      <section class="tools-command-center operation-queue-center" aria-label="Enterprise operations command center">
+        <article class="${state.activeEnterpriseTool === "batch" ? "is-active" : ""}"><span>Import queue</span><strong>${state.batchRows.length || "No"} prospects</strong><small>Paste, map, validate, review.</small><button class="table-action" type="button" data-tool-shortcut="batch">Open</button></article>
+        <article class="${state.activeEnterpriseTool === "inbox" ? "is-active" : ""}"><span>Reply queue</span><strong>${openReplies || "No"} open replies</strong><small>Draft responses and mark handled.</small><button class="table-action" type="button" data-tool-shortcut="inbox">Open</button></article>
+        <article class="${state.activeEnterpriseTool === "libraries" ? "is-active" : ""}"><span>Assets queue</span><strong>${brandVoiceProfiles.length} voice profiles</strong><small>Voice, personas, templates.</small><button class="table-action" type="button" data-tool-shortcut="libraries">Open</button></article>
+        <article class="${state.activeEnterpriseTool === "insights" ? "is-active" : ""}"><span>Setup queue</span><strong>Preview integrations</strong><small>Credentials required before export.</small><button class="table-action" type="button" data-tool-shortcut="insights">Open</button></article>
+      </section>
+      <nav class="tool-switcher" aria-label="Enterprise tools">
+        ${tools.map(([key, label]) => `<button type="button" data-tool="${key}" aria-pressed="${String(state.activeEnterpriseTool === key)}">${escapeHtml(label)}</button>`).join("")}
+      </nav>
+      ${renderToolPanel(context, sequence, angles)}
+    </div>
+  `;
+}
+
+function renderToolPanel(context, sequence, angles) {
+  if (state.activeEnterpriseTool === "sequence") return sequencePanel(context, sequence);
+  if (state.activeEnterpriseTool === "inbox") return inboxPanel(context);
+  if (state.activeEnterpriseTool === "libraries") return librariesPanel();
+  if (state.activeEnterpriseTool === "insights") return analyticsWorkspace(context, angles);
+  return batchPanel(context);
+}
+
+function batchPanel(context) {
+  const errors = state.batchErrors.length ? `<div class="error-list">${state.batchErrors.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
+  const batchValue = state.batchInput || "";
+  const canExport = state.batchRows.length > 0;
+  const hasCsv = Boolean(batchValue.trim());
+  const hasRows = state.batchRows.length > 0;
+  const activeStep = hasRows ? 4 : state.batchErrors.length ? 2 : state.batchProgress ? 3 : hasCsv ? 1 : 0;
+  const stepNames = ["Paste", "Map", "Validate", "Generate", "Review"];
+  const mappingFields = `
+    <div class="mapping-grid batch-step-panel">
+      ${["first_name", "company", "role", "industry", "signal"].map((column) => `<label class="field"><span>${escapeHtml(column)} column</span><input id="map-${column}" value="${escapeHtml(state.batchMapping[column] || column)}"></label>`).join("")}
+    </div>
+  `;
+  const csvEditor = `
+    <textarea id="batch-input" class="compact-textarea" placeholder="first_name,company,role,industry,signal">${escapeHtml(batchValue)}</textarea>
+    ${hasCsv ? mappingFields : `<article class="empty-mini batch-empty-step"><strong>Paste first, then map.</strong><p>Required columns: first_name, company, role, industry, signal.</p></article>`}
+  `;
+  return `
+    <div class="batch-workspace">
+      <article class="strategy-card">
+        <div class="section-title">
+          <div>
+            <span class="label">Batch step ${activeStep + 1} of 5</span>
+            <strong>Batch CSV upload</strong>
+            <p><b>${escapeHtml(stepNames[activeStep])}.</b> Paste up to 100 prospects. Mapping appears only after CSV exists, so the workflow stays focused.</p>
+          </div>
+          <button class="button-secondary" type="button" data-load-sample-csv>Load sample CSV</button>
+        </div>
+        <div class="batch-stepper">
+          ${["Paste CSV", "Map columns", "Validate rows", "Generate briefs", "Review/export"].map((step, index) => `<span class="${index < activeStep ? "is-complete" : index === activeStep ? "is-active" : ""}">${index + 1}. ${escapeHtml(step)}</span>`).join("")}
+        </div>
+        ${hasRows ? `
+          <article class="batch-review-summary">
+            <div>
+              <strong>${state.batchRows.length} prospects ready for review</strong>
+              <p class="muted">Source CSV and mapping are tucked away so the review step stays calm.</p>
+            </div>
+            <details>
+              <summary>Edit CSV and mapping</summary>
+              ${csvEditor}
+            </details>
+          </article>
+        ` : csvEditor}
+        ${errors}
+        ${hasCsv || state.batchRows.length ? `
+          <div class="batch-progress" aria-label="Batch generation progress"><progress max="100" value="${state.batchProgress}">${state.batchProgress}%</progress></div>
+          <p class="muted">${state.batchRows.length ? `${state.batchRows.length} rows validated and ready for review.` : "Validate columns, then generate briefs."}</p>
+        ` : ""}
+        ${batchQaPanel(context)}
+        <div class="result-actions split-actions">
+          ${hasRows
+            ? `<button type="button" data-generate-batch>Regenerate briefs</button>`
+            : `<button type="button" data-generate-batch>Generate batch briefs</button>`}
+          <button class="button-secondary" type="button" data-export-batch ${canExport ? "" : "disabled"}>Download export CSV</button>
+        </div>
+      </article>
+      <div class="batch-table ${state.batchRows.length ? "has-rows" : ""}">
+        ${batchRowsHtml(context)}
+      </div>
+    </div>
+  `;
+}
+
+function sequencePanel(context, sequence) {
+  return `
+    <article class="strategy-card">
+      <strong>Full sequence builder</strong>
+      <div class="workspace-controls">
+        <label class="field"><span>Sequence length</span><input id="sequence-length" type="number" min="2" max="8" value="${escapeHtml(state.sequenceSettings.length)}"></label>
+        ${selectField("sequenceStart", "Start day", ["Monday", "Tuesday", "Wednesday", "Thursday"], state.sequenceSettings.startDay)}
+        ${selectField("sequenceLogic", "Follow-up logic", ["Stop on reply", "Pause on open", "Continue until booked", "Manager review required"], state.sequenceSettings.logic || "Stop on reply")}
+      </div>
+    </article>
+    <div class="stack">
+      ${sequence.slice(0, Number(state.sequenceSettings.length || 4)).map(([day, title, copy], index) => `
+        <article class="sequence-card">
+          <span class="strength">${escapeHtml(day)}</span>
+          <strong>${escapeHtml(title)}</strong>
+          <small>Channel: ${escapeHtml(state.sequenceSettings.channels[index] || channels[index % channels.length])} / Rule: ${escapeHtml(state.sequenceSettings.logic || "Stop on reply")}</small>
+          <pre>${escapeHtml(copy)}</pre>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function inboxPanel(context) {
+  const groups = ["interested", "objection", "referral", "not-now", "unsubscribe"];
+  return `
+    <div class="inbox-workspace">
+      <article class="strategy-card">
+        <strong>Gmail / Outlook reply queue</strong>
+        <p>Gmail / Outlook inbox mode preview: classify hot replies, objections, referrals, not-now replies, and unsubscribe requests.</p>
+        <div class="setup-steps">
+          <span>1. Connect Gmail or Outlook</span>
+          <span>2. Pull new replies</span>
+          <span>3. Review suggested response</span>
+          <span>4. Write back to CRM/email</span>
+        </div>
+        <div class="result-actions">
+          <button type="button" data-load-inbox>Load sample replies</button>
+          <button class="button-secondary" type="button" data-generate-next-replies>Suggest next responses</button>
+        </div>
+      </article>
+      <div class="inbox-queues">
+        ${groups.map((group) => `<span>${escapeHtml(titleCase(group))}: ${state.inboxThreads.filter((thread) => thread.type === group && !thread.handled).length}</span>`).join("")}
+      </div>
+      <div class="inbox-list">
+        ${state.inboxThreads.map((thread, index) => `
+          <article class="${thread.handled ? "is-handled" : ""}">
+            <div class="card-row"><span class="strength">${escapeHtml(titleCase(thread.type))}</span><span class="source-badge">${escapeHtml(thread.source || "Gmail")}</span></div>
+            <strong>${escapeHtml(thread.from)}</strong>
+            <p>${escapeHtml(thread.text)}</p>
+            <small>${escapeHtml(thread.status || "Open")} / ${escapeHtml(thread.urgency || "Medium")} urgency / ${escapeHtml(thread.sentiment || "Neutral")} / ${escapeHtml(thread.confidence || 80)} confidence</small>
+            <div class="suggested-reply">${escapeHtml(thread.reply || thread.next)}</div>
+            <textarea class="compact-textarea suggested-editor" data-inbox-reply="${index}">${escapeHtml(thread.reply || inboxReply(thread, context))}</textarea>
+            <p class="muted"><strong>Why:</strong> ${escapeHtml(thread.why || "The reply contains a clear next-step signal.")}</p>
+            <div class="result-actions">
+              <button class="button-secondary" type="button" data-draft-inbox="${index}">Draft reply</button>
+              <button class="button-secondary" type="button" data-snooze-inbox="${index}">Snooze</button>
+              <button class="button-secondary" type="button" data-copy-inbox="${index}">Copy reply</button>
+              <button class="button-secondary" type="button" data-mark-handled="${index}">Mark handled</button>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+      <article class="strategy-card">
+        <strong>Chrome sidebar preview</strong>
+        <div class="sidebar-mock">
+          <div class="mock-bar">TextTraits Sidebar</div>
+          <div class="mock-card"><span class="source-badge">LinkedIn</span><strong>Pull from current page</strong><p>Extract name, role, company, and visible signal.</p></div>
+          <div class="mock-card"><span class="source-badge">HubSpot</span><strong>Write back to CRM/email</strong><p>Preview-only until connected.</p></div>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function inboxReply(thread, context) {
+  return enterpriseCopy.inboxReply(thread, {...context, firstName: inboxFirstName(thread) || context.firstName});
+}
+
+function inboxFirstName(thread) {
+  const from = String(thread?.from || "").trim();
+  if (!from) return "";
+  return from.split(/\s+at\s+|\s+-\s+|,/i)[0].split(/\s+/)[0].replace(/[^a-z'-]/gi, "");
+}
+
+function librariesPanel() {
+  return `
+    <div class="library-workspace">
+      <article class="strategy-card">
+        <strong>Team brand voice library</strong>
+        <p>Approved tone, claims, forbidden phrases, and proof points keep drafts consistent across the team.</p>
+        <div class="library-grid">
+          ${brandVoiceProfiles.map((profile) => `
+            <article>
+              <strong>${escapeHtml(profile.name)}</strong>
+              <p>Direct ${profile.direct} / Warm ${profile.warm} / Formal ${profile.formal}</p>
+              ${tokens([...profile.claims, ...profile.proof])}
+              <small>Avoid: ${escapeHtml(profile.forbidden.join(", "))}</small>
+            </article>
+          `).join("")}
+        </div>
+      </article>
+      <article class="strategy-card">
+        <strong>Contact and persona database</strong>
+        <div class="library-grid">
+          ${state.personaLibrary.map((persona) => `
+            <article>
+              <strong>${escapeHtml(persona.role)}</strong>
+              <p>${escapeHtml(persona.industry)} / ${escapeHtml(persona.icp)}</p>
+              <span class="strength">Objection: ${escapeHtml(persona.objection)}</span>
+              <span class="strength">Trigger: ${escapeHtml(persona.trigger)}</span>
+            </article>
+          `).join("")}
+        </div>
+      </article>
+      <article class="strategy-card">
+        <strong>Learn from winners</strong>
+        <p>Upload or paste replied-to emails. The workspace extracts reusable patterns for future variants.</p>
+        <textarea id="winner-input" class="compact-textarea">${escapeHtml(state.winnerSamples.join("\n"))}</textarea>
+        <div class="result-actions"><button type="button" data-learn-winners>Update winner patterns</button></div>
+        <div class="feature-list">${winnerPatterns().map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+      </article>
+    </div>
+  `;
+}
+
+function integrationSetupCards() {
+  const steps = {
+    HubSpot: ["Create OAuth app", "Add redirect URL", "Map contacts and deals"],
+    Salesforce: ["Create connected app", "Enable API scopes", "Map leads and tasks"],
+    Gmail: ["Create Google OAuth client", "Verify consent screen", "Enable draft creation"],
+    Outlook: ["Create Azure app", "Add Mail scopes", "Enable reply queue"],
+    Outreach: ["Create app", "Map prospects", "Map sequences"],
+    Salesloft: ["Create app", "Map people", "Map cadences"],
+    "Chrome Sidebar": ["Package extension", "Allow TextTraits origin", "Wire page extraction"],
+  };
+  return `
+    <div class="integration-setup-grid">
+      ${Object.entries(state.crmConnections).map(([name, status]) => `
+        <article class="integration-setup-card">
+          <div class="card-row"><strong>${escapeHtml(name)}</strong><span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</span></div>
+          <p class="tiny-copy muted">${status === "connected" ? "Connected in this workspace." : "Preview only until real credentials, scopes, and field mapping are configured."}</p>
+          <ol>${(steps[name] || ["Create app", "Add credentials", "Map fields"]).map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+          <button class="button-secondary preview-disabled-action" type="button" data-crm="${escapeHtml(name)}" ${status === "connected" ? "" : "aria-disabled=\"true\""}>${status === "connected" ? "Manage connection" : "Setup required"}</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function hubspotAdminQuery() {
+  const params = new URLSearchParams({
+    workspace_id: state.hubspotAdmin.workspaceId || "default",
+    environment: state.hubspotAdmin.environment || "production",
+  });
+  return `?${params.toString()}`;
+}
+
+function textareaList(value) {
+  if (Array.isArray(value)) return value.join("\n");
+  return String(value || "");
+}
+
+function parsePolicyList(value) {
+  return String(value || "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((item, index, items) => items.indexOf(item) === index);
+}
+
+function objectCountRows(object = {}, fallback = "No rows yet.") {
+  const entries = Object.entries(object || {});
+  if (!entries.length) return `<p class="muted tiny-copy">${escapeHtml(fallback)}</p>`;
+  return `
+    <div class="admin-count-list">
+      ${entries.map(([label, value]) => `<span><strong>${escapeHtml(displayAdminLabel(label))}</strong>${escapeHtml(String(value))}</span>`).join("")}
+    </div>
+  `;
+}
+
+function displayAdminLabel(value) {
+  return String(value || "unknown").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function compactRows(rows, columns, fallback = "No rows yet.") {
+  if (!Array.isArray(rows) || !rows.length) return `<p class="muted tiny-copy">${escapeHtml(fallback)}</p>`;
+  return `
+    <div class="admin-table" role="table">
+      ${rows.slice(0, 5).map((row) => `
+        <article role="row">
+          ${columns.map(([label, key]) => `<span><b>${escapeHtml(label)}</b>${escapeHtml(String(row[key] ?? "Not available"))}</span>`).join("")}
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function hubspotRulePackOptions(rulePacks, selected) {
+  const packs = rulePacks?.length ? rulePacks : [
+    {id: "general", label: "General B2B"},
+    {id: "sales", label: "Sales outreach"},
+    {id: "marketing", label: "Marketing campaign"},
+    {id: "customer_success", label: "Customer success"},
+    {id: "healthcare", label: "Healthcare outreach"},
+    {id: "finance", label: "Financial services"},
+  ];
+  return packs.map((pack) => `<option value="${escapeHtml(pack.id)}" ${pack.id === selected ? "selected" : ""}>${escapeHtml(pack.label || pack.id)}</option>`).join("");
+}
+
+function hubspotAdminConsole() {
+  const admin = state.hubspotAdmin;
+  const dashboard = admin.dashboard || {};
+  const policy = admin.policy || {};
+  const exportQuery = hubspotAdminQuery();
+  return `
+    <article class="strategy-card enterprise-admin-console">
+      <div class="section-title">
+        <div>
+          <span class="strength">Live HubSpot governance</span>
+          <strong>Admin console</strong>
+        </div>
+        <span class="demo-badge">${admin.lastLoaded ? `Loaded ${escapeHtml(admin.lastLoaded)}` : "Endpoint-backed"}</span>
+      </div>
+      <p>Use this surface to inspect policy, failing checks, review queues, outcomes, and exports from the same backend endpoints the HubSpot card and workflow action use.</p>
+
+      <div class="enterprise-field-grid admin-filters">
+        <label class="field"><span>Workspace</span><input id="hubspot-admin-workspace" value="${escapeHtml(admin.workspaceId)}" placeholder="hubspot_246356639"></label>
+        <label class="field"><span>Environment</span><select id="hubspot-admin-environment">
+          ${["sandbox", "staging", "production"].map((env) => `<option value="${env}" ${env === admin.environment ? "selected" : ""}>${escapeHtml(displayAdminLabel(env))}</option>`).join("")}
+        </select></label>
+      </div>
+      <div class="result-actions">
+        <button type="button" data-load-hubspot-admin>${admin.loading ? "Loading governance" : "Load governance"}</button>
+        <button class="button-secondary" type="button" data-save-hubspot-policy ${admin.loading ? "disabled" : ""}>Save policy</button>
+        <a class="button-secondary" href="/api/enterprise/hubspot/exports/analyses.csv${exportQuery}" download>CSV export</a>
+        <a class="button-secondary" href="/api/enterprise/hubspot/exports/analyses.json${exportQuery}" download>JSON export</a>
+      </div>
+      ${admin.error ? `<p class="admin-error">${escapeHtml(admin.error)}</p>` : ""}
+
+      <div class="admin-grid live-admin-grid">
+        ${summaryItem("Analyses", String(dashboard.total_analyses ?? "Load data"))}
+        ${summaryItem("Rule pack", policy.rule_pack_label || "Load policy")}
+        ${summaryItem("Policy version", policy.version || "Load policy")}
+        ${summaryItem("Blocked drafts", String((dashboard.gate_counts || {}).blocked || 0))}
+        ${summaryItem("Review queue", String(admin.reviewStates?.length || 0))}
+        ${summaryItem("Outcome events", String(Object.values(dashboard.outcome_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)))}
+      </div>
+
+      <details class="analytics-section" open>
+        <summary>Policy controls</summary>
+        <div class="policy-form-grid">
+          <label class="field"><span>Policy version</span><input id="hubspot-policy-version" value="${escapeHtml(policy.version || "2026-06-01.default")}"></label>
+          <label class="field"><span>Rule pack</span><select id="hubspot-policy-rule-pack">${hubspotRulePackOptions(admin.rulePacks, policy.rule_pack || "general")}</select></label>
+          <label class="field"><span>Ready threshold</span><input id="hubspot-policy-ready" type="number" min="0" max="100" value="${escapeHtml(policy.ready_score_threshold ?? 78)}"></label>
+          <label class="field"><span>Review threshold</span><input id="hubspot-policy-review" type="number" min="0" max="100" value="${escapeHtml(policy.review_score_threshold ?? 70)}"></label>
+          <label class="field"><span>Block threshold</span><input id="hubspot-policy-block" type="number" min="0" max="100" value="${escapeHtml(policy.block_score_threshold ?? 50)}"></label>
+          <label class="field"><span>Minimum body words</span><input id="hubspot-policy-min-words" type="number" min="0" max="500" value="${escapeHtml(policy.min_body_words ?? 25)}"></label>
+          <label class="field"><span>Maximum body words</span><input id="hubspot-policy-max-words" type="number" min="1" max="1200" value="${escapeHtml(policy.max_body_words ?? 220)}"></label>
+          <label class="field"><span>Required template tokens</span><textarea id="hubspot-policy-required-tokens" class="compact-textarea">${escapeHtml(textareaList(policy.required_template_tokens || ["unsubscribe_link"]))}</textarea></label>
+          <label class="field"><span>Required headers</span><textarea id="hubspot-policy-required-headers" class="compact-textarea">${escapeHtml(textareaList(policy.required_headers || ["from", "reply_to"]))}</textarea></label>
+          <label class="field"><span>Custom risk phrases</span><textarea id="hubspot-policy-risk" class="compact-textarea">${escapeHtml(textareaList(policy.custom_risk_phrases || []))}</textarea></label>
+          <label class="field"><span>Custom vague phrases</span><textarea id="hubspot-policy-vague" class="compact-textarea">${escapeHtml(textareaList(policy.custom_vague_phrases || []))}</textarea></label>
+        </div>
+        <div class="admin-toggle-grid">
+          ${[
+            ["block_if_no_cta", "Block missing next step"],
+            ["block_high_severity_findings", "Block high-severity findings"],
+            ["compliance_review_on_risk_terms", "Route risk terms to compliance"],
+            ["require_personalization", "Require personalization to be ready"],
+          ].map(([key, label]) => `<label><input id="hubspot-policy-${key}" type="checkbox" ${policy[key] === false ? "" : "checked"}> <span>${escapeHtml(label)}</span></label>`).join("")}
+        </div>
+      </details>
+
+      <div class="admin-live-sections">
+        <article>
+          <strong>Gate counts</strong>
+          ${objectCountRows(dashboard.gate_counts, "No analyses loaded.")}
+        </article>
+        <article>
+          <strong>Outcome joins</strong>
+          ${objectCountRows(dashboard.outcome_counts, "No outcome events loaded.")}
+        </article>
+        <article>
+          <strong>Top failing checks</strong>
+          ${compactRows(dashboard.top_failed_checks, [["Check", "check"], ["Count", "count"]], "No failed checks loaded.")}
+        </article>
+        <article>
+          <strong>Recent findings</strong>
+          ${compactRows(admin.findings, [["Severity", "severity"], ["Finding", "title"], ["Queue", "owner_queue"]], "No findings loaded.")}
+        </article>
+        <article>
+          <strong>Review states</strong>
+          ${compactRows(admin.reviewStates, [["Status", "status"], ["Queue", "owner_queue"], ["SLA", "sla_due_at"]], "No review states loaded.")}
+        </article>
+        <article>
+          <strong>Recent outcomes</strong>
+          ${compactRows(admin.outcomes, [["Event", "event_type"], ["Request", "request_id"], ["Source", "source_system"]], "No outcomes loaded.")}
+        </article>
+      </div>
+    </article>
+  `;
+}
+
+function analyticsWorkspace(context, angles) {
+  const variants = state.enterpriseDrafts.length ? state.enterpriseDrafts : generateDraftObjects(context, {dims: {}, stats: {}});
+  return `
+    <div class="analytics-workspace">
+      <article class="strategy-card">
+        <strong>Reply outcome tracking</strong>
+        ${outcomeGrid()}
+      </article>
+      ${outcomeLearningCard()}
+      <details class="analytics-section" open>
+        <summary>Outcomes and exports</summary>
+        <article class="strategy-card">
+          <strong>Export history</strong>
+          ${state.exportHistory.length ? `
+            <div class="export-history">
+              ${state.exportHistory.slice(0, 6).map((item) => `
+                <span><strong>${escapeHtml(item.type)}</strong>${escapeHtml(item.project)} / ${escapeHtml(item.rows)} rows / ${escapeHtml(item.date)}</span>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">No exports yet. Export a campaign or batch to start the audit trail.</p>`}
+        </article>
+      </details>
+      <details class="analytics-section" ${state.integrationSetupOpen ? "open" : ""}>
+        <summary>Integrations and admin</summary>
+        ${hubspotAdminConsole()}
+        <article class="strategy-card">
+          <strong>CRM import/export status</strong>
+          <p>Integrations stay disabled until credentials, OAuth scopes, and field mappings are configured.</p>
+          ${integrationSetupCards()}
+        </article>
+        <article class="strategy-card">
+          <strong>Admin controls</strong>
+          <p>Workspace settings, seats, permissions, SSO, API keys, approved assets, and audit logs are represented here for production rollout.</p>
+          <div class="admin-grid">
+            ${summaryItem("Workspace", state.adminSettings.workspaceName)}
+            ${summaryItem("Seats", `${state.adminSettings.seats}`)}
+            ${summaryItem("SSO", state.adminSettings.sso)}
+            ${summaryItem("API key", state.adminSettings.apiKey)}
+            ${summaryItem("Retention", state.adminSettings.retention)}
+            ${summaryItem("Audit log", state.adminSettings.auditLog)}
+          </div>
+        </article>
+      </details>
+      <details class="analytics-section">
+        <summary>Coaching and message quality</summary>
+        <div class="detail-grid">
+          <article class="strategy-card"><strong>Message angles ranked by fit</strong>${angles.map(([name, fit, copy]) => `<div class="metric-card"><span class="strength">${fit}% strength</span><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p><p><strong>Why this angle:</strong> It maps directly to the prospect's stated operating concern.</p></div>`).join("")}</article>
+          <article class="strategy-card"><strong>Deliverability checks</strong>${scoreGrid([["Length", 84], ["Links", 96], ["Spam phrasing", 88], ["Personalization", 91]])}<p>Checks include length, links, spammy phrasing, personalization density, merge fields, and unsubscribe token support.</p></article>
+          <article class="strategy-card"><strong>Words to mirror</strong>${tokens(["cleaner signal", "manager visibility", "forecast risk", "operating rhythm", context.pain])}</article>
+          <article class="strategy-card"><strong>Words to avoid</strong>${tokens(["game-changing", "revolutionary", "just checking in", "circle back", "synergy"])}</article>
+          <article class="strategy-card"><strong>Team learning system</strong><p>Winner patterns now influence review guidance and future draft variants.</p><div class="feature-list">${winnerPatterns().map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></article>
+          ${managerCoachingCard(context, variants)}
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+function renderEnterpriseTab(data, context, profile, variants, angles, sequence) {
+  if (state.activeEnterpriseTab === "dashboard") return campaignHome(context, angles);
+  if (state.activeEnterpriseTab === "drafts") return draftsWorkspace(context, variants);
+  if (state.activeEnterpriseTab === "tools") return toolsWorkspace(context, sequence, angles);
+  if (state.activeEnterpriseTab === "analytics") return analyticsWorkspace(context, angles);
+  if (state.activeEnterpriseTab === "workspace") {
+    const campaigns = filteredCampaigns();
+    return `
+      <div class="workspace-command">
+        <article class="strategy-card">
+          <strong>Saved workspaces</strong>
+          <p>Folders, status filters, search, and CRM export controls turn one-off generation into a campaign queue.</p>
+          <div class="workspace-controls">
+            <label class="field"><span>Search</span><input id="workspace-search" value="${escapeHtml(state.workspaceSearch)}" placeholder="Search campaigns, folders, status"></label>
+            ${selectField("workspaceFolder", "Folder", ["All", ...uniqueValues(state.savedCampaigns, "folder")], state.workspaceFolder)}
+            ${selectField("workspaceStatus", "Status", ["All", ...uniqueValues(state.savedCampaigns, "status")], state.workspaceStatus)}
+          </div>
+        </article>
+        <div class="campaign-table">
+          ${campaigns.map((campaign) => `
+            <article>
+              <strong>${escapeHtml(campaign.name)}</strong>
+              <span>${escapeHtml(campaign.folder)} / ${escapeHtml(campaign.status)} / ${escapeHtml(campaign.prospects || 1)} prospects</span>
+              <div class="result-actions">
+                <button class="button-secondary" data-load-campaign="${escapeHtml(campaign.name)}">Load</button>
+                <button class="button-secondary" data-status-campaign="${escapeHtml(campaign.name)}">Mark reviewed</button>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+        <article class="strategy-card">
+          <strong>CRM import/export</strong>
+          <div class="crm-grid">
+            ${Object.entries(state.crmConnections).map(([name, status]) => `
+              <button class="crm-card" type="button" data-crm="${escapeHtml(name)}" ${["preview only", "disabled"].includes(status) ? "disabled aria-disabled=\"true\"" : ""}>
+                <strong>${escapeHtml(name)}</strong>
+                <span data-status="${escapeHtml(status)}">${escapeHtml(titleCase(status))}</span>
+              </button>
+            `).join("")}
+          </div>
+        </article>
+        <article class="strategy-card">
+          <strong>Reply outcome tracking</strong>
+          ${outcomeGrid()}
+        </article>
+      </div>
+    `;
+  }
+  if (state.activeEnterpriseTab === "batch") {
+    return batchPanel(context);
+  }
+  if (state.activeEnterpriseTab === "inbox") {
+    return inboxPanel(context);
+  }
+  if (state.activeEnterpriseTab === "libraries") {
+    return `
+      <div class="library-workspace">
+        <article class="strategy-card">
+          <strong>Team brand voice library</strong>
+          <p>Approved tone, claims, forbidden phrases, and proof points keep drafts consistent across the team.</p>
+          <div class="library-grid">
+            ${brandVoiceProfiles.map((profile) => `
+              <article>
+                <strong>${escapeHtml(profile.name)}</strong>
+                <p>Direct ${profile.direct} / Warm ${profile.warm} / Formal ${profile.formal}</p>
+                ${tokens([...profile.claims, ...profile.proof])}
+                <small>Avoid: ${escapeHtml(profile.forbidden.join(", "))}</small>
+              </article>
+            `).join("")}
+          </div>
+        </article>
+        <article class="strategy-card">
+          <strong>Contact and persona database</strong>
+          <div class="library-grid">
+            ${state.personaLibrary.map((persona) => `
+              <article>
+                <strong>${escapeHtml(persona.role)}</strong>
+                <p>${escapeHtml(persona.industry)} / ${escapeHtml(persona.icp)}</p>
+                <span class="strength">Objection: ${escapeHtml(persona.objection)}</span>
+                <span class="strength">Trigger: ${escapeHtml(persona.trigger)}</span>
+              </article>
+            `).join("")}
+          </div>
+        </article>
+        <article class="strategy-card">
+          <strong>Learn from winners</strong>
+          <p>Upload or paste replied-to emails. The workspace extracts reusable patterns for future variants.</p>
+          <textarea id="winner-input" class="compact-textarea">${escapeHtml(state.winnerSamples.join("\n"))}</textarea>
+          <div class="result-actions">
+            <button type="button" data-learn-winners>Update winner patterns</button>
+          </div>
+          <div class="feature-list">${winnerPatterns().map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+        </article>
+      </div>
+    `;
+  }
+  if (state.activeEnterpriseTab === "drafts") {
+    const best = bestDraft();
+    return `
+      <article class="strategy-card">
+        <strong>Generated email draft variants</strong>
+        <p>Variant ${escapeHtml(best?.key || "A")} is recommended based on clarity, specificity, CTA strength, and skimmability. Select a variant to open it in the editor.</p>
+      </article>
+      <div class="variant-list">
+        ${variants.map((draft) => variantRow(draft, best))}
+      </div>
+    `;
+  }
+  if (state.activeEnterpriseTab === "editor") {
+    const draft = selectedDraft();
+    return `
+      <div class="editor-workspace">
+        <aside class="variant-sidebar">
+          <strong>Variants</strong>
+          ${variants.map((item) => `
+            <button type="button" data-select-variant="${item.key}" aria-pressed="${String(item.key === draft.key)}">
+              <span>Variant ${escapeHtml(item.key)}</span>
+              <small>${escapeHtml(item.name)} / ${averageScore(item)} score</small>
+            </button>
+          `).join("")}
+          <div class="merge-field-box">
+            <strong>Merge fields</strong>
+            ${["{{first_name}}", "{{company}}", "{{role}}", "{{unsubscribe_link}}"].map((field) => `<button class="button-secondary" type="button" data-insert-field="${escapeHtml(field)}">${escapeHtml(field)}</button>`).join("")}
+          </div>
+        </aside>
+        <section class="email-editor">
+          <div class="editor-header">
+            <label class="field"><span>Variant name</span><input data-draft-field="name" data-variant="${draft.key}" value="${escapeHtml(draft.name)}"></label>
+            <span class="strength">Selected variant ${escapeHtml(draft.key)}</span>
+          </div>
+          <label class="field"><span>Subject line</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
+          <label class="field"><span>Email body</span><textarea class="draft-editor" data-draft-field="body" data-variant="${draft.key}">${escapeHtml(draft.body)}</textarea></label>
+          <div class="editor-actions">
+            ${transformButtons(draft.key)}
+          </div>
+          <div class="recipient-preview">
+            <div class="enterprise-field-grid">
+              <label class="field"><span>First name</span><input data-recipient-field="firstName" value="${escapeHtml(state.recipient.firstName)}"></label>
+              <label class="field"><span>Company</span><input data-recipient-field="company" value="${escapeHtml(state.recipient.company)}"></label>
+              <label class="field"><span>Role</span><input data-recipient-field="role" value="${escapeHtml(state.recipient.role)}"></label>
+            </div>
+            <strong>Resolved preview</strong>
+            <pre data-resolved-preview>${escapeHtml(resolveMergeFields(draftText(draft)))}</pre>
+          </div>
+          <details class="history-panel">
+            <summary>Draft history and version compare</summary>
+            <div class="feature-list">${draft.history.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+          </details>
+        </section>
+      </div>
+    `;
+  }
+  if (state.activeEnterpriseTab === "sequence") {
+    return `
+      <article class="strategy-card">
+        <strong>Full sequence builder</strong>
+        <div class="workspace-controls">
+          <label class="field"><span>Sequence length</span><input id="sequence-length" type="number" min="2" max="8" value="${escapeHtml(state.sequenceSettings.length)}"></label>
+          ${selectField("sequenceStart", "Start day", ["Monday", "Tuesday", "Wednesday", "Thursday"], state.sequenceSettings.startDay)}
+          ${selectField("sequenceLogic", "Follow-up logic", ["Stop on reply", "Pause on open", "Continue until booked", "Manager review required"], state.sequenceSettings.logic || "Stop on reply")}
+        </div>
+      </article>
+      <div class="channel-grid">
+        ${channels.map((channel) => `<article class="channel-card"><strong>${escapeHtml(channel)}</strong><p>${escapeHtml(channelPreview(channel, context))}</p></article>`).join("")}
+      </div>
+      <div class="stack">
+        <article class="strategy-card"><strong>Sequence calendar</strong><p>Follow-up timing, channel choice, and ready-to-edit step copy are staged below.</p></article>
+        ${sequence.slice(0, Number(state.sequenceSettings.length || 4)).map(([day, title, copy], index) => `
+          <article class="sequence-card">
+            <span class="strength">${escapeHtml(day)}</span>
+            <strong>${escapeHtml(title)}</strong>
+            <small>Channel: ${escapeHtml(state.sequenceSettings.channels[index] || channels[index % channels.length])} / Rule: ${escapeHtml(state.sequenceSettings.logic || "Stop on reply")}</small>
+            <pre>${escapeHtml(copy)}</pre>
+          </article>
         `).join("")}
       </div>
     `;
   }
-
-  function countPhraseMatches(text, phrases) {
-    const clean = text.toLowerCase();
-    return phrases.reduce((count, phrase) => count + (clean.includes(phrase) ? 1 : 0), 0);
+  if (state.activeEnterpriseTab === "signals") {
+    return `
+      <div class="detail-grid">
+        <article class="strategy-card"><strong>Words to mirror</strong>${tokens(["cleaner signal", "manager visibility", "forecast risk", "operating rhythm", context.pain])}</article>
+        <article class="strategy-card"><strong>Words to avoid</strong>${tokens(["game-changing", "revolutionary", "just checking in", "circle back", "synergy"])}</article>
+        <article class="strategy-card"><strong>Spam-risk scoring</strong>${scoreGrid([["Length", 84], ["Links", 96], ["Spam phrasing", 88], ["Personalization", 91]])}</article>
+        <article class="strategy-card"><strong>Deliverability checks</strong><p>Length, links, spammy phrasing, personalization density, unsubscribe token, and compliance footer placeholders are ready for export review.</p></article>
+        <article class="strategy-card"><strong>Outcome tracking</strong><p>Track generated, copied, exported, opened, replied, and booked outcomes by campaign.</p></article>
+        <article class="strategy-card"><strong>Learn from winners</strong><p>Accepted or replied emails can seed future tone, proof, and objection patterns.</p></article>
+        <article class="strategy-card"><strong>Manager coaching</strong><p>Rep-level patterns summarize where drafts need proof, specificity, or a clearer CTA.</p></article>
+        <article class="strategy-card"><strong>Chrome sidebar concept</strong><p>Future browser sidebar can pull CRM/email context and write back approved copy.</p></article>
+      </div>
+    `;
   }
+  return `
+    <div class="enterprise-dashboard">
+      <div class="stack">
+        <article class="strategy-card">
+          <strong>Executive summary</strong>
+          <p>Prioritize ${escapeHtml(angles[0][0].toLowerCase())} for ${escapeHtml(context.role)} in ${escapeHtml(context.industry)}. Lead with the prospect's language around ${escapeHtml(context.pain)} and support it with ${escapeHtml(context.proof)}.</p>
+        </article>
+        <article class="strategy-card">
+          <strong>Message angles ranked by fit</strong>
+          ${angles.map(([name, fit, copy]) => `<div class="metric-card"><span class="strength">${fit}% fit</span><strong>${escapeHtml(name)}</strong><p>${escapeHtml(copy)}</p><p><strong>Why this angle:</strong> It maps directly to the prospect's stated operating concern.</p></div>`).join("")}
+        </article>
+        <article class="strategy-card">
+          <strong>Rep coaching notes</strong>
+          <ul class="strategy-list">
+            <li>Keep the first touch short and anchored in one observable business issue.</li>
+            <li>Use proof before product breadth.</li>
+            <li>Ask for a focused next step with a specific agenda.</li>
+          </ul>
+        </article>
+      </div>
+      <div class="stack">
+        <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Backup CTA</strong><p>Open to a two-bullet summary instead?</p></article>
+        <article class="strategy-card"><strong>Objection likely</strong><p>"We already have dashboards." Counter with implementation clarity, workflow fit, and fewer manual reporting loops.</p></article>
+        <article class="strategy-card"><strong>Email quality score</strong>${scoreGrid([["Clarity", 92], ["Specificity", 87], ["CTA strength", 90], ["Skimmability", 86]])}</article>
+        <article class="strategy-card"><strong>Exports and integrations</strong><div class="integration-list"><span data-status="connected">CSV connected</span><span data-status="soon">HubSpot coming soon</span><span data-status="soon">Salesforce coming soon</span><span data-status="disabled">Outreach disabled</span><span data-status="disabled">Salesloft disabled</span></div></article>
+        <article class="strategy-card"><strong>Merge fields manager</strong>${tokens(["{{first_name}}", "{{company}}", "{{recent_signal}}", "{{pipeline_priority}}", "{{unsubscribe_link}}"])}</article>
+        <article class="strategy-card"><strong>Admin controls</strong><p>Approved claims, proof assets, unsubscribe tokens, API keys, seats, and prompt presets are represented in this workspace setup.</p></article>
+      </div>
+    </div>
+  `;
+}
 
-  function scoreLength(wordCount) {
-    if (wordCount >= 70 && wordCount <= 170) return 20;
-    if (wordCount >= 45 && wordCount <= 210) return 15;
-    if (wordCount >= 25 && wordCount <= 260) return 10;
-    return 5;
+function variantRow(draft, best) {
+  return `
+    <article class="variant-row ${draft.key === best?.key ? "is-best" : ""}">
+      <div>
+        <span class="strength">${draft.key === best?.key ? "Best variant" : `Variant ${escapeHtml(draft.key)}`}</span>
+        <label class="field compact-field"><span>Name</span><input data-draft-field="name" data-variant="${draft.key}" value="${escapeHtml(draft.name)}"></label>
+      </div>
+      <label class="field"><span>Subject</span><input data-draft-field="subject" data-variant="${draft.key}" value="${escapeHtml(draft.subject)}"></label>
+      <div class="score-strip">
+        ${Object.entries(draft.scores).map(([label, value]) => `<span><strong>${value}</strong>${escapeHtml(titleCase(label))}</span>`).join("")}
+      </div>
+      <p class="muted">${escapeHtml(draft.note)}</p>
+      <div class="result-actions">
+        <button type="button" data-select-variant="${draft.key}">Open editor</button>
+        <button class="button-secondary" data-copy-draft="${escapeHtml(draft.key)}">Copy</button>
+      </div>
+    </article>
+  `;
+}
+
+function transformButtons(key) {
+  return [
+    ["shorter", "Make shorter"],
+    ["executive", "Make executive"],
+    ["casual", "Make casual"],
+    ["specific", "Make specific"],
+    ["proof", "Add proof point"],
+    ["plain", "Remove buzzwords"],
+    ["compliance", "Compliance-safe"],
+    ["feedback", "Generate next variant"],
+  ].map(([id, label]) => `<button class="button-secondary" type="button" data-transform="${id}" data-variant="${key}">${label}</button>`).join("");
+}
+
+function uniqueValues(items, key) {
+  return [...new Set(items.map((item) => item[key]).filter(Boolean))];
+}
+
+function filteredCampaigns() {
+  const query = state.workspaceSearch.toLowerCase();
+  return state.savedCampaigns.filter((campaign) => {
+    const text = `${campaign.name} ${campaign.folder} ${campaign.status}`.toLowerCase();
+    const folderOk = state.workspaceFolder === "All" || campaign.folder === state.workspaceFolder;
+    const statusOk = state.workspaceStatus === "All" || campaign.status === state.workspaceStatus;
+    return folderOk && statusOk && (!query || text.includes(query));
+  });
+}
+
+function outcomeGrid() {
+  return `<div class="outcome-grid">${Object.entries(state.outcomeStats).map(([label, value]) => `
+    <button class="outcome-card" type="button" data-outcome="${escapeHtml(label)}">
+      <strong>${escapeHtml(value)}</strong>
+      <span>${escapeHtml(titleCase(label))}</span>
+    </button>
+  `).join("")}</div>`;
+}
+
+function parseCsv(text, mapping = state.batchMapping) {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  state.batchErrors = [];
+  if (lines.length < 2) {
+    state.batchErrors = ["Add a header row and at least one prospect row."];
+    return [];
   }
-
-  function scoreSubject(subject) {
-    const length = subject.trim().length;
-    if (!length) return 3;
-    if (length >= 18 && length <= 58) return 10;
-    if (length >= 12 && length <= 72) return 7;
-    return 4;
-  }
-
-  function scoreClarity(stats, text) {
-    const avgSentence = stats.words / Math.max(stats.sentences, 1);
-    const vagueCount = countPhraseMatches(text, vagueTerms);
-    let score = 20;
-    if (avgSentence > 24) score -= 7;
-    if (avgSentence > 32) score -= 5;
-    score -= Math.min(vagueCount * 3, 8);
-    if ((text.match(/!/g) || []).length > 1) score -= 3;
-    return Math.max(score, 4);
-  }
-
-  function scoreBuyerFocus(text) {
-    const tokens = words(text.toLowerCase());
-    const you = tokens.filter((word) => ["you", "your", "yours", "team"].includes(word)).length;
-    const me = tokens.filter((word) => ["i", "we", "our", "me", "my"].includes(word)).length;
-    if (you >= 3 && you >= me - 1) return 20;
-    if (you >= 2) return 15;
-    if (you >= 1) return 10;
-    return 5;
-  }
-
-  function emailOptimization(subject, email) {
-    const stats = localStats(email);
-    const cleanEmail = email.trim();
-    const hasCta = ctaPattern.test(cleanEmail);
-    const hasSpecifics = datePattern.test(`${subject} ${cleanEmail}`);
-    const vagueCount = countPhraseMatches(cleanEmail, vagueTerms);
-    const hypeCount = countPhraseMatches(cleanEmail, hypeTerms);
-    const ctaScore = hasCta ? 20 : 6;
-    const specificityScore = hasSpecifics ? 20 : Math.max(8, 16 - vagueCount * 2);
-    const subjectScore = scoreSubject(subject);
-    const lengthScore = scoreLength(stats.words);
-    const clarityScore = scoreClarity(stats, cleanEmail);
-    const buyerFocusScore = scoreBuyerFocus(cleanEmail);
-    const total = subjectScore + lengthScore + ctaScore + specificityScore + clarityScore + buyerFocusScore;
-    const score = Math.round((total / 110) * 100);
-    const checks = [
-      {
-        label: "Subject line",
-        value: subjectScore >= 8 ? "Optimized" : "Needs work",
-        detail: subject.trim() ? `${subject.trim().length} characters` : "No subject line provided",
-        action: subjectScore >= 8 ? "Keep the subject concise and concrete." : "Add a specific subject that previews the email's reason.",
-        status: subjectScore >= 8 ? "ok" : "risk",
-      },
-      {
-        label: "Body length",
-        value: lengthScore >= 15 ? "Scannable" : "Review length",
-        detail: `${stats.words} words across ${stats.sentences} sentences`,
-        action: lengthScore >= 15 ? "Length fits a reviewable business email." : "Aim for a tighter email body before sending.",
-        status: lengthScore >= 15 ? "ok" : "risk",
-      },
-      {
-        label: "Next step",
-        value: hasCta ? "Clear CTA found" : "CTA missing",
-        detail: hasCta ? "The email includes a question or next-step cue." : "No obvious question or next-step cue detected.",
-        action: hasCta ? "Keep one next step easy to answer." : "Add one explicit next action for the reader.",
-        status: hasCta ? "ok" : "risk",
-      },
-      {
-        label: "Specificity",
-        value: hasSpecifics ? "Concrete" : "Could be more concrete",
-        detail: hasSpecifics ? "Detected a date, number, timeframe, or measurable proof point." : "No date, number, timeframe, or measurable proof point detected.",
-        action: hasSpecifics ? "Use the concrete detail as the anchor of the message." : "Add one concrete signal, proof point, or timeframe.",
-        status: hasSpecifics ? "ok" : "risk",
-      },
-      {
-        label: "Clarity",
-        value: clarityScore >= 15 ? "Readable" : "Dense or vague",
-        detail: `${vagueCount} vague cue${vagueCount === 1 ? "" : "s"} detected`,
-        action: clarityScore >= 15 ? "Sentence density is reasonable." : "Remove vague qualifiers and split long sentences.",
-        status: clarityScore >= 15 ? "ok" : "risk",
-      },
-      {
-        label: "Buyer focus",
-        value: buyerFocusScore >= 15 ? "Reader-centered" : "Sender-centered",
-        detail: "Compares reader-facing language with sender-facing language.",
-        action: buyerFocusScore >= 15 ? "The message keeps attention on the reader." : "Shift more sentences toward the reader's problem or decision.",
-        status: buyerFocusScore >= 15 ? "ok" : "risk",
-      },
-    ];
-
-    if (hypeCount) {
-      checks.push({
-        label: "Sales language",
-        value: "Hype risk",
-        detail: `${hypeCount} hype cue${hypeCount === 1 ? "" : "s"} detected`,
-        action: "Replace broad claims with a concrete proof point.",
-        status: "risk",
-      });
-    }
-
-    const risks = checks.filter((check) => check.status === "risk");
+  const parsedHeader = parseCsvLine(lines[0]);
+  const headers = parsedHeader.cells.map((header) => header.trim().replaceAll('"', ""));
+  if (parsedHeader.malformed) state.batchErrors.push("Header row has an unclosed quote.");
+  const required = ["first_name", "company", "role", "industry", "signal"];
+  const missing = required.filter((fieldName) => !headers.includes(mapping[fieldName] || fieldName));
+  if (missing.length) state.batchErrors.push(`Missing mapped columns: ${missing.map((fieldName) => `${fieldName} -> ${mapping[fieldName] || fieldName}`).join(", ")}.`);
+  const seen = new Set();
+  const rows = lines.slice(1, 101).map((line, index) => {
+    const parsed = parseCsvLine(line);
+    const cells = parsed.cells;
+    if (parsed.malformed) state.batchErrors.push(`Row ${index + 2} has an unclosed quote.`);
+    if (cells.length !== headers.length) state.batchErrors.push(`Row ${index + 2} has ${cells.length} cells but the header has ${headers.length}.`);
+    const raw = {};
+    headers.forEach((header, cellIndex) => {
+      raw[header] = String(cells[cellIndex] || "").trim().replace(/^"|"$/g, "");
+    });
+    const row = {};
+    required.forEach((fieldName) => {
+      row[fieldName] = raw[mapping[fieldName] || fieldName] || "";
+    });
+    const duplicateKey = `${row.first_name || ""}-${row.company || ""}`.toLowerCase();
+    if (seen.has(duplicateKey)) state.batchErrors.push(`Duplicate prospect detected: ${row.first_name || "Unknown"} at ${row.company || "Unknown company"}.`);
+    seen.add(duplicateKey);
+    if (!row.signal || words(row.signal).length < 4) state.batchErrors.push(`Missing personalization signal for row ${index + 2}.`);
+    const statuses = ["Generated", "Needs review", "Approved", "Exported", "Queued"];
     return {
-      score,
-      readiness: score >= 82 && risks.length <= 1 ? "Ready to send" : score >= 68 ? "Needs light review" : "Needs revision",
-      stats,
-      checks,
-      risks,
-      calculation: {
-        subjectScore,
-        lengthScore,
-        ctaScore,
-        specificityScore,
-        clarityScore,
-        buyerFocusScore,
-        total,
-      },
+      id: index + 1,
+      first_name: row.first_name || `Prospect ${index + 1}`,
+      company: row.company || "Unknown company",
+      role: row.role || "Buyer",
+      industry: row.industry || "SaaS",
+      signal: row.signal || "Needs clearer pipeline signal",
+      status: statuses[index % statuses.length],
+      subject: batchSubject(row),
+      next: "Review draft and export to CRM",
     };
-  }
+  }).filter((row) => row.company !== "Unknown company" || !missing.length);
+  return state.batchErrors.length ? [] : rows;
+}
 
-  function renderInput() {
-    const stats = localStats(state.email);
-    els.inputPanel.innerHTML = `
-      <form id="optimizer-form" class="optimizer-form">
-        <div class="panel-head">
-          <div>
-            <span class="interface-label">Enterprise input</span>
-            <h2>Analyze an existing email</h2>
-            <p class="helper">Paste a draft from Gmail, Outlook, Outreach, Salesloft, or your editor. TextTraits scores it without writing a replacement.</p>
-          </div>
-        </div>
+function batchSubject(row) {
+  const signal = String(row.signal || "").toLowerCase();
+  if (signal.includes("renewal")) return `Earlier renewal risk warning`;
+  if (signal.includes("inspection") || signal.includes("forecast")) return `Cleaner inspection before review`;
+  if (signal.includes("handoff")) return `Cleaner handoffs after calls`;
+  const phrase = compactPhrase(row.signal || row.company || "buyer signal", 4);
+  return `Signal: ${phrase}`;
+}
 
-        <div class="enterprise-context-strip" aria-label="Workspace and environment">
-          <label class="field">
-            <span>Workspace</span>
-            <input id="workspace-id" type="text" value="${escapeHtml(state.workspaceId)}" placeholder="default">
-          </label>
-          <label class="field">
-            <span>Environment</span>
-            <select id="policy-environment">
-              ${["sandbox", "staging", "production"].map((env) => `<option value="${env}" ${env === state.policyEnvironment ? "selected" : ""}>${escapeHtml(displayLabel(env))}</option>`).join("")}
-            </select>
-          </label>
-        </div>
+function batchQaForRow(row, context = enterpriseContext(), allRows = state.batchRows) {
+  const issues = [];
+  const signalWords = words(row.signal || "").length;
+  if (signalWords < 7) issues.push("Weak personalization");
+  if (!/[0-9%]|reduced|saved|faster|pilot|case study/i.test(`${row.signal} ${context.proof}`)) issues.push("Missing proof");
+  if (/idea for|quick|checking in/i.test(row.subject || "")) issues.push("Generic subject");
+  if (!/\b(call|reply|send|review|look|meet|next)\b/i.test(row.next || "")) issues.push("Vague CTA");
+  const sameCompany = allRows.filter((item) => item.company === row.company).length;
+  if (sameCompany > 1) issues.push("Duplicate account");
+  const grade = issues.length === 0 ? "Ready" : issues.length <= 2 ? "Review" : "Fix before export";
+  return {grade, issues};
+}
 
-        <label class="field">
-          <span>Subject line</span>
-          <input id="email-subject" type="text" value="${escapeHtml(state.subject)}" placeholder="e.g. Next step after Tuesday">
-        </label>
+function batchQaSummary(context = enterpriseContext()) {
+  const rows = state.batchRows;
+  const reviews = rows.map((row) => batchQaForRow(row, context, rows));
+  const issueCounts = reviews.flatMap((item) => item.issues).reduce((acc, issue) => {
+    acc[issue] = (acc[issue] || 0) + 1;
+    return acc;
+  }, {});
+  const needsFix = reviews.filter((item) => item.grade !== "Ready").length;
+  const topIssues = Object.entries(issueCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  return {
+    ready: rows.length - needsFix,
+    needsFix,
+    topIssues,
+    recommendation: topIssues.length ? `Fix ${topIssues[0][0].toLowerCase()} before export.` : "Batch is ready for review and export.",
+  };
+}
 
-        <div class="field-grid optimizer-field-grid">
-          <label class="field">
-            <span>Audience</span>
-            <select id="email-audience">
-              ${audiences.map((item) => `<option ${item === state.audience ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="field">
-            <span>Email type</span>
-            <select id="email-intent">
-              ${intents.map((item) => `<option ${item === state.intent ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-            </select>
-          </label>
-        </div>
-
-        <label class="field">
-          <span>Email body</span>
-          <textarea id="email-body" placeholder="Paste an existing email draft here.">${escapeHtml(state.email)}</textarea>
-        </label>
-
-        <details class="enterprise-context-panel">
-          <summary>
-            <span>Enterprise context fields</span>
-            <small>Campaign, template, headers, consent, and personalization context</small>
-          </summary>
-          <div class="field-grid optimizer-field-grid">
-            <label class="field">
-              <span>Source system</span>
-              <select data-enterprise-context="source_system">
-                ${["ui_enterprise_optimizer", "hubspot", "salesforce", "braze", "marketo", "iterable", "sendgrid_ses", "warehouse"].map((item) => `<option value="${item}" ${item === state.enterpriseContext.source_system ? "selected" : ""}>${escapeHtml(displayLabel(item))}</option>`).join("")}
-              </select>
-            </label>
-            <label class="field">
-              <span>Analysis mode</span>
-              <select data-enterprise-context="analysis_mode">
-                ${["pre_send_gate", "authoring_lint", "send_path_middleware", "post_send_analytics", "batch_feedback", "direct_api"].map((item) => `<option value="${item}" ${item === state.enterpriseContext.analysis_mode ? "selected" : ""}>${escapeHtml(displayLabel(item))}</option>`).join("")}
-              </select>
-            </label>
-            <label class="field">
-              <span>Campaign ID</span>
-              <input type="text" data-enterprise-context="campaign_id" value="${escapeHtml(state.enterpriseContext.campaign_id)}" placeholder="cmp_q3_pipeline">
-            </label>
-            <label class="field">
-              <span>Journey ID</span>
-              <input type="text" data-enterprise-context="journey_id" value="${escapeHtml(state.enterpriseContext.journey_id)}" placeholder="journey_42">
-            </label>
-            <label class="field">
-              <span>Template ID</span>
-              <input type="text" data-enterprise-context="template_id" value="${escapeHtml(state.enterpriseContext.template_id)}" placeholder="tmpl_119028">
-            </label>
-            <label class="field">
-              <span>Locale</span>
-              <input type="text" data-enterprise-context="locale" value="${escapeHtml(state.enterpriseContext.locale)}" placeholder="en-US">
-            </label>
-            <label class="field">
-              <span>Consent state</span>
-              <select data-enterprise-context="consent_state">
-                ${["subscribed", "suppressed", "unknown"].map((item) => `<option value="${item}" ${item === state.enterpriseContext.consent_state ? "selected" : ""}>${escapeHtml(displayLabel(item))}</option>`).join("")}
-              </select>
-            </label>
-            <label class="field">
-              <span>Delivery provider</span>
-              <input type="text" data-enterprise-context="delivery_provider" value="${escapeHtml(state.enterpriseContext.delivery_provider)}" placeholder="sendgrid">
-            </label>
-          </div>
-          <label class="field">
-            <span>Headers JSON</span>
-            <textarea class="json-field" data-enterprise-context="headers" spellcheck="false">${escapeHtml(state.enterpriseContext.headers)}</textarea>
-          </label>
-          <label class="field">
-            <span>Personalization context JSON</span>
-            <textarea class="json-field" data-enterprise-context="personalization_context" spellcheck="false">${escapeHtml(state.enterpriseContext.personalization_context)}</textarea>
-          </label>
-        </details>
-
-        <section class="render-test-card" aria-label="Rendered-template test">
-          <div>
-            <span class="interface-label">Rendered-template test</span>
-            <strong>Check Liquid and Handlebars tokens before scoring</strong>
-            <p class="helper">Runs the current subject, body, headers, and sample recipient context through the template harness.</p>
-          </div>
-          ${state.renderMessage ? `<p class="setup-message">${escapeHtml(state.renderMessage)}</p>` : ""}
-          ${state.renderResult ? renderTestSummary(state.renderResult) : ""}
-          <button class="button-secondary" type="button" data-run-render-test ${state.renderBusy || !state.email.trim() ? "disabled" : ""}>
-            ${state.renderBusy ? "Testing tokens..." : "Run render test"}
-          </button>
-        </section>
-
-        <div class="quality-row">
-          <span id="optimizer-count">${escapeHtml(stats.words)} words</span>
-          <span>${escapeHtml(stats.reading_level || "Unavailable")} input density</span>
-        </div>
-
-        <div class="sample-grid optimizer-samples" aria-label="Example enterprise emails">
-          ${samples.map((sample, index) => `
-            <button class="sample-card" type="button" data-optimizer-sample="${index}">
-              <strong>${escapeHtml(sample.label)}</strong>
-              <span>${escapeHtml(localStats(sample.email).words)} words</span>
-            </button>
-          `).join("")}
-        </div>
-
-        <div class="action-row optimizer-actions">
-          <button id="analyze-email" type="submit" ${state.email.trim() ? "" : "disabled"}>${state.busy ? "Analyzing..." : "Analyze email optimization"}</button>
-          <button id="clear-email" class="button-secondary" type="button" ${state.email || state.subject ? "" : "disabled"}>Clear</button>
-        </div>
-      </form>
-    `;
-    bindInput();
-  }
-
-  function renderEmpty() {
-    els.outputPanel.innerHTML = `
-      <div class="empty-layout fade-in optimizer-empty">
-        <section class="empty-hero optimizer-hero-card">
-          <span class="status-pill">Enterprise integration lab</span>
-          <h2>Policy-backed email analysis will appear here.</h2>
-          <p class="muted">This version is built for teams that already have email tools and need objective review before messages enter a workflow, journey, or sending system.</p>
-        </section>
-        <section class="optimizer-grid optimizer-grid-compact">
-          ${[
-            ["Stable contract", "/v1/email/analyze"],
-            ["Policy gate", "Ready, review, or block"],
-            ["Sandbox adapters", "HubSpot, Salesforce, SendGrid/SES"],
-            ["Governance", "Hashes, versions, dedupe"],
-          ].map(([label, value]) => `
-            <article class="metric-card">
-              <span>${escapeHtml(label)}</span>
-              <strong>${escapeHtml(value)}</strong>
-            </article>
-          `).join("")}
-        </section>
-        ${labOverview()}
+function batchQaPanel(context) {
+  if (!state.batchRows.length) return "";
+  const summary = batchQaSummary(context);
+  return `
+    <article class="batch-qa-panel">
+      <div>
+        <span class="label">Batch QA Mode</span>
+        <strong>${summary.needsFix ? `${summary.needsFix} rows need review` : "No major QA flags"}</strong>
+        <p>${escapeHtml(summary.recommendation)} QA checks weak personalization, missing proof, vague CTA, duplicate accounts, and generic subject lines.</p>
       </div>
-    `;
-    bindLabControls();
-  }
-
-  function renderLoading() {
-    els.outputPanel.innerHTML = `
-      <div class="loading-card fade-in" role="status" aria-live="polite" tabindex="-1">
-        <span class="status-pill">Analyzing email</span>
-        <h2>Calling the v1 policy gate...</h2>
-        <p class="muted">Combining rule packs, request metadata, and local model inference without generating copy.</p>
-        <div class="skeleton-stack" aria-hidden="true">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
+      <div class="qa-list">
+        <span><b>${summary.ready}</b> ready</span>
+        <span><b>${summary.needsFix}</b> review</span>
+        ${summary.topIssues.map(([label, count]) => `<span><b>${count}</b> ${escapeHtml(label)}</span>`).join("")}
       </div>
-    `;
-  }
+    </article>
+  `;
+}
 
-  function providerConnectionState(manifest, mapping) {
-    const provider = manifest?.provider || "";
-    if (state.promotedProviders.includes(provider) && mapping?.status === "ready") {
-      return {label: "Ready", tone: "success", detail: "Mapped, tested, and promoted for production routing."};
-    }
-    if ((state.policyEnvironment || "").toLowerCase() === "production" && mapping?.status !== "ready") {
-      return {label: "Production blocked", tone: "danger", detail: "Production cannot be promoted until required fields are mapped and tested."};
-    }
-    if (mapping?.status === "ready") {
-      return {label: "Configured", tone: "success", detail: "Field mapping is saved and ready for sandbox validation."};
-    }
-    return {label: "Needs mapping", tone: "warning", detail: "Save a provider mapping before using this adapter in a workflow."};
+function batchRowsHtml(context) {
+  if (!state.batchRows.length) {
+    return `<article class="empty-mini"><strong>No batch rows yet</strong><p>Load the sample CSV or paste your own prospect list to generate up to 100 briefs.</p></article>`;
   }
+  return state.batchRows.map((row) => `
+    <article>
+      <div class="card-row"><span class="strength">${escapeHtml(row.status)}</span><span class="qa-token">${escapeHtml(batchQaForRow(row, context).grade)}</span></div>
+      <strong>${escapeHtml(row.first_name)} at ${escapeHtml(row.company)}</strong>
+      <p>${escapeHtml(row.role)} / ${escapeHtml(row.industry)} / ${escapeHtml(row.signal)}</p>
+      <div class="row-progress">
+        ${["Queued", "Generated", "Needs review", "Approved", "Exported"].map((step) => `<span class="${step === row.status ? "is-current" : ""}">${escapeHtml(step)}</span>`).join("")}
+      </div>
+      <div class="mini-brief">Subject: ${escapeHtml(row.subject)}<br>Angle: ${escapeHtml(context.pain || "pipeline quality")} with ${escapeHtml(context.proof || "proof point")}.</div>
+      ${batchQaForRow(row, context).issues.length ? `<small class="qa-issues">QA: ${escapeHtml(batchQaForRow(row, context).issues.join(", "))}</small>` : `<small class="qa-issues">QA: ready for review.</small>`}
+      <div class="result-actions">
+        <button class="button-secondary" type="button" data-copy-row="${escapeHtml(row.id)}">Copy brief</button>
+        <button class="button-secondary" type="button" data-review-row="${escapeHtml(row.id)}">Review</button>
+        <button class="button-secondary" type="button" data-export-row="${escapeHtml(row.id)}">Export row</button>
+      </div>
+    </article>
+  `).join("");
+}
 
-  function aggregateRows(rows, key, fallback = "Not set") {
-    return Array.from((rows || []).reduce((map, row) => {
-      const value = String(key === "gate_status" ? analysisGateStatus(row, fallback) : row?.[key] || fallback);
-      map.set(value, (map.get(value) || 0) + 1);
-      return map;
-    }, new Map()).entries())
-      .map(([label, count]) => ({label, count}))
-      .sort((a, b) => b.count - a.count);
-  }
+function batchCsv() {
+  const rows = [["first_name", "company", "role", "industry", "status", "subject", "next_step"]];
+  state.batchRows.forEach((row) => rows.push([row.first_name, row.company, row.role, row.industry, row.status, row.subject, row.next]));
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
 
-  function analysisGateStatus(item, fallback = "unknown") {
-    return item?.gate_status || item?.gate?.status || fallback;
-  }
+function winnerPatterns() {
+  const text = state.winnerSamples.join(" ").toLowerCase();
+  const patterns = ["Short opener", "Specific pain", "Proof before product", "Direct CTA"];
+  if (text.includes("forecast")) patterns.push("Forecast-risk language");
+  if (text.includes("handoff")) patterns.push("Handoff framing");
+  if (text.includes("dashboard")) patterns.push("Avoid dashboard fatigue");
+  return patterns;
+}
 
-  function filterAnalyses(analyses = []) {
-    const filters = state.dashboardFilters;
-    const now = Date.now();
-    const days = filters.date_range === "7d" ? 7 : filters.date_range === "90d" ? 90 : filters.date_range === "all" ? 0 : 30;
-    return analyses.filter((item) => {
-      const created = item.created_at ? Date.parse(item.created_at) : 0;
-      const inWindow = !days || !created || now - created <= days * 24 * 60 * 60 * 1000;
-      const sourceMatch = filters.source_system === "all" || !filters.source_system || item.source_system === filters.source_system;
-      const gateMatch = filters.gate_status === "all" || !filters.gate_status || analysisGateStatus(item) === filters.gate_status;
-      const campaignMatch = !filters.campaign_id || String(item.campaign_id || "").toLowerCase().includes(filters.campaign_id.toLowerCase());
-      const templateMatch = !filters.template_id || String(item.template_id || "").toLowerCase().includes(filters.template_id.toLowerCase());
-      return inWindow && sourceMatch && gateMatch && campaignMatch && templateMatch;
+function outcomeLearningSummary() {
+  const total = Math.max(1, Number(state.outcomeStats.sent || 0));
+  const replyRate = Math.round((Number(state.outcomeStats.replied || 0) / total) * 100);
+  const bookedRate = Math.round((Number(state.outcomeStats.booked || 0) / total) * 100);
+  const patterns = winnerPatterns();
+  const feedbackSignals = Object.entries(state.feedbackMemory)
+    .filter(([, value]) => Number(value || 0) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 2)
+    .map(([key]) => titleCase(key));
+  return {
+    replyRate,
+    bookedRate,
+    patterns,
+    feedbackSignals,
+    guidance: patterns.includes("Proof before product")
+      ? "Future drafts should lead with the buyer problem, then one proof point before product detail."
+      : "Future drafts should stay short, specific, and anchored to the buyer's own wording.",
+  };
+}
+
+function outcomeLearningCard() {
+  const learning = outcomeLearningSummary();
+  return `
+    <article class="strategy-card outcome-learning-card">
+      <span class="label">Outcome Learning</span>
+      <strong>Future drafts adapt to what worked</strong>
+      <p>${escapeHtml(learning.guidance)}</p>
+      <div class="qa-list">
+        <span><b>${learning.replyRate}%</b> reply rate</span>
+        <span><b>${learning.bookedRate}%</b> booked rate</span>
+        ${learning.feedbackSignals.map((item) => `<span><b>Feedback</b> ${escapeHtml(item)}</span>`).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function managerCoachingInsights(context, variants = state.enterpriseDrafts) {
+  const rows = state.batchRows.length ? state.batchRows : campaignProspects(context);
+  const qa = state.batchRows.length ? batchQaSummary(context) : {needsFix: 0, topIssues: []};
+  const weakDrafts = variants.filter((draft) => averageScore(draft) < 88).length;
+  const longDrafts = variants.filter((draft) => words(draft.body || "").length > 105).length;
+  const missingProof = variants.filter((draft) => !String(draft.body || "").toLowerCase().includes(String(context.proof || "").toLowerCase().split(" ")[0])).length;
+  const priorities = [
+    ["Weak personalization", qa.needsFix || rows.filter((row) => words(row.signal || "").length < 7).length, "Ask reps to add the buyer's own phrase before review."],
+    ["Drafts below quality bar", weakDrafts, "Open those variants first and tighten CTA or proof."],
+    ["Too long", longDrafts + Number(state.feedbackMemory.tooLong || 0), "Coach reps to keep the opener and CTA, then cut setup."],
+    ["Missing proof", missingProof, `Use ${context.proof} before export.`],
+  ].sort((a, b) => Number(b[1]) - Number(a[1]));
+  return priorities;
+}
+
+function managerCoachingCard(context, variants) {
+  const priorities = managerCoachingInsights(context, variants);
+  return `
+    <article class="strategy-card manager-coaching-card">
+      <span class="label">Manager Coaching Layer</span>
+      <strong>Where managers should intervene first</strong>
+      <div class="manager-coaching-list">
+        ${priorities.map(([label, count, guidance]) => `
+          <span><b>${escapeHtml(label)}</b><em>${escapeHtml(String(count))} flagged</em>${escapeHtml(guidance)}</span>
+        `).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function tokens(items) {
+  return `<div class="token-list">${items.map((item) => `<span class="token">${escapeHtml(item)}</span>`).join("")}</div>`;
+}
+
+function scoreGrid(items) {
+  return `<div class="score-grid">${items.map(([label, value]) => `<div class="score-card"><strong>${value}</strong><span>${escapeHtml(label)}</span></div>`).join("")}</div>`;
+}
+
+function scoreLabel(label) {
+  const map = {cta: "CTA strength", skimmability: "Skimmability", clarity: "Clarity", specificity: "Specificity"};
+  return map[label] || titleCase(label);
+}
+
+function resolveMergeFields(text) {
+  return text
+    .replaceAll("{{first_name}}", state.recipient.firstName || "Maya")
+    .replaceAll("{{company}}", state.recipient.company || "Acme Revenue")
+    .replaceAll("{{role}}", state.recipient.role || "VP Revenue")
+    .replaceAll("{{recent_signal}}", state.enterpriseContext?.pain || "forecast risk")
+    .replaceAll("{{pipeline_priority}}", state.enterpriseContext?.trigger || "pipeline inspection")
+    .replaceAll("{{unsubscribe_link}}", "unsubscribe.example");
+}
+
+function validateMergeFields(variants) {
+  const text = variants.map((draft) => draftText(draft)).join("\n");
+  const open = (text.match(/\{\{/g) || []).length;
+  const close = (text.match(/\}\}/g) || []).length;
+  if (open !== close) return {ok: false, message: "Merge field braces do not match."};
+  if (!text.includes("{{first_name}}")) return {ok: false, message: "Add {{first_name}} before export."};
+  return {ok: true, message: "Merge fields validated."};
+}
+
+function validateExportReadiness(variants, context = enterpriseContext()) {
+  const merge = validateMergeFields(variants);
+  if (!merge.ok) return merge;
+  const missingToken = variants.find((draft) => !sendReadyChecklist(draft, context).find((item) => item.label.toLowerCase().includes("unsubscribe token"))?.ok);
+  if (missingToken) return {ok: false, message: `Add {{unsubscribe_link}} to Variant ${missingToken.key || ""} before export.`};
+  return {ok: true, message: "Export checks passed."};
+}
+
+function insertMergeField(field) {
+  const draft = selectedDraft();
+  if (!draft) return;
+  draft.body = `${draft.body.trim()}\n\n${field}`;
+  draft.history.push(`Inserted ${field}`);
+  state.lastActionNote = `Inserted ${field} in Variant ${draft.key}.`;
+  renderEnterpriseResult(state.latestData);
+}
+
+function transformDraft(action, key, context) {
+  const draft = state.enterpriseDrafts.find((item) => item.key === key);
+  if (!draft) return;
+  state.selectedVariant = key;
+  const before = draft.body;
+  const clean = draft.body.replace(/\s+/g, " ").trim();
+  if (action === "shorter") {
+    draft.body = clean.split(". ").slice(0, 3).join(". ").replace(/\.$/, "") + ".";
+    state.lastDraftChange = "Trimmed the setup and kept the clearest CTA.";
+  } else if (action === "executive") {
+    draft.body = `The business issue seems clear: ${context.pain}. ${context.company} helps ${context.segment} teams turn that into earlier visibility, cleaner manager coaching, and fewer forecast surprises.\n\n${ctaText(context)}`;
+    state.lastDraftChange = "Reframed the draft around business impact and executive-level brevity.";
+  } else if (action === "casual") {
+    draft.body = `I noticed your point about ${context.pain}. That is exactly where teams often want less reporting noise and a clearer view of what is moving.\n\nOpen to a quick look at how ${context.company} approaches it?`;
+    state.lastDraftChange = "Made the language more conversational and easier to reply to.";
+  } else if (action === "specific") {
+    draft.body = `${clean}\n\nThe specific angle I would test first: ${context.trigger} for ${context.icp}, using ${context.proof} as the proof point.`;
+    state.lastDraftChange = "Added the trigger, ICP, and proof point so the email feels less generic.";
+  } else if (action === "proof") {
+    draft.body = `${clean}\n\nProof point to consider: ${context.proof}.`;
+    state.lastDraftChange = "Added a concrete proof point for review before export.";
+  } else if (action === "plain") {
+    draft.body = clean
+      .replaceAll("operating rhythm", "weekly workflow")
+      .replaceAll("signal", "evidence")
+      .replaceAll("leverage", "use")
+      .replaceAll("motion", "process");
+    state.lastDraftChange = "Removed salesy wording and swapped in plainer language.";
+  } else if (action === "compliance") {
+    draft.body = `${clean}\n\nCompliance note: includes one clear business reason for contact, avoids exaggerated claims, and keeps the unsubscribe token available as {{unsubscribe_link}}.`;
+    state.lastDraftChange = "Added a compliance-safe note and unsubscribe token placeholder.";
+  } else if (action === "feedback") {
+    const nextKey = String.fromCharCode(65 + state.enterpriseDrafts.length);
+    const nextBody = `Based on the strongest current draft, I would test a more specific version:\n\n${clean}\n\nWould a short comparison against your current ${context.competitor} be useful?`;
+    state.enterpriseDrafts.push({
+      ...draft,
+      key: nextKey,
+      name: "Feedback variant",
+      subject: `Tighter idea for ${context.pain}`,
+      body: nextBody,
+      scores: {...(draft.scores || {clarity: 88, specificity: 88, cta: 86, skimmability: 88})},
+      status: "Draft",
+      owner: draft.owner || "Unassigned",
+      due: draft.due || "This week",
+      note: "Generated from your feedback so the team can compare one more option.",
+      history: ["Generated from feedback"],
     });
+    state.selectedVariant = nextKey;
+    state.lastDraftChange = `Created Variant ${nextKey} from the current draft and team feedback.`;
+    recordVersion("Enterprise draft", "Generated next variant", before, nextBody, `Variant ${nextKey} created from feedback`);
+    persistWorkspace();
+    return;
   }
+  draft.history.push(`${titleCase(action)} transform`);
+  recordVersion("Enterprise draft", `${titleCase(action)} transform`, before, draft.body, `Variant ${key} updated`);
+  persistWorkspace();
+}
 
-  function selectOptions(values, selected, allLabel = "All") {
-    const unique = Array.from(new Set(values.filter(Boolean))).sort();
-    return [`<option value="all" ${selected === "all" ? "selected" : ""}>${escapeHtml(allLabel)}</option>`]
-      .concat(unique.map((value) => `<option value="${escapeHtml(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(displayLabel(value))}</option>`))
-      .join("");
+function saveCurrentCampaign(context) {
+  const campaign = {
+    name: context.project,
+    folder: context.folder,
+    status: "Saved workspace",
+    updated: new Date().toLocaleDateString([], {month: "short", day: "numeric"}),
+    owner: "Revenue team",
+    due: "This week",
+    prospects: state.batchRows.length || 1,
+    exports: state.exportHistory.filter((item) => item.project === context.project).length,
+    drafts: state.enterpriseDrafts.map((draft) => ({
+      key: draft.key,
+      name: draft.name,
+      subject: draft.subject,
+      status: draft.status || "Draft",
+      score: averageScore(draft),
+    })),
+    lastAction: state.lastActionNote || "Ready for review",
+  };
+  state.savedCampaigns = [campaign, ...state.savedCampaigns.filter((item) => item.name !== campaign.name)].slice(0, 8);
+  state.campaignSaved = true;
+  state.lastActionNote = `${context.project} saved to workspace. Next: approve or export drafts.`;
+  persistWorkspace();
+}
+
+function recordExport(type, project, rows) {
+  state.exportHistory = [{
+    type,
+    project,
+    rows,
+    date: new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}),
+  }, ...state.exportHistory].slice(0, 30);
+}
+
+function updateVisibleActionNote() {
+  const note = els.outputPanel?.querySelector(".next-action");
+  if (note && state.lastActionNote) note.textContent = state.lastActionNote;
+}
+
+function showToast(anchor, message) {
+  els.announcer.textContent = message;
+  (els.toastStack || document.body).querySelectorAll?.(".inline-toast").forEach((item) => item.remove());
+  const toast = document.createElement("span");
+  toast.className = "inline-toast";
+  toast.textContent = message;
+  (els.toastStack || document.body).appendChild(toast);
+  setTimeout(() => toast.remove(), 1800);
+}
+
+function channelPreview(channel, context) {
+  if (channel === "LinkedIn") return `Saw your note on ${context.pain}. I have a short idea for making that easier to see before forecast review. Worth sending?`;
+  if (channel === "SMS") return `${context.firstName || "{{first_name}}"}, quick idea on ${context.pain}. Want me to send the 3-sentence version?`;
+  if (channel === "Call opener") return `Hi ${context.firstName || "{{first_name}}"}, I saw your team is focused on ${context.pain}. The reason for my call is simple: we help revenue teams spot risk earlier without adding another reporting loop.`;
+  return buildEmailVariant(context, {}, "A");
+}
+
+function enterpriseBriefText(context, variants, angles, sequence) {
+  return [
+    `Enterprise brief for ${context.role}`,
+    `Best angle: ${angles[0][0]} (${angles[0][1]}% fit)`,
+    `CTA: ${ctaText(context)}`,
+    "",
+    variants.map((draft) => `Variant ${draft.key}: ${draft.name}\\n${draftText(draft)}`).join("\\n\\n"),
+    "",
+    sequence.map(([day, title, copy]) => `${day}: ${title} - ${copy}`).join("\\n"),
+  ].join("\\n");
+}
+
+function makeCsv(context, variants) {
+  const rows = [["variant", "name", "subject", "body", "role", "industry", "goal", "score"]];
+  variants.forEach((draft) => {
+    rows.push([draft.key, draft.name, draft.subject, draft.body, context.role, context.industry, context.goal, averageScore(draft)]);
+  });
+  return rows.map((row) => row.map(csvCell).join(",")).join("\\n");
+}
+
+function downloadCsv(csv) {
+  downloadText("texttraits-enterprise-campaign.csv", csv, "text/csv");
+}
+
+function downloadText(filename, text, type = "text/plain") {
+  const blob = new Blob([text], {type});
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function copyTextFromButton(button, text, successMessage) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    trackEvent("copy", {message: successMessage});
+    showToast(button, successMessage);
+    return true;
+  } catch (error) {
+    showToast(button, "Copy is unavailable in this browser. Select the text and copy it manually.");
+    return false;
   }
+}
 
-  function labOverview() {
-    const flows = state.labData?.flows || [];
-    const manifests = state.labData?.manifests || [];
-    const mappings = state.labData?.fieldMappings || [];
-    const installKit = state.labData?.installKit || {};
-    const rawDashboard = state.labData?.dashboard || {};
-    const dashboard = displayDashboardSnapshot(rawDashboard);
-    const plan = state.labData?.integrationPlan || {};
-    const policy = state.labData?.policy || dashboard.policy || {};
-    const gateCounts = dashboard.gate_counts || {};
-    const cards = [
-      ["API contract", "Analyze API", "POST /v1/email/analyze with stable scoring and routing"],
-      ["Contract export", `${installKit.endpoints?.length || 12} endpoints`, "OpenAPI JSON, manifests, setup sequence"],
-      ["Sandbox adapters", `${flows.length || 4} flows`, "HubSpot, Salesforce, SendGrid/SES, webhooks"],
-      ["Setup manifests", `${manifests.length || 4} providers`, `${mappings.length} saved field mapping${mappings.length === 1 ? "" : "s"}`],
-      ["Governance ledger", `${dashboard.analysis_volume ?? 0} ${dashboard.__example ? "example rows" : "analyses"}`, `${gateCounts.ready || 0} Ready / ${gateCounts.needs_review || 0} Needs review / ${gateCounts.blocked || 0} Blocked`],
-      ["Sample imports", `${(dashboard.sample_imports || []).length} recent`, "Warehouse-style batch review"],
-      ["Policy controls", `${policy.min_ready_score ?? 72} minimum score`, `${displayLabel(policy.content_storage_mode || "hash_only")} storage / ${policy.retention_days ?? 180} day retention`],
-      ["Research targets", `${(plan.targets || []).length || manifests.length} targets`, plan.recommendation?.primary_target || "journey workflow gate"],
-    ];
-    return `
-      <section id="dashboard-section" class="optimizer-section integration-lab-overview" aria-label="Integration lab status">
-        <div class="section-title">
-          <span class="label">Integration lab status</span>
-          <strong>${state.labError ? "Status unavailable" : "Workflow-ready infrastructure"}</strong>
-        </div>
-        <div class="optimizer-grid integration-lab-grid">
-          ${cards.map(([label, value, detail]) => `
-            <article class="optimizer-context-card lab-status-card">
-              ${statusBadge(label === "Sandbox adapters" ? "Sandbox" : label === "Research targets" ? "Documented" : "Available", label === "Sandbox adapters" ? "warning" : "neutral")}
-              <span class="interface-label">${escapeHtml(label)}</span>
-              <strong>${escapeHtml(value)}</strong>
-              <p>${escapeHtml(detail)}</p>
-            </article>
-          `).join("")}
-        </div>
-        ${dashboardDataNotice(dashboard)}
-        ${pitchReadinessPanel({flows, manifests, mappings, installKit, dashboard, policy})}
-        ${enterpriseReadinessChecklist({flows, manifests, mappings, installKit, dashboard, policy})}
-        ${outcomeImpactPanel(dashboard)}
-        ${governanceDashboardPanels(dashboard)}
-        ${approvalQueuePanel(dashboard)}
-        ${exportsPanel(dashboard)}
-        ${governancePolicyControls(policy)}
-        ${adapterSimulator(plan, manifests)}
-        ${setupContracts(manifests, mappings)}
-        ${adminSettingsPanel({policy, manifests, mappings, dashboard, installKit})}
-        ${trustAndDeploymentPanel(policy)}
-      </section>
-    `;
-  }
-
-  function pitchReadinessPanel({flows = [], manifests = [], mappings = [], installKit = {}, dashboard = {}} = {}) {
-    const readyCount = [
-      Boolean(installKit.openapi_url || installKit.endpoints?.length),
-      flows.length >= 4,
-      manifests.length >= 4,
-      dashboard.analysis_volume > 0,
-      Boolean(state.labData?.integrationPlan),
-    ].filter(Boolean).length;
-    return `
-      <section class="optimizer-section pitch-readiness-panel" aria-label="Enterprise pitch readiness">
-        <div class="section-title">
-          <span class="label">Pitch readiness</span>
-          <strong>Free proof points available before paid infrastructure</strong>
-        </div>
-        <div class="pitch-readiness-summary">
-          <article>
-            ${statusBadge(`${readyCount}/5 proof points`, readyCount >= 4 ? "success" : "warning")}
-            <strong>Enterprise workflow story is demoable now</strong>
-            <p>TextTraits sits beside existing email platforms, scores the draft, returns policy findings, and writes decision fields back to the workflow.</p>
-          </article>
-          <article>
-            ${statusBadge(dashboard.__example ? "Example mode" : "Workspace data", dashboard.__example ? "warning" : "success")}
-            <strong>${dashboard.__example ? "Synthetic rows are labeled" : "Governance rows are live"}</strong>
-            <p>${dashboard.__example ? "Use the example view for pitch walkthroughs, then run real analyses during a customer pilot." : "The dashboard is populated from saved analyses, findings, outcomes, and policy history."}</p>
-          </article>
-        </div>
-        <div class="free-proof-grid">
-          ${freePitchChecks.map(([label, status, detail]) => `
-            <article>
-              ${statusBadge(status, status === "Ready" ? "success" : status === "External" ? "neutral" : "warning")}
-              <strong>${escapeHtml(label)}</strong>
-              <p>${escapeHtml(detail)}</p>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function outcomeImpactPanel(dashboard = {}) {
-    const gateCounts = dashboard.gate_counts || {};
-    const total = Number(dashboard.analysis_volume || 0);
-    const reviewOrBlocked = Number(gateCounts.needs_review || 0) + Number(gateCounts.blocked || 0);
-    const reviewRate = total ? Math.round((reviewOrBlocked / total) * 100) : 0;
-    const outcomeTotal = Object.values(dashboard.outcome_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-    const joins = (dashboard.joined_outcomes || []).length;
-    return `
-      <section class="optimizer-section outcome-impact-panel" aria-label="Operational impact summary">
-        <div class="section-title">
-          <span class="label">Operational impact</span>
-          <strong>What an enterprise pilot can measure for free</strong>
-        </div>
-        <div class="impact-grid">
-          <article>
-            <span class="interface-label">Review capture rate</span>
-            <strong>${escapeHtml(reviewRate)}%</strong>
-            <p>${escapeHtml(reviewOrBlocked)} of ${escapeHtml(total)} ${dashboard.__example ? "example" : "workspace"} messages would pause for owner review.</p>
-          </article>
-          <article>
-            <span class="interface-label">Outcome joinability</span>
-            <strong>${escapeHtml(joins)} joins</strong>
-            <p>${escapeHtml(outcomeTotal)} outcome events can connect to request IDs or content hashes.</p>
-          </article>
-          <article>
-            <span class="interface-label">Average policy score</span>
-            <strong>${escapeHtml(Math.round(Number(dashboard.average_score || 0)))}/100</strong>
-            <p>Use this as a baseline before changing campaigns, templates, or rule-family behavior.</p>
-          </article>
-        </div>
-      </section>
-    `;
-  }
-
-  function enterpriseReadinessChecklist({flows = [], manifests = [], mappings = [], installKit = {}, dashboard = {}, policy = {}} = {}) {
-    const checks = [
-      {
-        label: "Workflow API contract",
-        status: installKit.openapi_url ? "Ready" : "Needs review",
-        tone: installKit.openapi_url ? "success" : "warning",
-        detail: `${installKit.endpoints?.length || 0} documented endpoints with non-generative request/response contracts.`,
-      },
-      {
-        label: "Adapter coverage",
-        status: flows.length >= 4 && manifests.length >= 4 ? "Ready" : "Needs mapping",
-        tone: flows.length >= 4 && manifests.length >= 4 ? "success" : "warning",
-        detail: `${flows.length || 0} sandbox flows and ${manifests.length || 0} provider manifests available for workflow testing.`,
-      },
-      {
-        label: "Workspace data boundary",
-        status: "Protected",
-        tone: "success",
-        detail: "Governance dashboards, exports, policy, and saved mappings require a browser session or scoped API key.",
-      },
-      {
-        label: "Field mapping state",
-        status: mappings.length ? "Mapped" : "Needs mapping",
-        tone: mappings.length ? "success" : "warning",
-        detail: mappings.length ? `${mappings.length} provider mapping${mappings.length === 1 ? "" : "s"} saved for this workspace.` : "Save recommended mappings before using a provider workflow.",
-      },
-      {
-        label: "Outcome feedback loop",
-        status: (dashboard.joined_outcomes || []).length ? "Joining events" : "Ready for events",
-        tone: (dashboard.joined_outcomes || []).length ? "success" : "neutral",
-        detail: "request_id and content_hash are available for delivered, bounced, opened, clicked, complaint, suppression, and unsubscribe joins.",
-      },
-      {
-        label: "Policy environment",
-        status: displayLabel(policy.policy_environment || state.policyEnvironment || "production"),
-        tone: policy.policy_environment === "sandbox" ? "warning" : "neutral",
-        detail: `${displayLabel(policy.content_storage_mode || "hash_only")} storage with ${policy.retention_days ?? 180} day analysis retention.`,
-      },
-    ];
-    return `
-      <section class="enterprise-readiness-panel" aria-label="Enterprise readiness checklist">
-        <div class="section-title">
-          <span class="label">Enterprise readiness checklist</span>
-          <strong>Direct workflow integration controls</strong>
-        </div>
-        <div class="readiness-grid">
-          ${checks.map((check) => `
-            <article>
-              <div class="finding-card-head">
-                ${statusBadge(check.status, check.tone)}
-                <span class="interface-label">${escapeHtml(check.label)}</span>
-              </div>
-              <p>${escapeHtml(check.detail)}</p>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function governanceDashboardPanels(dashboard = {}) {
-    const failing = dashboard.top_failing_rule_packs || [];
-    const templates = dashboard.risky_templates || [];
-    const trends = dashboard.trend_by_source_system || [];
-    const joins = dashboard.joined_outcomes || [];
-    const outcomeCounts = dashboard.outcome_counts || {};
-    const analyses = dashboard.recent_analyses || [];
-    const filtered = filterAnalyses(analyses);
-    const sourceValues = analyses.map((item) => item.source_system).filter(Boolean);
-    const gateValues = analyses.map((item) => analysisGateStatus(item, "")).filter(Boolean);
-    return `
-      <section class="optimizer-section governance-dashboard" aria-label="Governance dashboard">
-        <div class="section-title">
-          <span class="label">Governance dashboard</span>
-          <strong>Enterprise trends for campaigns, templates, sources, and outcomes</strong>
-        </div>
-        <div class="dashboard-filter-grid" aria-label="Dashboard filters">
-          <label class="policy-control">
-            <span>Date range</span>
-            <select data-dashboard-filter="date_range">
-              ${["7d", "30d", "90d", "all"].map((value) => `<option value="${value}" ${state.dashboardFilters.date_range === value ? "selected" : ""}>${escapeHtml(value === "all" ? "All time" : `Last ${value.replace("d", " days")}`)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="policy-control">
-            <span>Source system</span>
-            <select data-dashboard-filter="source_system">
-              ${selectOptions(sourceValues, state.dashboardFilters.source_system, "All sources")}
-            </select>
-          </label>
-          <label class="policy-control">
-            <span>Gate status</span>
-            <select data-dashboard-filter="gate_status">
-              ${selectOptions(gateValues, state.dashboardFilters.gate_status, "All gates")}
-            </select>
-          </label>
-          <label class="policy-control">
-            <span>Campaign contains</span>
-            <input type="text" data-dashboard-filter="campaign_id" value="${escapeHtml(state.dashboardFilters.campaign_id)}" placeholder="cmp_">
-          </label>
-          <label class="policy-control">
-            <span>Template contains</span>
-            <input type="text" data-dashboard-filter="template_id" value="${escapeHtml(state.dashboardFilters.template_id)}" placeholder="tmpl_">
-          </label>
-          <div class="policy-control dashboard-filter-summary">
-            <span>Filtered analyses</span>
-            <strong>${escapeHtml(filtered.length)} / ${escapeHtml(analyses.length)}</strong>
-            <button class="button-secondary small-button" type="button" data-clear-dashboard-filters>Clear filters</button>
-          </div>
-        </div>
-        ${dashboardTrendCharts(dashboard, filtered)}
-        <div class="dashboard-panel-grid">
-          ${dashboardList("Top failing rule packs", failing, (item) => `${displayLabel(item.category)} · ${displayLabel(item.severity)} · ${item.count || 0} findings`)}
-          ${dashboardList("Risky template versions", templates, (item) => `${item.template_id || "unknown"} · ${item.review_or_block_count || 0} review/block · ${Math.round(Number(item.average_score || 0))} avg score`)}
-          ${dashboardList("Trend by source system", trends, (item) => `${displayLabel(item.source_system)} · ${displayLabel(item.gate_status)} · ${item.count || 0} analyses`)}
-          ${dashboardList("Outcome joins", joins, (item) => `${displayLabel(item.event_type || item.delivery_status)} · ${shortHash(item.request_id || item.content_hash)} · ${displayLabel(item.source_system || "source unknown")}`)}
-          ${dashboardList("Outcome counts", Object.entries(outcomeCounts).map(([event, count]) => ({event, count})), (item) => `${displayLabel(item.event)} · ${item.count} events`)}
-          ${dashboardList("Filtered drilldown", filtered.slice(0, 8), (item) => `${shortHash(item.request_id)} · ${displayLabel(analysisGateStatus(item))} · ${Math.round(Number(item.score || 0))}/100 · ${displayLabel(item.source_system || "direct")}`)}
-        </div>
-      </section>
-    `;
-  }
-
-  function dashboardTrendCharts(dashboard = {}, filtered = []) {
-    const gateRows = aggregateRows(filtered, "gate_status", "none");
-    const sourceRows = aggregateRows(filtered, "source_system", "direct");
-    const campaignRows = aggregateRows(filtered, "campaign_id", "no campaign").slice(0, 5);
-    return `
-      <div class="trend-chart-grid" aria-label="Governance trend charts">
-        ${trendChart("Gate distribution", gateRows, filtered.length)}
-        ${trendChart("Source-system trend", sourceRows, filtered.length)}
-        ${trendChart("Campaign drilldown", campaignRows, filtered.length)}
-      </div>
-    `;
-  }
-
-  function trendChart(title, rows, total) {
-    const max = Math.max(...rows.map((row) => row.count), 1);
-    return `
-      <article class="trend-chart-card">
-        <div class="finding-card-head">
-          <span class="interface-label">${escapeHtml(title)}</span>
-          ${statusBadge(`${total || 0} rows`, "neutral")}
-        </div>
-        ${rows.length ? rows.slice(0, 6).map((row) => `
-          <div class="trend-row">
-            <span>${escapeHtml(displayLabel(row.label))}</span>
-            <div class="trend-track" aria-hidden="true"><b style="width: ${Math.max(6, Math.round((row.count / max) * 100))}%"></b></div>
-            <strong>${escapeHtml(row.count)}</strong>
-          </div>
-        `).join("") : dashboardEmptyState(title)}
-      </article>
-    `;
-  }
-
-  function dashboardEmptyState(title) {
-    const guidance = {
-      "Gate distribution": "Run an analysis or clear filters to compare ready, review, and blocked decisions.",
-      "Source-system trend": "Set source_system in enterprise context or run a sandbox adapter test to group activity by workflow source.",
-      "Campaign drilldown": "Add campaign_id values to analyses or imports to compare campaign-level readiness.",
-      "Top failing rule packs": "Review/block findings will appear here after analyses produce policy findings.",
-      "Risky template versions": "Add template_id values to analyses or render tests to surface risky template versions.",
-      "Trend by source system": "Use enterprise context or adapter payloads to create source-system trend rows.",
-      "Outcome joins": "Post delivery, bounce, complaint, click, unsubscribe, or suppression webhooks to join outcomes to analyses.",
-      "Outcome counts": "Webhook events populate this panel without storing raw email body text.",
-      "Filtered drilldown": "Clear filters or run analyses with matching campaign/template metadata to inspect specific records.",
-    };
-    return `
-      <div class="dashboard-empty-state">
-        <strong>No matching data yet</strong>
-        <p>${escapeHtml(guidance[title] || "Run analyses, imports, or webhooks to populate this enterprise governance panel.")}</p>
-      </div>
-    `;
-  }
-
-  function dashboardList(title, rows, labeler) {
-    const cleanRows = Array.isArray(rows) ? rows.slice(0, 4) : [];
-    return `
-      <article class="dashboard-panel">
-        <span class="interface-label">${escapeHtml(title)}</span>
-        ${cleanRows.length ? cleanRows.map((row) => `<p>${escapeHtml(labeler(row))}</p>`).join("") : dashboardEmptyState(title)}
-      </article>
-    `;
-  }
-
-  function approvalQueuePanel(dashboard = {}) {
-    const analyses = (dashboard.recent_analyses || []).filter((item) => analysisGateStatus(item) !== "ready").slice(0, 8);
-    const fallbackRows = analyses.length ? analyses : (dashboard.recent_analyses || []).slice(0, 4);
-    return `
-      <section class="optimizer-section approval-queue-panel" aria-label="Approval queue">
-        <div class="section-title">
-          <span class="label">Approval queue</span>
-          <strong>Assign owners, add notes, and preserve send decisions</strong>
-        </div>
-        ${state.approvalMessage ? `<p class="setup-message">${escapeHtml(state.approvalMessage)}</p>` : ""}
-        <div class="approval-queue-grid">
-          ${fallbackRows.length ? fallbackRows.map((item, index) => approvalQueueCard(item, index)).join("") : `
-            <article class="approval-card">
-              ${statusBadge("Ready", "success")}
-              <strong>No messages are waiting for review.</strong>
-              <p class="muted">Messages that need review or are blocked will appear here with owner, queue, and note controls.</p>
-            </article>
-          `}
-        </div>
-      </section>
-    `;
-  }
-
-  function approvalQueueCard(item, index) {
-    const key = item.request_id || `analysis-${index}`;
-    const action = state.approvalActions[key] || {};
-    const status = action.status || displayLabel(analysisGateStatus(item, "needs_review"));
-    const owner = action.owner || ownerByCategory[item.highest_severity] || "Reviewer";
-    return `
-      <article class="approval-card" data-approval-card="${escapeHtml(key)}">
-        <div class="finding-card-head">
-          ${statusBadge(status, status === "Approved" || status === "Resolved" ? "success" : status === "Held" ? "danger" : "warning")}
-          <span class="interface-label">${escapeHtml(shortHash(key))}</span>
-        </div>
-        <strong>${escapeHtml(displayLabel(item.source_system || "Direct API"))} · ${escapeHtml(Math.round(Number(item.score || 0)))}/100</strong>
-        <p>${escapeHtml(item.template_id || "No template")} · ${escapeHtml(item.campaign_id || "No campaign")} · ${escapeHtml(item.created_at || "No timestamp")}</p>
-        <div class="approval-control-row">
-          <label>
-            <span>Owner</span>
-            <select data-approval-owner="${escapeHtml(key)}">
-              ${["Admin", "Reviewer", "Analyst", "Developer", "Compliance owner", "Campaign owner"].map((role) => `<option ${owner === role ? "selected" : ""}>${escapeHtml(role)}</option>`).join("")}
-            </select>
-          </label>
-          <label>
-            <span>Decision note</span>
-              <input type="text" data-approval-note="${escapeHtml(key)}" value="${escapeHtml(action.note || "")}" placeholder="Add decision note">
-          </label>
-        </div>
-        <div class="approval-action-row">
-          <button class="button-secondary small-button" type="button" data-approval-action="${escapeHtml(key)}" data-status="Approved">Approve</button>
-          <button class="button-secondary small-button" type="button" data-approval-action="${escapeHtml(key)}" data-status="Held">Hold</button>
-          <button class="button-secondary small-button" type="button" data-approval-action="${escapeHtml(key)}" data-status="Resolved">Resolve</button>
-        </div>
-      </article>
-    `;
-  }
-
-  function exportsPanel(dashboard = {}) {
-    return `
-      <section id="exports-section" class="optimizer-section export-center" aria-label="Governance exports">
-        <div class="section-title">
-          <span class="label">Exports</span>
-          <strong>Download normalized governance data</strong>
-        </div>
-        ${dashboard.__example ? `<p class="setup-message">Exports always download real workspace records. Example dashboard rows are never included in export files.</p>` : ""}
-        ${state.exportMessage ? `<p class="setup-message">${escapeHtml(state.exportMessage)}</p>` : ""}
-        <div class="setup-action-row export-action-row">
-          ${["analyses", "findings", "outcomes", "joins"].map((kind) => `
-            <button class="button-secondary" type="button" data-governance-export="${kind}" data-export-format="json" ${state.exportBusy ? "disabled" : ""}>${escapeHtml(displayLabel(kind))} JSON</button>
-            <button class="button-secondary" type="button" data-governance-export="${kind}" data-export-format="csv" ${state.exportBusy ? "disabled" : ""}>${escapeHtml(displayLabel(kind))} CSV</button>
-          `).join("")}
-        </div>
-        <div class="export-schedule-card">
-          <div class="section-title">
-            <span class="label">Export schedule</span>
-            <strong>Local schedule draft, manual exports remain active</strong>
-          </div>
-          ${state.exportScheduleMessage ? `<p class="setup-message">${escapeHtml(state.exportScheduleMessage)}</p>` : ""}
-          <div class="policy-control-grid">
-            <label class="policy-control">
-              <span>Cadence</span>
-              <select data-export-schedule="cadence">
-                ${["daily", "weekly", "monthly"].map((item) => `<option value="${item}" ${state.exportSchedule.cadence === item ? "selected" : ""}>${escapeHtml(displayLabel(item))}</option>`).join("")}
-              </select>
-            </label>
-            <label class="policy-control">
-              <span>Dataset</span>
-              <select data-export-schedule="kind">
-                ${["analyses", "findings", "outcomes", "joins"].map((item) => `<option value="${item}" ${state.exportSchedule.kind === item ? "selected" : ""}>${escapeHtml(displayLabel(item))}</option>`).join("")}
-              </select>
-            </label>
-            <label class="policy-control">
-              <span>Format</span>
-              <select data-export-schedule="format">
-                ${["csv", "json"].map((item) => `<option value="${item}" ${state.exportSchedule.format === item ? "selected" : ""}>${escapeHtml(item.toUpperCase())}</option>`).join("")}
-              </select>
-            </label>
-            <label class="policy-control">
-              <span>Recipients</span>
-              <input type="text" data-export-schedule="recipients" value="${escapeHtml(state.exportSchedule.recipients)}" placeholder="ops@example.com, compliance@example.com">
-            </label>
-          </div>
-          <div class="policy-toggle-row">
-            <label>
-              <input type="checkbox" data-export-schedule="enabled" ${state.exportSchedule.enabled ? "checked" : ""}>
-              <span>Enable schedule draft</span>
-            </label>
-            <button class="button-secondary" type="button" data-save-export-schedule>Save local schedule</button>
-          </div>
-          <p class="muted">This stores schedule metadata in this browser only. A production scheduler still needs your deployment worker or data pipeline.</p>
-        </div>
-        ${state.exportResult ? `<pre class="adapter-simulator-result export-preview">${escapeHtml(JSON.stringify(state.exportResult, null, 2))}</pre>` : ""}
-      </section>
-    `;
-  }
-
-  function adapterSimulator(plan = {}, manifests = []) {
-    const providers = manifests.map((manifest) => manifest.provider);
-    const options = Array.from(new Set(["hubspot", "salesforce", "sendgrid_ses", "braze", "marketo", "iterable", "warehouse", ...providers]));
-    const payload = state.simulatorPayload || JSON.stringify(simulatorPayloads[state.simulatorProvider] || simulatorPayloads.hubspot, null, 2);
-    const validation = simulatorValidation(state.simulatorProvider, payload);
-    return `
-      <section id="simulator-section" class="optimizer-section adapter-simulator" aria-label="Adapter simulator">
-        <div class="section-title">
-          <span class="label">Adapter simulator</span>
-          <strong>Paste a provider payload and inspect mapped scoring outputs</strong>
-        </div>
-        ${state.simulatorMessage ? `<p class="setup-message">${escapeHtml(state.simulatorMessage)}</p>` : ""}
-        <div class="setup-action-row">
-          ${Object.keys(simulatorPayloads).map((provider) => `<button class="button-secondary small-button" type="button" data-simulator-example="${escapeHtml(provider)}">${escapeHtml(providerLabel(provider))} example</button>`).join("")}
-          ${statusBadge(validation.valid ? "Payload validates" : "Needs payload fields", validation.valid ? "success" : "warning")}
-        </div>
-        <div class="adapter-simulator-grid">
-          <label class="policy-control">
-            <span>Provider</span>
-            <select data-simulator-provider>
-              ${options.map((provider) => `<option value="${escapeHtml(provider)}" ${provider === state.simulatorProvider ? "selected" : ""}>${escapeHtml(providerLabel(provider))}</option>`).join("")}
-            </select>
-            <small>Choose the adapter shape to normalize.</small>
-          </label>
-          <label class="policy-control adapter-simulator-payload">
-            <span>Payload JSON</span>
-            <textarea data-simulator-payload spellcheck="false">${escapeHtml(payload)}</textarea>
-            <small>${escapeHtml(validation.message)}</small>
-          </label>
-        </div>
-        <div class="setup-action-row">
-          <button class="button-secondary" type="button" data-run-adapter-simulator ${state.simulatorBusy ? "disabled" : ""}>
-            ${state.simulatorBusy ? "Simulating..." : "Run simulator"}
-          </button>
-          <span class="muted">${escapeHtml(plan.recommendation?.positioning || "Sandbox adapters score existing messages before production connections are enabled.")}</span>
-        </div>
-        ${state.simulatorResult ? simulatorResultSummary(state.simulatorResult) : ""}
-      </section>
-    `;
-  }
-
-  function simulatorValidation(provider, payloadText) {
-    try {
-      const payload = typeof payloadText === "string" ? JSON.parse(payloadText || "{}") : payloadText || {};
-      const text = JSON.stringify(payload).toLowerCase();
-      const hasSubject = text.includes("subject") || text.includes("email_subject") || text.includes("emailsubject");
-      const hasBody = text.includes("body") || text.includes("email_body") || text.includes("emailbody") || text.includes("html") || text.includes("text");
-      const warehouseRows = provider === "warehouse" && Array.isArray(payload.rows || payload.samples);
-      const valid = warehouseRows || (hasSubject && hasBody);
-      return {valid, message: valid ? "Required subject/body signals are present." : "Add subject and body fields, or warehouse rows, before simulation."};
-    } catch (error) {
-      return {valid: false, message: "Payload JSON is not valid yet."};
-    }
-  }
-
-  function simulatorResultSummary(result) {
-    const gate = result.analysis?.gate || {};
-    const writeback = result.writeback || {};
-    return `
-      <div class="simulator-output-grid">
-        <article class="optimizer-context-card">
-          <span class="interface-label">Normalized decision</span>
-          <strong>${escapeHtml(displayLabel(gate.status || result.decision || "unknown"))}</strong>
-          <p>${escapeHtml(displayLabel(gate.route || "No route"))}</p>
-        </article>
-        <article class="optimizer-context-card">
-          <span class="interface-label">Writeback fields</span>
-          <strong>${escapeHtml(writeback.texttraits_score ?? result.analysis?.score ?? "n/a")}/100</strong>
-          <p>${escapeHtml(shortHash(writeback.texttraits_request_id || result.analysis?.request_id))}</p>
-        </article>
-        <article class="optimizer-context-card">
-          <span class="interface-label">Render check</span>
-          <strong>${escapeHtml((result.render_test?.unresolved_tokens || []).length || 0)} unresolved</strong>
-          <p>${escapeHtml((result.render_test?.unsubscribe?.header_present || result.render_test?.unsubscribe?.body_present) ? "Unsubscribe path detected" : "No unsubscribe path detected")}</p>
-        </article>
-      </div>
-      <details class="secondary-result-details optimizer-json">
-        <summary>Raw simulator output</summary>
-        <pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>
-      </details>
-    `;
-  }
-
-  function policyValue(policy, key, fallback) {
-    const value = policy?.[key];
-    return value === undefined || value === null || value === "" ? fallback : value;
-  }
-
-  function governancePolicyControls(policy = {}) {
-    const highReview = policyValue(policy, "high_severity_requires_review", true);
-    const familyModes = policy?.rule_family_modes || {};
-    const families = ["compliance", "unsubscribe", "personalization", "cta", "format"];
-    const policyHistory = state.labData?.dashboard?.policy_bundle_history || [];
-    return `
-      <section id="governance-section" class="optimizer-section governance-policy-controls" aria-label="Governance policy controls">
-        <div class="section-title">
-          <span class="label">Governance policy</span>
-          <strong>Workspace controls for gating, retention, and storage</strong>
-        </div>
-        ${state.policyMessage ? `<p class="setup-message">${escapeHtml(state.policyMessage)}</p>` : ""}
-        <div class="policy-control-grid">
-          <label class="policy-control">
-            <span>Ready score</span>
-            <input type="number" min="0" max="100" step="1" value="${escapeHtml(policyValue(policy, "min_ready_score", 72))}" data-policy-field="min_ready_score">
-            <small>Minimum score required before automatic send approval.</small>
-          </label>
-          <label class="policy-control">
-            <span>Analysis retention days</span>
-            <input type="number" min="30" max="3650" step="1" value="${escapeHtml(policyValue(policy, "retention_days", 180))}" data-policy-field="retention_days">
-            <small>How long analysis metadata stays available for audits.</small>
-          </label>
-          <label class="policy-control">
-            <span>Webhook retention days</span>
-            <input type="number" min="30" max="3650" step="1" value="${escapeHtml(policyValue(policy, "webhook_retention_days", 365))}" data-policy-field="webhook_retention_days">
-            <small>How long outcome events remain joinable.</small>
-          </label>
-          <label class="policy-control">
-            <span>Dedupe window days</span>
-            <input type="number" min="1" max="365" step="1" value="${escapeHtml(policyValue(policy, "webhook_dedupe_window_days", 30))}" data-policy-field="webhook_dedupe_window_days">
-            <small>Retry window for provider webhook event IDs.</small>
-          </label>
-          <label class="policy-control">
-            <span>Sample import limit</span>
-            <input type="number" min="1" max="100" step="1" value="${escapeHtml(policyValue(policy, "sample_import_limit", 25))}" data-policy-field="sample_import_limit">
-            <small>Maximum rows for one UI or API batch.</small>
-          </label>
-          <label class="policy-control">
-            <span>Storage mode</span>
-            <select data-policy-field="content_storage_mode">
-              <option value="hash_only" ${policyValue(policy, "content_storage_mode", "hash_only") === "hash_only" ? "selected" : ""}>Hash only</option>
-              <option value="metadata_only" ${policyValue(policy, "content_storage_mode", "hash_only") === "metadata_only" ? "selected" : ""}>Metadata only</option>
-            </select>
-            <small>Controls whether raw copy is excluded from stored records.</small>
-          </label>
-          <label class="policy-control">
-            <span>Environment</span>
-            <select data-policy-field="policy_environment">
-              ${["sandbox", "staging", "production"].map((env) => `<option value="${env}" ${policyValue(policy, "policy_environment", "production") === env ? "selected" : ""}>${titleCase(env)}</option>`).join("")}
-            </select>
-            <small>Separate draft policies from production controls.</small>
-          </label>
-          <label class="policy-control">
-            <span>Send timeout ms</span>
-            <input type="number" min="50" max="10000" step="50" value="${escapeHtml(policyValue(policy, "send_path_timeout_ms", 500))}" data-policy-field="send_path_timeout_ms">
-            <small>Budget used by SendGrid/SES-style middleware.</small>
-          </label>
-          <label class="policy-control">
-            <span>Idempotency window sec</span>
-            <input type="number" min="60" max="86400" step="60" value="${escapeHtml(policyValue(policy, "idempotency_window_seconds", 900))}" data-policy-field="idempotency_window_seconds">
-            <small>Replay safety window for send-path requests.</small>
-          </label>
-        </div>
-        <div class="rule-family-control-group">
-          <span class="interface-label">Rule family behavior</span>
-          <div class="policy-control-grid rule-family-grid">
-            ${families.map((family) => {
-              const currentMode = familyModes[family] || (family === "compliance" || family === "unsubscribe" ? "fail_closed" : "review");
-              return `
-                <label class="policy-control">
-                  <span>${escapeHtml(ruleFamilyLabel(family))}</span>
-                  <select data-rule-family-mode="${escapeHtml(family)}">
-                    ${["fail_closed", "review", "fail_open"].map((mode) => `<option value="${mode}" ${currentMode === mode ? "selected" : ""}>${escapeHtml(ruleModeLabel(mode))}</option>`).join("")}
-                  </select>
-                </label>
-              `;
-            }).join("")}
-          </div>
-        </div>
-        <div class="policy-toggle-row">
-          <label>
-            <input type="checkbox" data-policy-field="high_severity_requires_review" ${highReview ? "checked" : ""}>
-            <span>Route high-severity findings to review</span>
-          </label>
-          <button class="button-secondary" type="button" data-save-policy-controls ${state.policyBusy ? "disabled" : ""}>
-            ${state.policyBusy ? "Saving..." : "Save policy controls"}
-          </button>
-        </div>
-        <div class="policy-history-panel">
-          <span class="interface-label">Policy history and audit log</span>
-          ${policyHistory.length ? policyHistory.slice(0, 5).map((item) => `
-            <article>
-              <strong>${escapeHtml(displayLabel(item.policy_environment || item.environment || "production"))} policy</strong>
-              <p>${escapeHtml(item.created_at || item.updated_at || "unknown time")} · ${escapeHtml(item.version || "versioned bundle")}</p>
-            </article>
-          `).join("") : `<p class="muted">No saved policy changes yet. Save controls to create an audit entry.</p>`}
-        </div>
-      </section>
-    `;
-  }
-
-  function providerLabel(provider) {
-    return String(provider || "")
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (letter) => letter.toUpperCase())
-      .replace("Ses", "SES");
-  }
-
-  function ruleFamilyLabel(family) {
-    const labels = {cta: "CTA"};
-    return labels[family] || providerLabel(family);
-  }
-
-  function ruleModeLabel(mode) {
-    const labels = {
-      fail_closed: "Fail closed",
-      fail_open: "Fail open",
-      review: "Review",
-    };
-    return labels[mode] || providerLabel(mode);
-  }
-
-  function mappingForProvider(provider, mappings) {
-    return mappings.find((mapping) => mapping.provider === provider);
-  }
-
-  function recommendedMapping(manifest) {
-    const requiredInputs = manifest?.required_inputs || {};
-    const inputs = Object.fromEntries(
-      Object.entries(requiredInputs).map(([key, field]) => [
-        key,
-        field.hubspot_property || field.journey_attribute || field.path || key,
-      ])
-    );
-    return {
-      inputs,
-      outputs: {...(manifest?.recommended_writeback || {})},
-    };
-  }
-
-  function setupContracts(manifests, mappings) {
-    if (!manifests.length) {
-      return `
-        <div class="setup-empty muted">
-          Integration manifests load from the v1 setup contract.
-        </div>
-      `;
-    }
-    const selected = manifests.find((item) => item.provider === state.setupProvider) || manifests[0];
-    const selectedMapping = mappingForProvider(selected.provider, mappings);
-    const selectedState = providerConnectionState(selected, selectedMapping);
-    const validation = simulatorValidation(selected.provider, state.simulatorPayload || JSON.stringify(simulatorPayloads[selected.provider] || simulatorPayloads.hubspot, null, 2));
-    return `
-      <section id="integrations-section" class="optimizer-section setup-contracts" aria-label="Integration setup contracts">
-        <div class="section-title">
-          <span class="label">Integration setup</span>
-          <strong>Guided sandbox adapter wizard before production routing</strong>
-        </div>
-        ${state.setupMessage ? `<p class="setup-message">${escapeHtml(state.setupMessage)}</p>` : ""}
-        ${state.setupValidationMessage ? `<p class="setup-message">${escapeHtml(state.setupValidationMessage)}</p>` : ""}
-        ${state.setupTestMessage ? `<p class="setup-message">${escapeHtml(state.setupTestMessage)}</p>` : ""}
-        <div class="setup-wizard" aria-label="Guided integration wizard">
-          ${[
-            ["1", "Choose platform", selected.provider ? `${providerLabel(selected.provider)} selected.` : "Select the system that owns the email workflow."],
-            ["2", "Validate payload", validation.valid ? "Sample payload contains subject/body signals." : "Run validation with a realistic sample."],
-            ["3", "Save mapping", selectedMapping?.status === "ready" ? "Required inputs and writeback fields are configured." : "Persist required inputs and writeback fields."],
-            ["4", "Promote environment", state.promotedProviders.includes(selected.provider) ? "Production promotion recorded locally." : "Move from sandbox to staging or production after tests pass."],
-          ].map(([step, title, copy]) => `
-            <article>
-              <span>${escapeHtml(step)}</span>
-              <strong>${escapeHtml(title)}</strong>
-              <p>${escapeHtml(copy)}</p>
-            </article>
-          `).join("")}
-        </div>
-        <div class="setup-action-row">
-          <label class="inline-control">
-            <span>Provider</span>
-            <select data-setup-provider>
-              ${manifests.map((manifest) => `<option value="${escapeHtml(manifest.provider)}" ${manifest.provider === selected.provider ? "selected" : ""}>${escapeHtml(providerLabel(manifest.provider))}</option>`).join("")}
-            </select>
-          </label>
-          ${statusBadge("Sandbox", "neutral")}
-          ${statusBadge(selectedState.label, selectedState.tone)}
-          <button class="button-secondary" type="button" data-validate-setup-payload>Validate payload</button>
-          <button class="button-secondary" type="button" data-run-setup-test>Run sandbox test</button>
-          <button class="button-secondary" type="button" data-promote-provider="${escapeHtml(selected.provider)}">Promote environment</button>
-          <button class="button-secondary" type="button" data-download-openapi>Download OpenAPI JSON</button>
-          <button class="button-secondary" type="button" data-copy-install-steps>Copy install steps</button>
-        </div>
-        <div class="optimizer-grid setup-contract-grid">
-          ${manifests.map((manifest) => {
-            const mapping = mappingForProvider(manifest.provider, mappings);
-            const connection = providerConnectionState(manifest, mapping);
-            const requiredCount = Object.keys(manifest.required_inputs || {}).length;
-            const outputCount = Object.keys(manifest.recommended_writeback || {}).length;
-            const isBusy = state.setupBusyProvider === manifest.provider;
-            return `
-              <article class="optimizer-check-card setup-contract-card ${mapping?.status === "ready" ? "is-ok" : "needs-work"}">
-                <div class="finding-card-head">
-                  ${statusBadge("Sandbox", "neutral")}
-                  ${statusBadge(connection.label, connection.tone)}
-                </div>
-                <span class="label">${escapeHtml(manifest.install_surface || "Integration")}</span>
-                <strong>${escapeHtml(manifest.name || providerLabel(manifest.provider))}</strong>
-                <p>${escapeHtml(manifest.entrypoint || "v1 integration endpoint")}</p>
-                <div class="objective-meta">
-                  <span>${escapeHtml(mapping?.status === "ready" ? "Mapped" : "Template ready")}</span>
-                  <span>${escapeHtml(requiredCount)} required inputs</span>
-                  <span>${escapeHtml(outputCount)} writeback outputs</span>
-                </div>
-                <small>${escapeHtml(connection.detail)}</small>
-                <small>Required inputs: ${escapeHtml(Object.keys(manifest.required_inputs || {}).join(", ") || "none")}</small>
-                <button class="button-secondary" type="button" data-save-recommended-mapping="${escapeHtml(manifest.provider)}" ${isBusy ? "disabled" : ""}>
-                  ${isBusy ? "Saving..." : mapping?.status === "ready" ? "Refresh recommended mapping" : "Save recommended mapping"}
-                </button>
-              </article>
-            `;
-          }).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function adminSettingsPanel({policy = {}, manifests = [], mappings = [], dashboard = {}, installKit = {}} = {}) {
-    const analysisCount = Number(dashboard.analysis_volume || 0);
-    const volumeLabel = dashboard.__example ? `${analysisCount} example rows` : `${analysisCount} ${analysisCount === 1 ? "analysis" : "analyses"}`;
-    return `
-      <section id="admin-section" class="optimizer-section admin-settings-panel" aria-label="Enterprise admin settings">
-        <div class="section-title">
-          <span class="label">Admin settings</span>
-          <strong>Workspace, roles, API access, webhooks, mappings, and deployment controls</strong>
-        </div>
-        ${state.adminMessage ? `<p class="setup-message">${escapeHtml(state.adminMessage)}</p>` : ""}
-        <div class="admin-overview-grid">
-          <article class="dashboard-panel">
-            <span class="interface-label">Workspace</span>
-            <strong>${escapeHtml(state.workspaceId || "default")}</strong>
-            <p>${escapeHtml(displayLabel(state.policyEnvironment))} environment · ${escapeHtml(mappings.length)} saved mappings · ${escapeHtml(volumeLabel)}.</p>
-          </article>
-          <article class="dashboard-panel">
-            <span class="interface-label">API access</span>
-            <strong>${escapeHtml(state.apiKeys.length)} local key profile${state.apiKeys.length === 1 ? "" : "s"}</strong>
-            <p>Profiles store scope metadata only. No production secret is created or persisted.</p>
-          </article>
-          <article class="dashboard-panel">
-            <span class="interface-label">Webhook signing</span>
-            <strong>${escapeHtml(state.webhookConfig.status)}</strong>
-            <p>${escapeHtml(state.webhookConfig.secretDigest ? `Secret fingerprint ${state.webhookConfig.secretDigest}` : "No local signing test has been saved.")}</p>
-          </article>
-        </div>
-        ${rolePermissionsPanel()}
-        ${apiKeyManagementPanel()}
-        ${webhookSigningPanel()}
-        ${adminMappingSummary(manifests, mappings)}
-        ${auditLogPanel(dashboard)}
-      </section>
-    `;
-  }
-
-  function rolePermissionsPanel() {
-    return `
-      <section class="admin-subsection" aria-label="Role and permission scaffolding">
-        <div class="section-title">
-          <span class="label">Roles and permissions</span>
-          <strong>Admin, Reviewer, Analyst, Developer</strong>
-        </div>
-        <div class="role-grid">
-          ${roleProfiles.map((profile) => `
-            <article>
-              ${statusBadge(profile.role === "Admin" ? "Configured" : "Sandbox", profile.role === "Admin" ? "success" : "neutral")}
-              <strong>${escapeHtml(profile.role)}</strong>
-              <p>${escapeHtml(profile.detail)}</p>
-              <div class="cue-row">${profile.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function apiKeyManagementPanel() {
-    return `
-      <section class="admin-subsection" aria-label="API key management">
-        <div class="section-title">
-          <span class="label">API key management</span>
-          <strong>Local scope profiles for sandbox planning</strong>
-        </div>
-        ${state.apiKeyMessage ? `<p class="setup-message">${escapeHtml(state.apiKeyMessage)}</p>` : ""}
-        <div class="policy-control-grid">
-          <label class="policy-control">
-            <span>Key name</span>
-            <input type="text" data-api-key-form="name" value="${escapeHtml(state.apiKeyForm.name)}">
-          </label>
-          <label class="policy-control">
-            <span>Environment</span>
-            <select data-api-key-form="environment">
-              ${["sandbox", "staging", "production"].map((env) => `<option value="${env}" ${state.apiKeyForm.environment === env ? "selected" : ""}>${escapeHtml(displayLabel(env))}</option>`).join("")}
-            </select>
-          </label>
-          <label class="policy-control api-scope-control">
-            <span>Scopes</span>
-            <textarea rows="2" data-api-key-form="scopes" spellcheck="false">${escapeHtml(state.apiKeyForm.scopes)}</textarea>
-            <small>Example: default:/v1/email/analyze, default:/v1/governance</small>
-          </label>
-        </div>
-        <div class="setup-action-row">
-          <button class="button-secondary" type="button" data-create-api-key-profile>Create local key profile</button>
-          ${statusBadge("No credential generated", "neutral")}
-        </div>
-        <div class="api-key-list">
-          ${state.apiKeys.map((key) => `
-            <article>
-              <div class="finding-card-head">
-                ${statusBadge(key.status || "Sandbox", key.environment === "production" ? "warning" : "neutral")}
-                <span class="interface-label">${escapeHtml(key.environment || "sandbox")}</span>
-              </div>
-              <strong>${escapeHtml(key.name)}</strong>
-              <p>${escapeHtml((key.scopes || []).join(", "))}</p>
-              <small>${escapeHtml(key.secretPreview)} · created ${escapeHtml(key.created_at || "locally")}</small>
-              <button class="button-secondary small-button" type="button" data-revoke-api-key="${escapeHtml(key.id)}">Remove local profile</button>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function webhookSigningPanel() {
-    return `
-      <section class="admin-subsection" aria-label="Webhook signing setup">
-        <div class="section-title">
-          <span class="label">Webhook signing setup</span>
-          <strong>Local test signature flow for post-send events</strong>
-        </div>
-        ${state.webhookMessage ? `<p class="setup-message">${escapeHtml(state.webhookMessage)}</p>` : ""}
-        <div class="policy-control-grid">
-          <label class="policy-control">
-            <span>Webhook endpoint</span>
-            <input type="text" data-webhook-field="endpoint" value="${escapeHtml(state.webhookConfig.endpoint)}">
-          </label>
-          <label class="policy-control">
-            <span>Event type</span>
-            <select data-webhook-field="eventType">
-              ${["delivered", "opened", "clicked", "bounced", "complained", "unsubscribed"].map((event) => `<option value="${event}" ${state.webhookConfig.eventType === event ? "selected" : ""}>${escapeHtml(displayLabel(event))}</option>`).join("")}
-            </select>
-          </label>
-          <label class="policy-control">
-            <span>Signing secret for test</span>
-            <input type="password" data-webhook-secret value="${escapeHtml(state.webhookSecretDraft)}" placeholder="Paste a test-only secret">
-            <small>The secret itself is never persisted; only a fingerprint can be stored locally.</small>
-          </label>
-        </div>
-        <div class="setup-action-row">
-          <button class="button-secondary" type="button" data-run-webhook-test>Run local signature test</button>
-          ${statusBadge(state.webhookConfig.status, state.webhookConfig.status === "Configured" ? "success" : "warning")}
-          ${state.webhookConfig.signaturePreview ? statusBadge(state.webhookConfig.signaturePreview, "neutral") : ""}
-        </div>
-        <p class="muted">Production validation requires TEXTTRAITS_WEBHOOK_SECRET plus X-TextTraits-Signature and X-TextTraits-Timestamp on each provider event.</p>
-      </section>
-    `;
-  }
-
-  function adminMappingSummary(manifests, mappings) {
-    return `
-      <section class="admin-subsection" aria-label="Mapping administration">
-        <div class="section-title">
-          <span class="label">Mapping administration</span>
-          <strong>Provider readiness across sandbox adapters</strong>
-        </div>
-        <div class="mapping-state-grid">
-          ${manifests.map((manifest) => {
-            const mapping = mappingForProvider(manifest.provider, mappings);
-            const connection = providerConnectionState(manifest, mapping);
-            return `
-              <article>
-                ${statusBadge("Sandbox", "neutral")}
-                ${statusBadge(connection.label, connection.tone)}
-                <strong>${escapeHtml(providerLabel(manifest.provider))}</strong>
-                <p>${escapeHtml(connection.detail)}</p>
-              </article>
-            `;
-          }).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function auditLogPanel(dashboard = {}) {
-    const policyHistory = dashboard.policy_bundle_history || [];
-    const webhookRows = dashboard.webhook_events || [];
-    const localEvents = [
-      ...policyHistory.slice(0, 4).map((item) => ({type: "Policy change", detail: `${displayLabel(item.policy_environment || "production")} · ${item.version || "versioned bundle"}`, at: item.updated_at || item.created_at})),
-      ...webhookRows.slice(0, 3).map((item) => ({type: "Webhook event", detail: `${displayLabel(item.event_type || item.delivery_status)} · ${shortHash(item.dedupe_key)}`, at: item.last_seen_at || item.first_seen_at})),
-      ...state.apiKeys.slice(0, 2).map((item) => ({type: "API key profile", detail: `${item.name} · ${(item.scopes || []).join(", ")}`, at: item.created_at})),
-    ];
-    return `
-      <section class="admin-subsection" aria-label="Audit log">
-        <div class="section-title">
-          <span class="label">Audit log</span>
-          <strong>Internal policy, webhook, and local admin events</strong>
-        </div>
-        <div class="audit-log-list">
-          ${localEvents.length ? localEvents.map((event) => `
-            <article>
-              <span class="interface-label">${escapeHtml(event.type)}</span>
-              <strong>${escapeHtml(event.detail)}</strong>
-              <p>${escapeHtml(event.at || "Local session")}</p>
-            </article>
-          `).join("") : `<p class="muted">No audit events yet. Policy saves, webhook tests, and local key profiles appear here.</p>`}
-        </div>
-      </section>
-    `;
-  }
-
-  function trustAndDeploymentPanel(policy = {}) {
-    return `
-      <section class="optimizer-section trust-deployment-panel" aria-label="Security and deployment readiness">
-        <div class="section-title">
-          <span class="label">Security and deployment readiness</span>
-          <strong>Professional trust package for enterprise review</strong>
-        </div>
-        <div class="trust-grid">
-          <article>
-            ${statusBadge("Non-generative", "success")}
-            <strong>Scoring layer only</strong>
-            <p>TextTraits analyzes existing drafts and returns model signals, policy decisions, hashes, and routes. It does not write replacement email copy.</p>
-          </article>
-          <article>
-            ${statusBadge("Model limitations", "neutral")}
-            <strong>Use as evidence, not authority</strong>
-            <p>Scores are calibrated policy indicators. Teams should still review claims, consent, legal requirements, and edge cases before sending.</p>
-          </article>
-          <article>
-            ${statusBadge(displayLabel(policy.content_storage_mode || "hash_only"), "success")}
-            <strong>Data handling</strong>
-            <p>Default governance storage avoids raw body persistence and keeps request IDs/content hashes for audits and outcome joins.</p>
-          </article>
-          <article>
-            ${statusBadge("Deployment checklist", "warning")}
-            <strong>Production prerequisites</strong>
-            <p>Secrets, Postgres, HTTPS, workers, monitoring, backups, and webhook signing must be configured before enterprise rollout.</p>
-          </article>
-        </div>
-        <div class="deployment-check-grid">
-          ${deploymentChecks.map(([title, detail]) => `
-            <article>
-              <span class="interface-label">${escapeHtml(title)}</span>
-              <p>${escapeHtml(detail)}</p>
-            </article>
-          `).join("")}
-        </div>
-        ${modelEvidencePanel()}
-      </section>
-    `;
-  }
-
-  function modelEvidencePanel() {
-    const publicModel = window.TEXTTRAITS_CONFIG?.publicModel || {};
-    const targetCount = publicModel.target_count ?? "n/a";
-    return `
-      <div class="model-evidence-panel">
-        <div class="section-title">
-          <span class="label">Model card summary</span>
-          <strong>Evidence buyers can inspect before a pilot</strong>
-        </div>
-        <div class="model-evidence-grid">
-          <article>
-            ${statusBadge(publicModel.demo ? "Demo predictor" : "Model loaded", publicModel.demo ? "warning" : "success")}
-            <strong>${escapeHtml(publicModel.name || "Local inference model")}</strong>
-            <p>${escapeHtml(targetCount)} text-trait targets expose confidence, margin, alternatives, and cue terms where available.</p>
-          </article>
-          <article>
-            ${statusBadge("Objective signals", "success")}
-            <strong>No generated copy path</strong>
-            <p>Scoring combines local model outputs, explicit policy rules, content hashes, and workflow metadata instead of rewriting the message.</p>
-          </article>
-          <article>
-            ${statusBadge("Validation required", "warning")}
-            <strong>Pilot calibration is still required</strong>
-            <p>Before automatic gating, compare scores against a free customer-provided sample set and document acceptable false-review and false-pass rates.</p>
-          </article>
-        </div>
-        <a class="button-secondary model-card-link" href="/model-card">Open full model card</a>
-      </div>
-    `;
-  }
-
-  function bindLabControls() {
-    document.querySelectorAll("[data-save-recommended-mapping]").forEach((button) => {
-      button.addEventListener("click", () => saveRecommendedMapping(button.dataset.saveRecommendedMapping));
+function bindCopy(selector, text, message) {
+  const buttons = els.outputPanel.querySelectorAll(selector);
+  if (!buttons.length) return;
+  buttons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      await copyTextFromButton(button, text, message);
     });
-    document.querySelector("[data-download-openapi]")?.addEventListener("click", downloadOpenApiContract);
-    document.querySelector("[data-copy-install-steps]")?.addEventListener("click", copyInstallSteps);
-    document.querySelector("[data-save-policy-controls]")?.addEventListener("click", savePolicyControls);
-    document.querySelector("[data-save-export-schedule]")?.addEventListener("click", saveExportSchedule);
-    document.querySelector("[data-create-api-key-profile]")?.addEventListener("click", createLocalApiKeyProfile);
-    document.querySelector("[data-run-webhook-test]")?.addEventListener("click", runWebhookSignatureTest);
-    document.querySelector("[data-validate-setup-payload]")?.addEventListener("click", validateSetupPayload);
-    document.querySelector("[data-run-setup-test]")?.addEventListener("click", runSetupSandboxTest);
-    document.querySelector("[data-setup-provider]")?.addEventListener("change", (event) => {
-      state.setupProvider = event.currentTarget.value;
-      state.simulatorProvider = state.setupProvider;
-      state.setupValidationMessage = `${providerLabel(state.setupProvider)} selected for sandbox setup.`;
-      renderEmpty();
-    });
-    document.querySelectorAll("[data-promote-provider]").forEach((button) => {
-      button.addEventListener("click", () => promoteProvider(button.dataset.promoteProvider));
-    });
-    document.querySelectorAll("[data-dashboard-filter]").forEach((field) => {
-      field.addEventListener("input", () => {
-        state.dashboardFilters[field.dataset.dashboardFilter] = field.value;
+  });
+}
+
+function wireInput() {
+  if (state.mode === "explorer") {
+    if (state.latestData) {
+      document.querySelector("#clear-explorer")?.addEventListener("click", () => {
+        state.latestText = "";
+        state.compareText = "";
+        state.explorerReadingName = "";
+        state.explorerSavedMessage = "";
+        state.latestData = null;
+        state.explorerPromptTitle = "";
+        state.explorerPromptText = "";
+        state.explorerPromptSource = "";
+        persistWorkspace();
+        render();
       });
-      field.addEventListener("change", () => updateDashboardFilter(field));
+      return;
+    }
+    const input = document.querySelector("#explorer-text");
+    const compare = document.querySelector("#compare-text");
+    const readingName = document.querySelector("#reading-name");
+    input?.addEventListener("input", () => {
+      state.latestText = input.value;
+      updateInputStats("explorer", input.value);
+      persistWorkspace();
     });
-    document.querySelector("[data-clear-dashboard-filters]")?.addEventListener("click", clearDashboardFilters);
-    document.querySelectorAll("[data-api-key-form]").forEach((field) => {
-      field.addEventListener("input", () => {
-        state.apiKeyForm[field.dataset.apiKeyForm] = field.value;
-      });
-      field.addEventListener("change", () => {
-        state.apiKeyForm[field.dataset.apiKeyForm] = field.value;
-      });
+    compare?.addEventListener("input", () => {
+      state.compareText = compare.value;
     });
-    document.querySelectorAll("[data-revoke-api-key]").forEach((button) => {
-      button.addEventListener("click", () => revokeLocalApiKeyProfile(button.dataset.revokeApiKey));
+    readingName?.addEventListener("input", () => {
+      state.explorerReadingName = readingName.value;
+      persistWorkspace();
     });
-    document.querySelectorAll("[data-webhook-field]").forEach((field) => {
-      field.addEventListener("input", () => {
-        state.webhookConfig[field.dataset.webhookField] = field.value;
-      });
-      field.addEventListener("change", () => {
-        state.webhookConfig[field.dataset.webhookField] = field.value;
-      });
-    });
-    document.querySelector("[data-webhook-secret]")?.addEventListener("input", (event) => {
-      state.webhookSecretDraft = event.currentTarget.value;
-    });
-    document.querySelectorAll("[data-export-schedule]").forEach((field) => {
-      field.addEventListener("input", () => updateExportScheduleField(field));
-      field.addEventListener("change", () => updateExportScheduleField(field));
-    });
-    document.querySelectorAll("[data-approval-action]").forEach((button) => {
-      button.addEventListener("click", () => saveApprovalDecision(button.dataset.approvalAction, button.dataset.status));
-    });
-    document.querySelector("[data-simulator-provider]")?.addEventListener("change", (event) => {
-      state.simulatorProvider = event.currentTarget.value;
-      state.setupProvider = state.simulatorProvider;
-      state.simulatorPayload = JSON.stringify(simulatorPayloads[state.simulatorProvider] || simulatorPayloads.hubspot, null, 2);
-      state.simulatorResult = null;
-      renderEmpty();
-    });
-    document.querySelectorAll("[data-simulator-example]").forEach((button) => {
+    document.querySelectorAll("[data-message-mode]").forEach((button) => {
       button.addEventListener("click", () => {
-        state.simulatorProvider = button.dataset.simulatorExample;
-        state.simulatorPayload = JSON.stringify(simulatorPayloads[state.simulatorProvider] || simulatorPayloads.hubspot, null, 2);
-        state.simulatorResult = null;
-        state.simulatorMessage = `${providerLabel(state.simulatorProvider)} example loaded.`;
-        renderEmpty();
+        const existingText = document.querySelector("#explorer-text")?.value || state.latestText;
+        state.latestText = existingText;
+        setMessageMode(button.dataset.messageMode);
+        render();
+        requestAnimationFrame(() => {
+          const nextInput = document.querySelector("#explorer-text");
+          if (nextInput) {
+            nextInput.focus();
+            nextInput.selectionStart = nextInput.selectionEnd = nextInput.value.length;
+          }
+        });
       });
     });
-    document.querySelector("[data-run-adapter-simulator]")?.addEventListener("click", runAdapterSimulator);
-    document.querySelectorAll("[data-governance-export]").forEach((button) => {
-      button.addEventListener("click", () => downloadGovernanceExport(button.dataset.governanceExport, button.dataset.exportFormat));
-    });
-  }
-
-  function updateDashboardFilter(field) {
-    state.dashboardFilters[field.dataset.dashboardFilter] = field.value;
-    if (!state.latestData) renderEmpty();
-    else renderResult(state.latestData, state.latestOptimization || state.latestData);
-  }
-
-  function clearDashboardFilters() {
-    state.dashboardFilters = {date_range: "30d", source_system: "all", campaign_id: "", template_id: "", gate_status: "all"};
-    if (!state.latestData) renderEmpty();
-    else renderResult(state.latestData, state.latestOptimization || state.latestData);
-  }
-
-  function updateExportScheduleField(field) {
-    const key = field.dataset.exportSchedule;
-    state.exportSchedule[key] = field.type === "checkbox" ? field.checked : field.value;
-  }
-
-  function saveExportSchedule() {
-    state.exportSchedule.lastSaved = new Date().toISOString();
-    persistLocalAdminState();
-    state.exportScheduleMessage = state.exportSchedule.enabled
-      ? `${displayLabel(state.exportSchedule.cadence)} ${state.exportSchedule.kind} ${state.exportSchedule.format.toUpperCase()} schedule saved locally.`
-      : "Export schedule draft saved locally but remains disabled.";
-    renderEmpty();
-  }
-
-  function createLocalApiKeyProfile() {
-    const name = state.apiKeyForm.name.trim() || "Sandbox workflow key";
-    const scopes = state.apiKeyForm.scopes.split(",").map((scope) => scope.trim()).filter(Boolean);
-    const environment = state.apiKeyForm.environment || "sandbox";
-    const profile = {
-      id: `key_${Date.now()}`,
-      name,
-      environment,
-      scopes: scopes.length ? scopes : ["default:/v1/email/analyze"],
-      status: environment === "production" ? "Production blocked" : "Sandbox",
-      secretPreview: "No credential material stored",
-      created_at: new Date().toISOString(),
-      last_used: "Not used",
-    };
-    state.apiKeys = [profile, ...state.apiKeys].slice(0, 8);
-    state.apiKeyMessage = "Local API key profile saved. No credential material was generated or stored.";
-    persistLocalAdminState();
-    renderEmpty();
-  }
-
-  function revokeLocalApiKeyProfile(id) {
-    state.apiKeys = state.apiKeys.filter((key) => key.id !== id);
-    state.apiKeyMessage = "Local API key profile removed.";
-    persistLocalAdminState();
-    renderEmpty();
-  }
-
-  async function digestText(text) {
-    if (!window.crypto?.subtle) return Math.random().toString(36).slice(2, 10);
-    const bytes = new TextEncoder().encode(text);
-    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest)).slice(0, 8).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-
-  async function hmacPreview(secret, payload, timestamp = "") {
-    if (!window.crypto?.subtle) return `sha256=${Math.random().toString(36).slice(2, 14)}`;
-    const key = await window.crypto.subtle.importKey("raw", new TextEncoder().encode(secret), {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
-    const signaturePayload = timestamp ? `${timestamp}.${payload}` : payload;
-    const signature = await window.crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signaturePayload));
-    return `sha256=${Array.from(new Uint8Array(signature)).slice(0, 6).map((byte) => byte.toString(16).padStart(2, "0")).join("")}...`;
-  }
-
-  async function runWebhookSignatureTest() {
-    const secret = state.webhookSecretDraft.trim();
-    if (secret.length < 12) {
-      state.webhookConfig.status = "Production blocked";
-      state.webhookMessage = "Webhook signing needs a test secret with at least 12 characters before production can be promoted.";
-      persistLocalAdminState();
-      renderEmpty();
-      return;
-    }
-    const payload = JSON.stringify({
-      event_id: `local-${Date.now()}`,
-      provider: state.enterpriseContext.delivery_provider || "sendgrid",
-      event_type: state.webhookConfig.eventType || "delivered",
-      request_id: state.latestData?.request_id || "local-preview",
-    });
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    state.webhookConfig.secretDigest = await digestText(secret);
-    state.webhookConfig.signaturePreview = await hmacPreview(secret, payload, timestamp);
-    state.webhookConfig.status = "Configured";
-    state.webhookConfig.lastTest = new Date().toISOString();
-    state.webhookMessage = `Local timestamped signature test passed for ${displayLabel(state.webhookConfig.eventType)}. Store the real secret on the server before production.`;
-    state.webhookSecretDraft = "";
-    persistLocalAdminState();
-    renderEmpty();
-  }
-
-  function validateSetupPayload() {
-    const provider = state.setupProvider || state.simulatorProvider;
-    const payload = state.simulatorPayload || JSON.stringify(simulatorPayloads[provider] || simulatorPayloads.hubspot, null, 2);
-    const validation = simulatorValidation(provider, payload);
-    state.setupValidationMessage = validation.valid
-      ? `${providerLabel(provider)} payload validates for sandbox adapter testing.`
-      : `${providerLabel(provider)} payload needs required subject/body fields before testing.`;
-    renderEmpty();
-  }
-
-  async function runSetupSandboxTest() {
-    state.simulatorProvider = state.setupProvider || state.simulatorProvider;
-    state.simulatorPayload = state.simulatorPayload || JSON.stringify(simulatorPayloads[state.simulatorProvider] || simulatorPayloads.hubspot, null, 2);
-    await runAdapterSimulator();
-    state.setupTestMessage = `${providerLabel(state.simulatorProvider)} sandbox test ran through the adapter simulator.`;
-    if (!state.latestData) renderEmpty();
-  }
-
-  function promoteProvider(provider) {
-    const manifest = (state.labData?.manifests || []).find((item) => item.provider === provider);
-    const mapping = mappingForProvider(provider, state.labData?.fieldMappings || []);
-    if (!manifest || mapping?.status !== "ready") {
-      state.setupMessage = `${providerLabel(provider)} is production blocked until required fields are mapped.`;
-      renderEmpty();
-      return;
-    }
-    state.promotedProviders = Array.from(new Set([provider, ...state.promotedProviders]));
-    state.setupMessage = `${providerLabel(provider)} promotion recorded locally. Real production promotion still requires provider credentials and deployment approval.`;
-    persistLocalAdminState();
-    renderEmpty();
-  }
-
-  function saveApprovalDecision(key, status) {
-    const owner = document.querySelector(`[data-approval-owner="${cssEscape(key)}"]`)?.value || "Reviewer";
-    const note = document.querySelector(`[data-approval-note="${cssEscape(key)}"]`)?.value || "";
-    state.approvalActions[key] = {status, owner, note, updated_at: new Date().toISOString()};
-    state.approvalMessage = `${shortHash(key)} marked ${status} by ${owner}.`;
-    persistLocalAdminState();
-    if (!state.latestData) renderEmpty();
-    else renderResult(state.latestData, state.latestOptimization || state.latestData);
-  }
-
-  function currentPolicyFromForm() {
-    const policy = {};
-    document.querySelectorAll("[data-policy-field]").forEach((field) => {
-      const key = field.dataset.policyField;
-      if (field.type === "checkbox") {
-        policy[key] = field.checked;
-      } else if (field.type === "number") {
-        policy[key] = Number(field.value);
-      } else {
-        policy[key] = field.value;
-      }
-    });
-    const ruleFamilyModes = {};
-    document.querySelectorAll("[data-rule-family-mode]").forEach((field) => {
-      ruleFamilyModes[field.dataset.ruleFamilyMode] = field.value;
-    });
-    if (Object.keys(ruleFamilyModes).length) {
-      policy.rule_family_modes = ruleFamilyModes;
-    }
-    return policy;
-  }
-
-  async function savePolicyControls() {
-    if (state.policyBusy) return;
-    const policy = currentPolicyFromForm();
-    state.policyBusy = true;
-    state.policyMessage = "Saving governance policy controls...";
-    renderEmpty();
-    try {
-      const response = await apiClient.saveGovernancePolicy?.({...policy, policy_environment: policy.policy_environment || state.policyEnvironment}, {workspace_id: state.workspaceId || "default"});
-      await loadLabData({rerender: false});
-      if (state.labData) state.labData.policy = response?.policy || state.labData.policy;
-      state.policyMessage = "Governance policy controls saved.";
-      announce("Governance policy controls saved.");
-    } catch (error) {
-      state.policyMessage = error.message || "Governance policy controls could not be saved.";
-      apiClient.clientError?.({message: state.policyMessage, source: "governance-policy-controls"}).catch(() => {});
-    } finally {
-      state.policyBusy = false;
-      if (!state.latestData) renderEmpty();
-    }
-  }
-
-  async function runRenderTest() {
-    if (state.renderBusy) return;
-    state.renderBusy = true;
-    state.renderMessage = "Testing sample render context...";
-    renderInput();
-    try {
-      const context = currentEnterpriseContext();
-      const result = await apiClient.renderTemplateTest?.({
-        workspace_id: state.workspaceId,
-        subject: state.subject,
-        body: state.email,
-        ...context,
-      });
-      state.renderResult = result || {};
-      const unresolved = result?.render_test?.unresolved_tokens?.length || 0;
-      state.renderMessage = unresolved ? `${unresolved} personalization token${unresolved === 1 ? "" : "s"} still need attention.` : "Template tokens resolved for the sample recipient.";
-      announce("Rendered-template test complete.");
-    } catch (error) {
-      state.renderResult = null;
-      state.renderMessage = error.message || "Rendered-template test could not run.";
-      apiClient.clientError?.({message: state.renderMessage, source: "render-template-test"}).catch(() => {});
-    } finally {
-      state.renderBusy = false;
-      renderInput();
-    }
-  }
-
-  async function runAdapterSimulator() {
-    if (state.simulatorBusy) return;
-    const payloadField = document.querySelector("[data-simulator-payload]");
-    const providerField = document.querySelector("[data-simulator-provider]");
-    state.simulatorPayload = payloadField?.value || "";
-    state.simulatorProvider = providerField?.value || state.simulatorProvider;
-    let payload;
-    try {
-      payload = JSON.parse(state.simulatorPayload || "{}");
-    } catch (error) {
-      state.simulatorMessage = "Payload JSON is not valid.";
-      renderEmpty();
-      return;
-    }
-    state.simulatorBusy = true;
-    state.simulatorMessage = "Running adapter simulator...";
-    renderEmpty();
-    try {
-      const result = await apiClient.simulateAdapter?.(state.simulatorProvider, payload);
-      state.simulatorResult = result || {};
-      state.simulatorMessage = `${providerLabel(state.simulatorProvider)} simulator returned ${displayLabel(result?.analysis?.gate?.status || "a decision")}.`;
-      announce("Adapter simulator complete.");
-    } catch (error) {
-      state.simulatorResult = null;
-      state.simulatorMessage = error.message || "Adapter simulator could not run.";
-      apiClient.clientError?.({message: state.simulatorMessage, source: "adapter-simulator"}).catch(() => {});
-    } finally {
-      state.simulatorBusy = false;
-      if (!state.latestData) renderEmpty();
-    }
-  }
-
-  async function downloadOpenApiContract() {
-    try {
-      const spec = await apiClient.openApiContract?.();
-      const blob = new Blob([JSON.stringify(spec, null, 2)], {type: "application/json"});
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "texttraits-v1-openapi.json";
-      document.body.appendChild(link);
-      link.click();
-      const href = link.href;
-      link.remove();
-      URL.revokeObjectURL(href);
-      announce("OpenAPI contract downloaded.");
-    } catch (error) {
-      state.setupMessage = error.message || "OpenAPI contract could not be downloaded.";
-      apiClient.clientError?.({message: state.setupMessage, source: "integration-contract-download"}).catch(() => {});
-      renderEmpty();
-    }
-  }
-
-  async function downloadGovernanceExport(kind = "analyses", format = "json") {
-    state.exportBusy = `${kind}:${format}`;
-    state.exportMessage = `Preparing ${displayLabel(kind)} ${format.toUpperCase()} export...`;
-    renderEmpty();
-    try {
-      if (format === "csv") {
-        const params = new URLSearchParams({type: kind, format, workspace_id: state.workspaceId || "default"});
-        const response = await fetch(`/v1/governance/export?${params.toString()}`, {credentials: "same-origin"});
-        if (!response.ok) throw new Error("CSV export failed.");
-        const blob = await response.blob();
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `texttraits-${kind}-${state.workspaceId || "default"}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        const href = link.href;
-        link.remove();
-        URL.revokeObjectURL(href);
-        state.exportResult = {type: kind, format, downloaded: true};
-      } else {
-        const data = await apiClient.governanceExport?.(kind, "json", state.workspaceId || "default");
-        state.exportResult = data || {};
-        const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `texttraits-${kind}-${state.workspaceId || "default"}.json`;
-        document.body.appendChild(link);
-        link.click();
-        const href = link.href;
-        link.remove();
-        URL.revokeObjectURL(href);
-      }
-      state.exportMessage = `${displayLabel(kind)} ${format.toUpperCase()} export ready.`;
-      announce("Governance export ready.");
-    } catch (error) {
-      state.exportMessage = error.message || "Governance export could not be prepared.";
-      apiClient.clientError?.({message: state.exportMessage, source: "governance-export"}).catch(() => {});
-    } finally {
-      state.exportBusy = "";
-      renderEmpty();
-    }
-  }
-
-  async function copyInstallSteps() {
-    const kit = state.labData?.installKit || await apiClient.installKit?.();
-    const steps = (kit.integration_sequence || []).map((step, index) => `${index + 1}. ${step}`).join("\n");
-    try {
-      await navigator.clipboard.writeText(steps || "Install kit is unavailable.");
-      state.setupMessage = "Integration install steps copied.";
-    } catch (error) {
-      state.setupMessage = "Clipboard unavailable for install steps.";
-    }
-    renderEmpty();
-  }
-
-  async function saveRecommendedMapping(provider) {
-    if (!provider || state.setupBusyProvider) return;
-    const manifest = (state.labData?.manifests || []).find((item) => item.provider === provider);
-    if (!manifest) {
-      state.setupMessage = "That provider manifest is not available yet.";
-      renderEmpty();
-      return;
-    }
-    state.setupBusyProvider = provider;
-    state.setupMessage = `Saving ${providerLabel(provider)} field mapping...`;
-    renderEmpty();
-    try {
-      await apiClient.saveFieldMapping?.(provider, recommendedMapping(manifest), {workspace_id: state.workspaceId || "default"});
-      await loadLabData({rerender: false});
-      state.setupMessage = `${providerLabel(provider)} mapping is ready for workflow routing.`;
-    } catch (error) {
-      state.setupMessage = error.message || "Field mapping could not be saved.";
-      apiClient.clientError?.({message: state.setupMessage, source: "integration-setup"}).catch(() => {});
-    } finally {
-      state.setupBusyProvider = "";
-      if (!state.latestData) renderEmpty();
-    }
-  }
-
-  function renderError(message) {
-    const recovery = errorRecoverySteps(message);
-    els.outputPanel.innerHTML = `
-      <div class="empty-hero error-card" role="alert">
-        <span class="status-pill">Needs retry</span>
-        <h2>The email optimization did not run.</h2>
-        <p class="muted">${escapeHtml(message)}</p>
-        <div class="error-state-grid">
-          ${recovery.map((item) => `
-            <article>
-              ${statusBadge(item.status, item.tone)}
-              <strong>${escapeHtml(item.title)}</strong>
-              <p>${escapeHtml(item.detail)}</p>
-            </article>
-          `).join("")}
-        </div>
-        <button class="button-secondary" id="retry-run" type="button" ${state.email.trim() ? "" : "disabled"}>Retry</button>
-      </div>
-    `;
-    document.querySelector("#retry-run")?.addEventListener("click", analyze);
-  }
-
-  function errorRecoverySteps(message = "") {
-    const text = String(message).toLowerCase();
-    if (text.includes("payload") || text.includes("json")) {
-      return [
-        {status: "Bad payload", tone: "danger", title: "Validate JSON", detail: "Check required subject, body, headers, and personalization objects before retrying."},
-        {status: "Sandbox", tone: "neutral", title: "Use simulator", detail: "Paste the same provider payload into the sandbox adapter simulator to inspect mapped inputs."},
-      ];
-    }
-    if (text.includes("scope") || text.includes("authentication") || text.includes("api key")) {
-      return [
-        {status: "Missing API scope", tone: "danger", title: "Check workspace access", detail: "Use a scoped API key or browser session for governance data and saved mappings."},
-        {status: "Admin", tone: "neutral", title: "Review key profiles", detail: "Open Admin settings to confirm the intended workspace and endpoint scopes."},
-      ];
-    }
-    if (text.includes("signature")) {
-      return [
-        {status: "Webhook signature failure", tone: "danger", title: "Verify HMAC", detail: "Confirm X-TextTraits-Signature and X-TextTraits-Timestamp match the server-side webhook secret."},
-      ];
-    }
-    if (text.includes("too many") || text.includes("rate")) {
-      return [
-        {status: "Rate limited", tone: "warning", title: "Wait and retry", detail: "The request was throttled to protect send-path latency and system stability."},
-      ];
-    }
-    return [
-      {status: "Retry", tone: "warning", title: "Check required fields", detail: "Confirm the body, enterprise context JSON, and policy settings are valid before retrying."},
-      {status: "Support evidence", tone: "neutral", title: "Keep request details", detail: "Use request IDs, content hashes, and timestamps when debugging with admins."},
-    ];
-  }
-
-  function scoreRing(optimization) {
-    const score = optimization?.scores?.overall ?? optimization?.score ?? 0;
-    const gate = optimization?.policy?.gate || {};
-    const readiness = gate.status ? displayLabel(gate.status) : optimization?.readiness || "Not analyzed";
-    return `
-      <article class="optimizer-score-card">
-        <span class="interface-label">Policy score</span>
-        <strong>${escapeHtml(score)}/100</strong>
-        <p>${escapeHtml(readiness)}</p>
-        <div class="score-track" aria-hidden="true">
-          <span style="width: ${Math.max(0, Math.min(score, 100))}%"></span>
-        </div>
-      </article>
-    `;
-  }
-
-  function scoreExplanation(analysis) {
-    const scores = analysis.scores || {};
-    const gate = analysis.policy?.gate || {};
-    const thresholds = gate.thresholds || {};
-    const model = analysis.model || {};
-    const lowDrivers = Object.entries(scores)
-      .filter(([key]) => key !== "overall")
-      .sort((a, b) => Number(a[1]) - Number(b[1]))
-      .slice(0, 4);
-    const confidence = modelConfidenceSummary(analysis.predictions || {});
-    return `
-      <section class="optimizer-section score-explanation-panel" aria-label="Score explanation">
-        <div class="section-title">
-          <span class="label">Why this score</span>
-          <strong>Rules, thresholds, confidence, and model version</strong>
-        </div>
-        <div class="score-explanation-grid">
-          <article>
-            ${statusBadge(displayLabel(gate.status || "Not analyzed"), gate.status === "ready" ? "success" : gate.status === "blocked" ? "danger" : "warning")}
-            <strong>${escapeHtml(scores.overall ?? 0)}/100 versus ${escapeHtml(thresholds.ready_minimum_score ?? 72)} ready threshold</strong>
-            <p>${escapeHtml(gate.send_ready ? "The message can continue automatically under the current policy." : "The message should pause for review under the current policy.")}</p>
-          </article>
-          <article>
-            ${statusBadge(confidence.label, confidence.tone)}
-            <strong>Model confidence summary</strong>
-            <p>${escapeHtml(confidence.detail)}</p>
-          </article>
-          <article>
-            ${statusBadge("Versioned", "neutral")}
-            <strong>${escapeHtml(model.version || "local-texttraits-bundle")}</strong>
-            <p>Model contract ${escapeHtml(model.contract_version || "n/a")} · ${escapeHtml((model.targets || []).length)} trained targets · demo: ${escapeHtml(model.demo ? "yes" : "no")}.</p>
-          </article>
-        </div>
-        <div class="driver-grid">
-          ${lowDrivers.map(([key, value]) => `
-            <article>
-              <span class="interface-label">${escapeHtml(displayLabel(key))}</span>
-              <strong>${escapeHtml(value)}/100</strong>
-              <div class="score-track" aria-hidden="true"><span style="width: ${Math.max(0, Math.min(Number(value), 100))}%"></span></div>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function modelConfidenceSummary(predictions = {}) {
-    const items = [predictions.gender, predictions.age_bucket, predictions.age_estimate, ...(Object.values(predictions.mbti_dimensions || {}))].filter(Boolean);
-    const confidences = items.map((item) => Number(item.confidence)).filter(Number.isFinite);
-    if (!confidences.length) return {label: "Confidence n/a", tone: "neutral", detail: "No confidence values were returned for this model bundle."};
-    const average = confidences.reduce((sum, value) => sum + value, 0) / confidences.length;
-    const label = average >= 0.72 ? "High confidence" : average >= 0.55 ? "Moderate confidence" : "Low confidence";
-    const tone = average >= 0.72 ? "success" : average >= 0.55 ? "warning" : "danger";
-    return {label, tone, detail: `${percent(average)} average confidence across returned local model signals.`};
-  }
-
-  function checkCards(optimization) {
-    const findings = optimization.findings || [];
-    if (!findings.length) {
-      return `
-        <article class="optimizer-check-card is-ok">
-          <span class="label">Policy findings</span>
-          <strong>No routed findings</strong>
-          <p>The current policy bundle did not find a blocking or review-level issue.</p>
-          <small>Keep the exported request ID and content hash with the send record.</small>
-        </article>
-      `;
-    }
-    return findings.map((finding) => {
-      const meta = findingActionMeta(finding, optimization.policy?.gate || {});
-      return `
-        <article class="optimizer-check-card ${finding.severity === "high" || finding.severity === "critical" ? "needs-work" : "is-ok"}">
-          <div class="finding-card-head">
-            <span class="label">${escapeHtml(displayLabel(finding.category))} / ${escapeHtml(displayLabel(finding.severity))}</span>
-            ${statusBadge(meta.level, meta.tone)}
-          </div>
-          <strong>${escapeHtml(finding.title)}</strong>
-          <p>${escapeHtml(finding.details || (finding.evidence?.[0]?.text ? `Evidence: ${finding.evidence[0].text}` : "Detected by the policy bundle."))}</p>
-          <div class="finding-action-grid">
-            <span><b>Owner</b>${escapeHtml(meta.owner)}</span>
-            <span><b>Queue</b>${escapeHtml(meta.queue)}</span>
-            <span><b>Next step</b>${escapeHtml(meta.action)}</span>
-          </div>
-          <small>${escapeHtml(finding.remediation)}</small>
-        </article>
-      `;
-    }).join("");
-  }
-
-  function findingActionMeta(finding, gate = {}) {
-    const severity = String(finding?.severity || "").toLowerCase();
-    const category = String(finding?.category || "policy").toLowerCase();
-    const route = gate.route || (severity === "critical" ? "compliance_or_manager_review" : "human_review_queue");
-    const hardBlock = severity === "critical" || gate.status === "blocked";
-    const review = severity === "high" || gate.status === "needs_review";
-    return {
-      owner: ownerByCategory[category] || "Workflow owner",
-      queue: displayLabel(route),
-      level: hardBlock ? "Hard block" : review ? "Review required" : "Advisory",
-      tone: hardBlock ? "danger" : review ? "warning" : "success",
-      action: hardBlock ? "Do not send until resolved" : review ? "Route to owner before launch" : "Track before send",
-    };
-  }
-
-  function modelSignalCard(target, prediction) {
-    return `
-      <article class="optimizer-model-card">
-        <span class="label">${escapeHtml(target.title)}</span>
-        <strong>${escapeHtml(predictionLabel(prediction))}</strong>
-        <div class="objective-meta">
-          <span>${escapeHtml(confidenceBand(prediction))}</span>
-          <span>Confidence ${escapeHtml(prediction?.confidence ? percent(prediction.confidence) : "n/a")}</span>
-          <span>Margin ${escapeHtml(prediction?.margin !== undefined ? numberLabel(prediction.margin) : "n/a")}</span>
-        </div>
-      </article>
-    `;
-  }
-
-  function modelSignals(predictions) {
-    const dims = predictions?.mbti_dimensions || {};
-    return `
-      <section class="optimizer-section" aria-label="Objective model signals">
-        <div class="section-title">
-          <span class="label">Objective model signals</span>
-          <strong>Shown as evidence, not generated writing</strong>
-        </div>
-        <div class="optimizer-grid primary-optimizer-grid">
-          ${modelTargets.map((target) => modelSignalCard(target, getPrediction(predictions, target.key))).join("")}
-        </div>
-        <div class="detail-grid optimizer-detail-grid">
-          ${dimensionTargets.map((target) => {
-            const prediction = dims[target.key];
-            return `
-              <article class="strategy-card optimizer-detail-card">
-                <div class="section-title">
-                  <span class="label">${escapeHtml(target.title)} dimension</span>
-                  <strong>${escapeHtml(predictionLabel(prediction))}</strong>
-                </div>
-                ${distributionBars(prediction)}
-                <div class="cue-row" aria-label="${escapeHtml(target.title)} cue terms">
-                  ${cueTerms(prediction)}
-                </div>
-              </article>
-            `;
-          }).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function reportJson(data, optimization) {
-    return JSON.stringify({
-      api_version: data.api_version,
-      request_id: data.request_id,
-      content_hash: data.content_hash,
-      policy: data.policy,
-      scores: data.scores,
-      findings: data.findings,
-      routes: data.routes,
-      model: data.model,
-      predictions: data.predictions,
-      privacy_note: "Report excludes the full email body.",
-    }, null, 2);
-  }
-
-  async function copyReport(button) {
-    if (!state.latestData || !state.latestOptimization) return;
-    const original = button.textContent;
-    try {
-      await navigator.clipboard.writeText(reportJson(state.latestData, state.latestOptimization));
-      button.textContent = "Copied";
-      announce("Optimization report copied.");
-    } catch (error) {
-      button.textContent = "Copy unavailable";
-      announce("Clipboard unavailable.");
-    } finally {
-      setTimeout(() => {
-        button.textContent = original;
-      }, 1400);
-    }
-  }
-
-  function downloadReport() {
-    if (!state.latestData || !state.latestOptimization) return;
-    const blob = new Blob([reportJson(state.latestData, state.latestOptimization)], {type: "application/json"});
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `texttraits-email-optimization-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    const href = link.href;
-    link.remove();
-    URL.revokeObjectURL(href);
-    announce("Optimization report downloaded.");
-  }
-
-  function rawJsonBlock(data) {
-    return `
-      <details class="secondary-result-details optimizer-json developer-json-panel">
-        <summary>Developer-only raw /v1/email/analyze response</summary>
-        <p class="muted">Closed by default for reviewers. Use this only when validating API contracts, mappings, or support tickets.</p>
-        <pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>
-      </details>
-    `;
-  }
-
-  function integrationLab(analysis) {
-    const gate = analysis.policy?.gate || {};
-    const routes = analysis.routes || [];
-    const context = analysis.input?.enterprise_context || {};
-    return `
-      <section class="optimizer-section integration-lab-section" aria-label="Integration routing">
-        <div class="section-title">
-          <span class="label">Integration routing</span>
-          <strong>Contract fields for workflow systems</strong>
-        </div>
-        <div class="optimizer-grid integration-lab-grid">
-          <article class="optimizer-context-card">
-            <span class="interface-label">Request ID</span>
-            <strong>${escapeHtml(analysis.request_id)}</strong>
-            <p class="hash-line">${escapeHtml(analysis.content_hash)}</p>
-          </article>
-          <article class="optimizer-context-card">
-            <span class="interface-label">Policy bundle</span>
-            <strong>${escapeHtml(analysis.policy?.bundle_id || "Policy")}</strong>
-            <p>Version ${escapeHtml(analysis.policy?.bundle_version || "n/a")} with ${escapeHtml((analysis.policy?.rule_packs || []).length)} rule packs.</p>
-          </article>
-          <article class="optimizer-context-card">
-            <span class="interface-label">Gate output</span>
-            <strong>${escapeHtml(displayLabel(gate.status || "unknown"))}</strong>
-            <p>${escapeHtml(displayLabel(gate.route || "No route"))} / send ready: ${escapeHtml(gate.send_ready ? "Yes" : "No")}</p>
-          </article>
-          <article class="optimizer-context-card">
-            <span class="interface-label">Enterprise context</span>
-            <strong>${escapeHtml(displayLabel(context.source_system || "Direct API"))}</strong>
-            <p>${escapeHtml(context.campaign_id || "No campaign ID")} / ${escapeHtml(context.template_id || "No template ID")}</p>
-          </article>
-        </div>
-        <div class="optimizer-grid optimizer-check-grid route-grid">
-          ${routes.map((route) => `
-            <article class="optimizer-check-card is-ok">
-              <span class="label">Route</span>
-              <strong>${escapeHtml(displayLabel(route.target))}</strong>
-              <p>${escapeHtml(route.reason)}</p>
-              <small>Sandbox adapters use this to branch HubSpot workflows, Salesforce journeys, and SendGrid/SES middleware before production credentials are connected.</small>
-            </article>
-          `).join("")}
-        </div>
-      </section>
-    `;
-  }
-
-  function renderResult(data, optimization) {
-    const analysis = optimization || data;
-    const predictions = analysis.predictions || {};
-    const gate = analysis.policy?.gate || {};
-    els.outputPanel.innerHTML = `
-      <div class="result-layout optimizer-result fade-in">
-        <div class="result-header">
-          <div>
-            <p class="label">Enterprise email API report</p>
-            <h2>Send-readiness gate for the existing draft</h2>
-            <p class="muted">No replacement email was generated. The report returns structured findings, routing, content hashes, policy versions, and local model signals.</p>
-          </div>
-          <div class="toolbar">
-            <button class="button-secondary" type="button" data-copy-report>Copy report</button>
-            <button class="button-secondary" type="button" data-download-report>Download JSON</button>
-          </div>
-        </div>
-
-        <section class="optimizer-summary-grid" aria-label="Email optimization summary">
-          ${scoreRing(analysis)}
-          <article class="optimizer-context-card">
-            <span class="interface-label">Draft context</span>
-            <strong>${escapeHtml(state.intent)} for ${escapeHtml(state.audience)}</strong>
-            <p>${escapeHtml(analysis.stats.words)} words, ${escapeHtml(analysis.stats.sentences)} sentences, ${escapeHtml(summarySnippet(state.subject, "no subject line"))}.</p>
-          </article>
-          <article class="optimizer-context-card">
-            <span class="interface-label">Workflow decision</span>
-            <strong>${escapeHtml(displayLabel(gate.status || "unknown"))}</strong>
-            <p>${escapeHtml(displayLabel(gate.route || "No route returned"))} from policy bundle ${escapeHtml(analysis.policy?.bundle_version || "n/a")}.</p>
-          </article>
-        </section>
-
-        ${scoreExplanation(analysis)}
-
-        <section class="optimizer-section" aria-label="Send readiness checks">
-          <div class="section-title">
-            <span class="label">Structured findings</span>
-            <strong>Severity, category, evidence, remediation</strong>
-          </div>
-          <div class="optimizer-grid optimizer-check-grid">
-            ${checkCards(analysis)}
-          </div>
-        </section>
-
-        ${integrationLab(analysis)}
-        ${modelSignals(predictions)}
-        ${rawJsonBlock(data)}
-        ${labOverview()}
-      </div>
-    `;
-    document.querySelector("[data-copy-report]")?.addEventListener("click", (event) => copyReport(event.currentTarget));
-    document.querySelector("[data-download-report]")?.addEventListener("click", downloadReport);
-    bindLabControls();
-    els.outputPanel.focus();
-  }
-
-  function bindInput() {
-    const subject = document.querySelector("#email-subject");
-    const body = document.querySelector("#email-body");
-    const audience = document.querySelector("#email-audience");
-    const intent = document.querySelector("#email-intent");
-    const workspace = document.querySelector("#workspace-id");
-    const environment = document.querySelector("#policy-environment");
-    const form = document.querySelector("#optimizer-form");
-    const clear = document.querySelector("#clear-email");
-    const renderButton = document.querySelector("[data-run-render-test]");
-
-    subject?.addEventListener("input", () => {
-      state.subject = subject.value;
-      state.renderResult = null;
-      state.renderMessage = "";
-      if (clear) clear.disabled = !state.email && !state.subject;
-    });
-    body?.addEventListener("input", () => {
-      state.email = body.value;
-      state.renderResult = null;
-      state.renderMessage = "";
-      const stats = localStats(state.email);
-      const count = document.querySelector("#optimizer-count");
-      const action = document.querySelector("#analyze-email");
-      if (count) count.textContent = `${stats.words} words`;
-      if (action) action.disabled = !state.email.trim() || state.busy;
-      if (renderButton) renderButton.disabled = !state.email.trim() || state.renderBusy;
-      if (clear) clear.disabled = !state.email && !state.subject;
-    });
-    audience?.addEventListener("change", () => {
-      state.audience = audience.value;
-    });
-    intent?.addEventListener("change", () => {
-      state.intent = intent.value;
-    });
-    workspace?.addEventListener("change", () => {
-      state.workspaceId = workspace.value.trim() || "default";
-      loadLabData({rerender: true});
-    });
-    environment?.addEventListener("change", () => {
-      state.policyEnvironment = environment.value;
-      state.enterpriseContext.analysis_mode = state.policyEnvironment === "sandbox" ? "authoring_lint" : state.enterpriseContext.analysis_mode;
-    });
-    document.querySelectorAll("[data-enterprise-context]").forEach((field) => {
-      field.addEventListener("input", () => {
-        state.enterpriseContext[field.dataset.enterpriseContext] = field.value;
-        state.renderResult = null;
-        state.renderMessage = "";
-      });
-      field.addEventListener("change", () => {
-        state.enterpriseContext[field.dataset.enterpriseContext] = field.value;
-        state.renderResult = null;
-        state.renderMessage = "";
+    document.querySelectorAll("[data-choice-field]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.latestText = input.value;
+        if (button.dataset.choiceField === "explorerFolder") {
+          state.explorerFolder = button.dataset.choiceValue || state.explorerFolder;
+        }
+        if (button.dataset.choiceField === "explorerWritingGoal") {
+          state.explorerWritingGoal = button.dataset.choiceValue || state.explorerWritingGoal;
+        }
+        persistWorkspace();
+        render();
       });
     });
-    document.querySelector("[data-run-render-test]")?.addEventListener("click", runRenderTest);
-    form?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      analyze();
+    document.querySelectorAll("[data-use-daily-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.latestText = input.value;
+        selectExplorerPrompt({
+          title: dailyPromptTitle(),
+          text: dailyPromptInstruction(),
+          source: "Today's prompt",
+        });
+      });
     });
-    clear?.addEventListener("click", () => {
-      state.subject = "";
-      state.email = "";
+    document.querySelector("[data-clear-explorer-prompt]")?.addEventListener("click", () => {
+      state.latestText = input.value;
+      state.explorerPromptTitle = "";
+      state.explorerPromptText = "";
+      state.explorerPromptSource = "";
+      persistWorkspace();
+      render();
+      requestAnimationFrame(() => document.querySelector("#explorer-text")?.focus());
+    });
+    document.querySelector("#technical-visible")?.addEventListener("change", (event) => {
+      state.technicalVisible = event.target.value === "show";
+      if (state.technicalVisible) state.activeExplorerTab = "technical";
+    });
+    document.querySelector("#sensitive-hidden")?.addEventListener("change", (event) => {
+      state.hiddenSensitive = event.target.value === "hide";
+    });
+    document.querySelector("#analyze-explorer")?.addEventListener("click", () => runAnalysis(input?.value || ""));
+    document.querySelector("#clear-explorer")?.addEventListener("click", () => {
+      state.latestText = "";
+      state.compareText = "";
+      state.explorerReadingName = "";
+      state.explorerSavedMessage = "";
       state.latestData = null;
-      state.latestOptimization = null;
-      renderInput();
-      renderEmpty();
-      announce("Email cleared.");
+      state.explorerPromptTitle = "";
+      state.explorerPromptText = "";
+      state.explorerPromptSource = "";
+      persistWorkspace();
+      render();
     });
-    document.querySelectorAll("[data-optimizer-sample]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const sample = samples[Number(button.dataset.optimizerSample)];
-        state.subject = sample?.subject || "";
-        state.email = sample?.email || "";
-        state.audience = sample?.audience || state.audience;
-        state.intent = sample?.intent || state.intent;
-        renderInput();
-        renderEmpty();
-        document.querySelector("#email-body")?.focus();
-        announce(`${sample?.label || "Sample"} email loaded.`);
+    document.querySelector("#copy-explorer-input")?.addEventListener("click", async () => {
+      await copyTextFromButton(document.querySelector("#copy-explorer-input"), input?.value || "", "Input copied.");
+    });
+    updateInputStats("explorer", input?.value || "");
+  } else {
+    if (state.latestData && state.enterpriseInputsCollapsed) {
+      document.querySelector("#edit-enterprise-inputs")?.addEventListener("click", () => {
+        state.enterpriseInputsCollapsed = false;
+        render();
       });
-    });
-  }
-
-  async function analyze() {
-    const email = state.email.trim();
-    if (!email || state.busy) return;
-    let context;
-    try {
-      context = currentEnterpriseContext();
-    } catch (error) {
-      state.latestError = `Enterprise context JSON is invalid: ${error.message}`;
-      renderError(state.latestError);
       return;
     }
-    state.busy = true;
-    renderInput();
-    renderLoading();
-    try {
-      const data = await apiClient.analyzeEmail({
-        request_id: `ui_${Date.now()}`,
-        subject: state.subject,
-        body: email,
-        audience: state.audience,
-        intent: state.intent,
-        channel: "ui_enterprise_optimizer",
-        policy_bundle: state.policyBundle,
-        ...context,
-      });
-      state.latestData = data;
-      state.latestOptimization = data;
-      state.latestError = "";
-      renderResult(data, data);
-      loadLabData({rerender: false});
-      trackEvent("enterprise_email_optimization", {words: data.stats.words, score: data.scores.overall, gate: data.policy?.gate?.status});
-      announce("Email optimization complete.");
-    } catch (error) {
-      state.latestError = error.message || "The email optimization failed.";
-      renderError(state.latestError);
-      apiClient.clientError?.({message: state.latestError, source: "enterprise-email-optimizer"}).catch(() => {});
-    } finally {
-      state.busy = false;
-      renderInput();
-    }
-  }
-
-  async function init() {
-    bindNavigation();
-    renderInput();
-    renderEmpty();
-    try {
-      await apiClient.session?.();
-    } catch (error) {
-      state.labError = "Session check failed. Governance data may require sign-in or an API key.";
-    }
-    await loadLabData({rerender: true});
-    announce("TextTraits enterprise email optimizer ready.");
-  }
-
-  function bindNavigation() {
-    document.querySelectorAll("[data-nav-section]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const section = button.dataset.navSection;
-        const targets = {
-          analyze: "#input-panel",
-          dashboard: "#dashboard-section",
-          governance: "#governance-section",
-          simulator: "#simulator-section",
-          integrations: "#integrations-section",
-          admin: "#admin-section",
-          exports: "#exports-section",
+    const input = document.querySelector("#enterprise-text");
+    input.addEventListener("input", () => {
+      state.latestText = input.value;
+      updateInputStats("enterprise", input.value);
+      persistWorkspace();
+    });
+    document.querySelector("#generate-enterprise").addEventListener("click", () => runAnalysis(input.value));
+    document.querySelector("#clear-enterprise").addEventListener("click", () => {
+      state.latestText = "";
+      state.latestData = null;
+      state.enterpriseDrafts = [];
+      state.campaignSaved = false;
+      state.enterpriseInputsCollapsed = false;
+      state.enterpriseSetupOpen = false;
+      persistWorkspace();
+      render();
+    });
+    document.querySelectorAll('input[type="range"]').forEach((range) => {
+      const value = range.nextElementSibling;
+      range.addEventListener("input", () => value.textContent = range.value);
+    });
+    document.querySelectorAll("[id^='field-']").forEach((field) => {
+      field.addEventListener("input", () => {
+        state.enterpriseContext = enterpriseContext();
+        state.recipient = {
+          firstName: state.enterpriseContext.firstName,
+          company: state.enterpriseContext.recipientCompany,
+          role: state.enterpriseContext.recipientRole,
         };
-        const target = document.querySelector(targets[section]);
-        target?.scrollIntoView({behavior: "smooth", block: "start"});
-        document.querySelectorAll("[data-nav-section]").forEach((item) => item.setAttribute("aria-current", item === button ? "page" : "false"));
+        persistWorkspace();
+      });
+      field.addEventListener("change", () => {
+        const ctx = enterpriseContext();
+        state.enterpriseContext = ctx;
+        if (field.id === "field-brandVoice") applyBrandVoice(ctx.brandVoice);
+        persistWorkspace();
       });
     });
+    updateInputStats("enterprise", input.value);
   }
 
-  async function loadLabData({rerender = false} = {}) {
-    try {
-      const [flowData, dashboard, manifestData, installKit, policyData, integrationPlan] = await Promise.all([
-        apiClient.integrationFlows?.(),
-        apiClient.governanceDashboard?.(state.workspaceId || "default"),
-        apiClient.integrationManifests?.(),
-        apiClient.installKit?.(),
-        apiClient.governancePolicy?.(state.workspaceId || "default"),
-        apiClient.enterpriseIntegrationPlan?.(),
-      ]);
-      state.labData = {
-        flows: flowData?.flows || [],
-        dashboard: dashboard || {},
-        manifests: manifestData?.manifests || [],
-        fieldMappings: manifestData?.field_mappings || [],
-        installKit: installKit || {},
-        policy: policyData?.policy || dashboard?.policy || {},
-        integrationPlan: integrationPlan || dashboard?.enterprise_integration_plan || {},
-      };
-      state.labError = "";
-    } catch (error) {
-      state.labError = error.message || "Integration lab status is unavailable.";
+  document.querySelectorAll("[data-sample-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const samples = state.mode === "enterprise" ? enterpriseSamples : explorerSamples;
+      const sample = samples[Number(button.dataset.sampleIndex)];
+      const target = document.querySelector(`#${button.dataset.sampleTarget}`);
+      if (!target || !sample) return;
+      target.value = sample.text;
+      state.latestText = sample.text;
+      state.latestData = null;
+      state.enterpriseDrafts = [];
+      if (state.mode === "explorer") {
+        state.explorerReadingName = sample.label;
+        state.explorerPromptTitle = "";
+        state.explorerPromptText = "";
+        state.explorerPromptSource = "";
+        updateInputStats(state.mode, sample.text);
+        persistWorkspace();
+        render();
+        requestAnimationFrame(() => document.querySelector("#explorer-text")?.focus());
+        return;
+      }
+      if (state.mode === "enterprise" && sample.context) {
+        state.enterpriseContext = {...enterpriseContext(), ...sample.context};
+        Object.entries(sample.context).forEach(([key, value]) => {
+          const field = document.querySelector(`#field-${key}`);
+          if (field) field.value = value;
+        });
+      }
+      updateInputStats(state.mode, sample.text);
+      if (state.mode === "enterprise") renderEnterpriseEmpty();
+      else renderExplorerEmpty();
+      persistWorkspace();
+      target.focus();
+    });
+  });
+
+  document.querySelectorAll("[data-prompt-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const prompt = consumerPromptLibrary[Number(button.dataset.promptIndex)];
+      const input = document.querySelector("#explorer-text");
+      if (!prompt || !input) return;
+      state.latestText = input.value;
+      state.explorerWritingGoal = prompt.goal.includes("clear") ? "Make this clearer" : prompt.goal.includes("accountable") ? "Sound less harsh" : "Make this warmer";
+      if (prompt.name === "Work email") setMessageMode("Email");
+      else if (prompt.name === "Apology") setMessageMode("Apology");
+      else if (prompt.name === "Essay") setMessageMode("Essay / school");
+      else if (prompt.name === "Hard message") setMessageMode("Conflict");
+      else setMessageMode("Everyday note");
+      selectExplorerPrompt({
+        title: prompt.name,
+        text: prompt.prompt,
+        source: "Prompt library",
+      });
+    });
+  });
+
+  document.querySelector("[data-save-onboarding]")?.addEventListener("click", (event) => {
+    const mode = event.currentTarget.dataset.saveOnboarding;
+    if (mode === "enterprise") {
+      state.onboarding.enterpriseGoal = document.querySelector("#field-onboardingEnterpriseGoal")?.value || state.onboarding.enterpriseGoal;
+      state.onboarding.teamSize = document.querySelector("#field-onboardingTeamSize")?.value || state.onboarding.teamSize;
+    } else {
+      state.onboarding.explorerGoal = document.querySelector("#field-onboardingExplorerGoal")?.value || state.onboarding.explorerGoal;
+      state.onboarding.plan = document.querySelector("#field-onboardingPlan")?.value || "7-day plan";
+      state.explorerWritingGoal = state.onboarding.explorerGoal.includes("Warmer") ? "Make this warmer" : state.onboarding.explorerGoal.includes("Hard") ? "Sound less harsh" : "Make this clearer";
     }
-    if (rerender && !state.latestData) renderEmpty();
-  }
+    state.onboarding.complete = true;
+    persistWorkspace();
+    render();
+  });
+  document.querySelector("[data-skip-onboarding]")?.addEventListener("click", () => {
+    state.onboarding.complete = true;
+    persistWorkspace();
+    render();
+  });
+}
 
-  init();
-})();
+function applyBrandVoice(name) {
+  const profile = brandVoiceProfiles.find((item) => item.name === name);
+  if (!profile) return;
+  ["direct", "warm", "formal", "technical", "concise"].forEach((key) => {
+    const range = document.querySelector(`#tone-${key}`);
+    if (!range) return;
+    range.value = profile[key];
+    if (range.nextElementSibling) range.nextElementSibling.textContent = profile[key];
+  });
+}
+
+function updateInputStats(prefix, text) {
+  const stats = localStats(text);
+  const count = document.querySelector(`#${prefix}-count`);
+  const quality = document.querySelector(`#${prefix}-quality`);
+  const meter = document.querySelector(`#${prefix}-meter`);
+  const action = prefix === "enterprise" ? document.querySelector("#generate-enterprise") : document.querySelector("#analyze-explorer");
+  const copyInput = prefix === "explorer" ? document.querySelector("#copy-explorer-input") : null;
+  if (count) count.textContent = `${stats.words} ${stats.words === 1 ? "word" : "words"}`;
+  if (quality) {
+    if (!stats.words) quality.textContent = prefix === "enterprise" ? "Add prospect language to generate a brief." : "Add text to analyze.";
+    else if (prefix === "enterprise" && stats.words > 900) quality.textContent = "Large input. Use batch tools for many prospects.";
+    else if (prefix === "explorer" && stats.words > 500) quality.textContent = "Long sample. Analyze one section at a time for cleaner coaching.";
+    else quality.textContent = stats.words >= 40 ? "Good first-pass length." : "Short sample. Add more context for stronger output.";
+  }
+  if (meter) {
+    const value = Math.min((stats.words / 60) * 100, 100);
+    meter.value = value;
+    meter.textContent = `${Math.round(value)}%`;
+  }
+  if (action) action.disabled = !text.trim();
+  if (copyInput) copyInput.disabled = !text.trim();
+}
+
+async function runAnalysis(text) {
+  if (!text.trim()) return;
+  if (state.mode === "enterprise") {
+    const landingTab = state.enterpriseLandingTab || "drafts";
+    state.activeEnterpriseTab = landingTab;
+    state.enterpriseLandingTab = "";
+    state.activeEnterpriseTool = "batch";
+    state.enterpriseContext = enterpriseContext();
+    state.enterpriseDrafts = [];
+    state.enterpriseInputsCollapsed = true;
+    state.enterpriseSetupOpen = false;
+    state.integrationSetupOpen = false;
+    state.campaignSaved = false;
+    state.lastActionNote = landingTab === "dashboard" ? "Sample workspace ready. Next: open the review queue." : "Next: review the recommended draft, then approve or export.";
+  } else {
+    state.activeExplorerTab = "style";
+    state.explorerSavedMessage = "";
+    state.explorerQuickChecksOpen = false;
+    state.explorerStyleDetailsOpen = false;
+  }
+  els.outputPanel.innerHTML = uiHelpers.loadingCard?.(state.mode) || `<div class="empty-hero fade-in"><span class="status-pill">Working</span><h2>Reading the submitted text...</h2><p class="muted">Preparing the next view.</p></div>`;
+  uiHelpers.focusWithin?.(els.outputPanel, ".loading-card");
+  try {
+    const data = await evaluateText(text.trim());
+    state.latestData = data;
+    state.latestText = text.trim();
+    state.lastGeneratedAt = new Date().toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
+    if (state.mode === "explorer") {
+      state.explorerHistory = [explorerSnapshot(data, text), ...state.explorerHistory].slice(0, 12);
+    }
+    persistWorkspace();
+    renderModeChrome();
+    if (state.mode === "enterprise") render();
+    else renderExplorerResult(data);
+    trackEvent("analysis_completed", {words: text.trim().split(/\s+/).length});
+    uiHelpers.announce?.(els.announcer, state.mode === "enterprise" ? "Enterprise drafts are ready." : "Explorer reading is ready.");
+    els.outputPanel.focus();
+    requestAnimationFrame(() => {
+      const top = Math.max(0, els.outputPanel.getBoundingClientRect().top + window.scrollY - 12);
+      window.scrollTo({top, behavior: "auto"});
+    });
+  } catch (error) {
+    els.outputPanel.innerHTML = uiHelpers.errorCard?.(escapeHtml(error.message)) || `<div class="empty-hero"><h2>The reading did not run.</h2><p class="muted">${escapeHtml(error.message)}</p><button class="button-secondary" id="retry-run">Retry</button></div>`;
+    document.querySelector("#retry-run").addEventListener("click", () => runAnalysis(text));
+    uiHelpers.announce?.(els.announcer, "The reading did not run. Retry is available.");
+    uiHelpers.focusWithin?.(els.outputPanel, "#retry-run");
+  }
+}
+
+function render() {
+  syncBodyState();
+  if (state.mode === "enterprise") {
+    renderEnterpriseInput();
+    state.latestData ? renderEnterpriseResult(state.latestData) : renderEnterpriseEmpty();
+  } else {
+    renderExplorerInput();
+    state.latestData ? renderExplorerResult(state.latestData) : renderExplorerEmpty();
+  }
+  wireInput();
+}
+
+function syncBodyState() {
+  els.body.classList.toggle("has-work", Boolean(state.latestText || state.latestData));
+  els.body.classList.toggle("app-compact", Boolean(state.latestText || state.latestData || state.explorerHistory.length || state.savedCampaigns.length));
+  els.body.classList.toggle("explorer-collapsed", state.mode === "explorer" && Boolean(state.latestData));
+  els.body.classList.toggle("enterprise-collapsed", state.mode === "enterprise" && Boolean(state.latestData) && state.enterpriseInputsCollapsed);
+  els.body.classList.toggle("enterprise-setup-open", state.mode === "enterprise" && Boolean(state.enterpriseSetupOpen));
+}
+
+function trapAccountFocus(event) {
+  const sheet = els.accountCard?.querySelector(".account-sheet");
+  if (!sheet) return;
+  const focusable = [...sheet.querySelectorAll('a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')]
+    .filter((item) => !item.disabled && item.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+loadWorkspace();
+const routedMode = modeFromPath();
+if (routedMode) {
+  if (routedMode !== state.mode) {
+    state.latestData = null;
+    state.latestText = "";
+    state.enterpriseDrafts = [];
+    state.campaignSaved = false;
+    state.enterpriseSetupOpen = false;
+  }
+  state.mode = routedMode;
+} else {
+  updateModeRoute(state.mode, true);
+}
+els.body.dataset.mode = state.mode;
+els.modeExplorer.setAttribute("aria-pressed", String(state.mode === "explorer"));
+els.modeEnterprise.setAttribute("aria-pressed", String(state.mode === "enterprise"));
+renderModeChrome();
+els.modeExplorer.addEventListener("click", () => setMode("explorer"));
+els.modeEnterprise.addEventListener("click", () => setMode("enterprise"));
+window.addEventListener("popstate", () => {
+  const nextMode = modeFromPath() || "explorer";
+  if (nextMode === state.mode) return;
+  state.mode = nextMode;
+  state.latestData = null;
+  state.latestText = "";
+  state.enterpriseDrafts = [];
+  state.enterpriseSetupOpen = false;
+  state.activeExplorerTab = "style";
+  state.activeEnterpriseTab = "dashboard";
+  state.activeEnterpriseTool = "batch";
+  els.body.dataset.mode = state.mode;
+  els.modeExplorer.setAttribute("aria-pressed", String(state.mode === "explorer"));
+  els.modeEnterprise.setAttribute("aria-pressed", String(state.mode === "enterprise"));
+  renderModeChrome();
+  render();
+});
+document.addEventListener("keydown", (event) => {
+  if (!state.accountModalOpen) return;
+  if (event.key === "Tab") {
+    trapAccountFocus(event);
+    return;
+  }
+  if (event.key !== "Escape") return;
+  state.accountModalOpen = false;
+  state.accountError = "";
+  state.accountDeletePending = false;
+  state.accountCodePanelOpen = false;
+  renderAccountCard();
+});
+
+const isLocalRuntime = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+els.body.classList.toggle("is-local-runtime", isLocalRuntime);
+if (isLocalRuntime) {
+  els.runtimeLabel.textContent = "Local demo:";
+  if (els.runtimeCopy) els.runtimeCopy.textContent = "CRM, email, and sidebar integrations stay preview-only until credentials are connected.";
+} else {
+  els.runtimeLabel.textContent = "Deployment:";
+  if (els.runtimeCopy) els.runtimeCopy.textContent = "connected services depend on your configured credentials, database, and workspace settings.";
+}
+
+render();
+initAccount().finally(handleAccountLinkTokens);

@@ -11,51 +11,45 @@
       crossorigin="anonymous"
     ></script>
   </head>
-  <body data-mode="enterprise-optimizer">
-    <a class="skip-link" href="#input-panel">Skip to analysis workspace</a>
+  <body data-mode="explorer">
     <main class="app-shell">
       <div id="announcer" class="sr-only" aria-live="polite"></div>
 
       <header class="topbar">
         <div class="brand-block">
           <p class="eyebrow">TextTraits</p>
-          <h1 id="hero-title">Enterprise email optimization, without generated copy.</h1>
-          <p id="hero-subtitle">Score existing emails through a stable v1 API with local model signals, policy-backed findings, and send-readiness routing before they leave your current tools.</p>
+          <h1 id="hero-title">Write a little clearer every day</h1>
+          <p id="hero-subtitle">A simple writing coach for understanding how your words come across and making the next draft easier to read.</p>
         </div>
 
-        <div class="mode-card optimizer-status-card" aria-label="Enterprise optimizer status">
-          <span class="interface-label">Enterprise optimizer</span>
-          <strong>{{ public_model_info.name }}</strong>
-          <p id="mode-note">{{ public_model_info.target_count }} trained text-trait targets available{% if public_model_info.demo %}; demo predictor active{% endif %}.</p>
+        <div class="mode-card" aria-label="Workspace mode">
+          <div class="mode-switch">
+            <button id="mode-explorer" type="button" aria-pressed="true">Explorer</button>
+            <button id="mode-enterprise" type="button" aria-pressed="false">Enterprise</button>
+          </div>
+          <p id="mode-note">Explorer is for everyday writing. Enterprise opens a separate outreach workspace.</p>
         </div>
       </header>
 
-      <nav class="enterprise-nav" aria-label="Enterprise workspace navigation">
-        <button type="button" data-nav-section="analyze" aria-current="page">Analyze</button>
-        <button type="button" data-nav-section="dashboard">Dashboard</button>
-        <button type="button" data-nav-section="governance">Governance</button>
-        <button type="button" data-nav-section="simulator">Simulator</button>
-        <button type="button" data-nav-section="integrations">Integrations</button>
-        <button type="button" data-nav-section="admin">Admin</button>
-        <button type="button" data-nav-section="exports">Exports</button>
-      </nav>
-
+      <section id="account-card" class="account-card" aria-label="Account and sync"></section>
       <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 
-      <section id="workspace" class="workspace optimizer-workspace" aria-label="Email optimization workspace">
+      <section id="persona-strip" class="persona-strip" aria-label="Explorer habits">
+        <article><strong>Daily check-in</strong><span>Paste one paragraph and get one clear next edit.</span></article>
+        <article><strong>Writing journal</strong><span>Save readings and compare how your style changes over time.</span></article>
+        <article><strong>Rewrite practice</strong><span>Make a note clearer, warmer, or shorter without overthinking it.</span></article>
+      </section>
+
+      <section id="workspace" class="workspace" aria-label="TextTraits workspace">
         <aside id="input-panel" class="panel input-panel"></aside>
         <section id="output-panel" class="panel output-panel" tabindex="-1" aria-live="polite"></section>
       </section>
 
       <footer class="footer-note">
-        <strong id="runtime-label">Local build:</strong>
-        <span id="runtime-copy">This branch analyzes existing email drafts, returns policy decisions, and never writes the email for you.</span>
+        <strong id="runtime-label">Local demo:</strong>
+        <span id="runtime-copy">CRM, email, and sidebar integrations stay preview-only until credentials are connected.</span>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
-        <a href="/security">Security</a>
-        <a href="/deployment">Deployment</a>
-        <a href="/model-card">Model card</a>
-        <a href="/pilot-plan">Pilot plan</a>
       </footer>
 
       {% if dev_tools_enabled %}
@@ -78,8 +72,11 @@
       };
     </script>
     <script src="{{ url_for('static', filename='text_utils.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='product_config.js') }}" defer></script>
     <script src="{{ url_for('static', filename='api_client.js') }}" defer></script>
     <script src="{{ url_for('static', filename='ui_helpers.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='csv_utils.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='enterprise_copy.js') }}" defer></script>
     <script src="{{ url_for('static', filename='app.js') }}" defer></script>
   </body>
 </html>
