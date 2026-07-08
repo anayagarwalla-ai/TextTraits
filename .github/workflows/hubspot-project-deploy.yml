@@ -1,0 +1,59 @@
+name: HubSpot Project Deploy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "hubspot-project/**"
+      - ".github/workflows/hubspot-project-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: hubspot-project-deploy-main
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate HubSpot project scaffold
+        run: npm run validate --prefix hubspot-project
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_ACCOUNT_ID: ${{ secrets.HUBSPOT_ACCOUNT_ID }}
+      DEFAULT_PERSONAL_ACCESS_KEY: ${{ secrets.HUBSPOT_PERSONAL_ACCESS_KEY }}
+      DEFAULT_CLI_VERSION: "8.0.0"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Skip when HubSpot secrets are not configured
+        if: ${{ env.DEFAULT_ACCOUNT_ID == '' || env.DEFAULT_PERSONAL_ACCESS_KEY == '' }}
+        run: |
+          echo "::warning title=HubSpot deployment skipped::Add HUBSPOT_ACCOUNT_ID and HUBSPOT_PERSONAL_ACCESS_KEY repository secrets to enable automatic HubSpot uploads."
+
+      - name: Upload HubSpot project from GitHub
+        id: upload
+        if: ${{ env.DEFAULT_ACCOUNT_ID != '' && env.DEFAULT_PERSONAL_ACCESS_KEY != '' }}
+        uses: HubSpot/hubspot-project-actions/project-upload@v1.1.0
+        with:
+          project_dir: "./hubspot-project"
+
+      - name: Deploy uploaded HubSpot build
+        if: ${{ env.DEFAULT_ACCOUNT_ID != '' && env.DEFAULT_PERSONAL_ACCESS_KEY != '' && steps.upload.outputs.build_id != '' }}
+        uses: HubSpot/hubspot-project-actions/project-deploy@v1.1.0
+        with:
+          project_dir: "./hubspot-project"
+          build_id: ${{ steps.upload.outputs.build_id }}
+
