@@ -280,6 +280,33 @@ def init_db() -> None:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS processed_email_records (
+                  id BIGSERIAL PRIMARY KEY,
+                  request_id TEXT NOT NULL UNIQUE,
+                  user_id BIGINT,
+                  workspace_id TEXT NOT NULL DEFAULT '',
+                  tenant_id TEXT NOT NULL DEFAULT '',
+                  source_system TEXT NOT NULL DEFAULT '',
+                  workflow TEXT NOT NULL DEFAULT '',
+                  analysis_mode TEXT NOT NULL DEFAULT '',
+                  content_type TEXT NOT NULL DEFAULT 'email',
+                  content_hash TEXT NOT NULL,
+                  subject_hash TEXT NOT NULL DEFAULT '',
+                  body_hash TEXT NOT NULL DEFAULT '',
+                  score INTEGER NOT NULL DEFAULT 0,
+                  gate TEXT NOT NULL DEFAULT '',
+                  route TEXT NOT NULL DEFAULT '',
+                  word_count INTEGER NOT NULL DEFAULT 0,
+                  model_id TEXT NOT NULL DEFAULT '',
+                  idempotency_key_present INTEGER NOT NULL DEFAULT 0,
+                  status TEXT NOT NULL DEFAULT 'processed',
+                  metadata TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS hubspot_email_review_events (
                   id BIGSERIAL PRIMARY KEY,
                   request_id TEXT NOT NULL,
@@ -387,6 +414,9 @@ def init_db() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_processed_email_records_created_at ON processed_email_records (created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_processed_email_records_hash ON processed_email_records (content_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_processed_email_records_source ON processed_email_records (source_system, workflow)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_checks_request ON hubspot_email_checks (request_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_findings_request ON hubspot_email_findings (request_id)")
@@ -484,6 +514,31 @@ def init_db() -> None:
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS processed_email_records (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL UNIQUE,
+              user_id INTEGER,
+              workspace_id TEXT NOT NULL DEFAULT '',
+              tenant_id TEXT NOT NULL DEFAULT '',
+              source_system TEXT NOT NULL DEFAULT '',
+              workflow TEXT NOT NULL DEFAULT '',
+              analysis_mode TEXT NOT NULL DEFAULT '',
+              content_type TEXT NOT NULL DEFAULT 'email',
+              content_hash TEXT NOT NULL,
+              subject_hash TEXT NOT NULL DEFAULT '',
+              body_hash TEXT NOT NULL DEFAULT '',
+              score INTEGER NOT NULL DEFAULT 0,
+              gate TEXT NOT NULL DEFAULT '',
+              route TEXT NOT NULL DEFAULT '',
+              word_count INTEGER NOT NULL DEFAULT 0,
+              model_id TEXT NOT NULL DEFAULT '',
+              idempotency_key_present INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'processed',
+              metadata TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+
             CREATE TABLE IF NOT EXISTS hubspot_email_review_events (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               request_id TEXT NOT NULL,
@@ -572,6 +627,9 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system);
+            CREATE INDEX IF NOT EXISTS idx_processed_email_records_created_at ON processed_email_records (created_at);
+            CREATE INDEX IF NOT EXISTS idx_processed_email_records_hash ON processed_email_records (content_hash);
+            CREATE INDEX IF NOT EXISTS idx_processed_email_records_source ON processed_email_records (source_system, workflow);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_review_events_request ON hubspot_email_review_events (request_id);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_checks_request ON hubspot_email_checks (request_id);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_findings_request ON hubspot_email_findings (request_id);
@@ -1039,6 +1097,130 @@ def _json_load(value: str | None, fallback: Any) -> Any:
         return fallback
 
 
+def _processed_email_record_from_row(row) -> dict[str, Any]:
+    return {
+        "request_id": row["request_id"],
+        "user_id": row["user_id"],
+        "workspace_id": row["workspace_id"],
+        "tenant_id": row["tenant_id"],
+        "source_system": row["source_system"],
+        "workflow": row["workflow"],
+        "analysis_mode": row["analysis_mode"],
+        "content_type": row["content_type"],
+        "content_hash": row["content_hash"],
+        "subject_hash": row["subject_hash"],
+        "body_hash": row["body_hash"],
+        "score": int(row["score"] or 0),
+        "gate": row["gate"],
+        "route": row["route"],
+        "word_count": int(row["word_count"] or 0),
+        "model_id": row["model_id"],
+        "idempotency_key_present": bool(row["idempotency_key_present"]),
+        "status": row["status"],
+        "metadata": _json_load(row["metadata"], {}),
+        "created_at": row["created_at"],
+    }
+
+
+def save_processed_email_record(record: dict[str, Any]) -> dict[str, Any]:
+    now = record.get("created_at") or utc_now()
+    request_id = str(record.get("request_id") or "").strip()[:160]
+    content_hash = str(record.get("content_hash") or "").strip()[:128]
+    if not request_id:
+        raise ValueError("Processed email record requires a request_id.")
+    if not content_hash:
+        raise ValueError("Processed email record requires a content_hash.")
+    values = {
+        "request_id": request_id,
+        "user_id": record.get("user_id") if record.get("user_id") is not None else None,
+        "workspace_id": str(record.get("workspace_id", ""))[:160],
+        "tenant_id": str(record.get("tenant_id", ""))[:160],
+        "source_system": str(record.get("source_system", ""))[:80],
+        "workflow": str(record.get("workflow", ""))[:120],
+        "analysis_mode": str(record.get("analysis_mode", ""))[:80],
+        "content_type": str(record.get("content_type", "email"))[:80],
+        "content_hash": content_hash,
+        "subject_hash": str(record.get("subject_hash", ""))[:128],
+        "body_hash": str(record.get("body_hash", ""))[:128],
+        "score": int(record.get("score") or 0),
+        "gate": str(record.get("gate", ""))[:80],
+        "route": str(record.get("route", ""))[:120],
+        "word_count": int(record.get("word_count") or 0),
+        "model_id": str(record.get("model_id", ""))[:120],
+        "idempotency_key_present": 1 if record.get("idempotency_key_present") else 0,
+        "status": str(record.get("status", "processed"))[:80],
+        "metadata": _json_dump(record.get("metadata") or {}),
+        "created_at": now,
+    }
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO processed_email_records (
+              request_id, user_id, workspace_id, tenant_id, source_system, workflow,
+              analysis_mode, content_type, content_hash, subject_hash, body_hash,
+              score, gate, route, word_count, model_id, idempotency_key_present,
+              status, metadata, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+              user_id = excluded.user_id,
+              workspace_id = excluded.workspace_id,
+              tenant_id = excluded.tenant_id,
+              source_system = excluded.source_system,
+              workflow = excluded.workflow,
+              analysis_mode = excluded.analysis_mode,
+              content_type = excluded.content_type,
+              content_hash = excluded.content_hash,
+              subject_hash = excluded.subject_hash,
+              body_hash = excluded.body_hash,
+              score = excluded.score,
+              gate = excluded.gate,
+              route = excluded.route,
+              word_count = excluded.word_count,
+              model_id = excluded.model_id,
+              idempotency_key_present = excluded.idempotency_key_present,
+              status = excluded.status,
+              metadata = excluded.metadata
+            """,
+            tuple(values[key] for key in values),
+        )
+    return values
+
+
+def list_processed_email_records(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    filters = filters or {}
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key in (
+        "request_id",
+        "content_hash",
+        "workspace_id",
+        "tenant_id",
+        "source_system",
+        "workflow",
+        "analysis_mode",
+        "content_type",
+        "gate",
+        "route",
+        "status",
+        "model_id",
+    ):
+        value = str(filters.get(key, "")).strip()
+        if value:
+            clauses.append(f"{key} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(
+            conn,
+            f"SELECT * FROM processed_email_records {where} ORDER BY id DESC LIMIT ?",
+            (*params, safe_limit),
+        ).fetchall()
+    return [_processed_email_record_from_row(row) for row in rows]
+
+
 def _hubspot_analysis_from_row(row) -> dict[str, Any]:
     return {
         "request_id": row["request_id"],
@@ -1275,6 +1457,37 @@ def save_hubspot_email_analysis(record: dict[str, Any]) -> dict[str, Any]:
             tuple(values[key] for key in values),
         )
     save_hubspot_analysis_artifacts(values["request_id"], record.get("checks") or [], record.get("findings") or [], now)
+    save_processed_email_record(
+        {
+            "request_id": values["request_id"],
+            "user_id": record.get("user_id"),
+            "workspace_id": values["workspace_id"],
+            "tenant_id": values["tenant_id"],
+            "source_system": values["source_system"],
+            "workflow": values["workflow"],
+            "analysis_mode": values["analysis_mode"],
+            "content_type": "email",
+            "content_hash": values["content_hash"],
+            "subject_hash": record.get("subject_hash", ""),
+            "body_hash": record.get("body_hash", ""),
+            "score": values["score"],
+            "gate": values["gate"],
+            "route": values["route"],
+            "word_count": values["word_count"],
+            "model_id": record.get("model_id", "local"),
+            "idempotency_key_present": bool(record.get("idempotency_key")),
+            "status": "processed",
+            "metadata": {
+                "portal_id": values["portal_id"],
+                "object_type": values["object_type"],
+                "object_id": values["object_id"],
+                "campaign_id": values["campaign_id"],
+                "template_id": values["template_id"],
+                "score_source": values["score_source"],
+            },
+            "created_at": now,
+        }
+    )
     return values
 
 

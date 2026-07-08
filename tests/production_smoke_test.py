@@ -375,6 +375,28 @@ def main() -> int:
     assert_true(csv_export.status_code == 200 and "text/csv" in csv_export.headers.get("Content-Type", ""), "HubSpot CSV export should be available")
     policy_history = client.get("/api/enterprise/hubspot/policy/history?workspace_id=hubspot_246356639")
     assert_true(policy_history.status_code == 200 and policy_history.get_json()["history"], "HubSpot policy history should be retained")
+    hubspot_processed = client.get(f"/api/enterprise/processed-emails?request_id={crm_payload['outputFields']['texttraits_request_id']}")
+    assert_true(hubspot_processed.status_code == 200, hubspot_processed.get_data(as_text=True))
+    hubspot_records = hubspot_processed.get_json()["records"]
+    assert_true(hubspot_records and hubspot_records[0]["content_type"] == "email", "HubSpot email processing should create a general ledger record")
+    assert_true("following up on the renewal" not in json.dumps(hubspot_records), "processed-email ledger must not expose raw email body text")
+    web_email_text = "Hi Sam, please review the launch checklist by Friday and reply with blockers. Best, Anay"
+    web_evaluate = client.post(
+        "/evaluate",
+        json={"text": web_email_text, "mode": "email", "idempotency_key": "qa-web-email"},
+        headers=csrf_headers(client),
+    )
+    assert_true(web_evaluate.status_code == 200, web_evaluate.get_data(as_text=True))
+    web_payload = web_evaluate.get_json()
+    assert_true(web_payload["recorded"] is True and web_payload["request_id"], "generic email evaluation should return its processing record ID")
+    web_processed = client.get(f"/api/enterprise/processed-emails?request_id={web_payload['request_id']}")
+    assert_true(web_processed.status_code == 200, web_processed.get_data(as_text=True))
+    web_records = web_processed.get_json()["records"]
+    assert_true(web_records and web_records[0]["source_system"] == "web", "generic email evaluation should be queryable in the processing ledger")
+    assert_true(web_records[0]["content_hash"] == web_payload["content_hash"], "processing ledger should retain the content hash for joins")
+    assert_true("launch checklist" not in json.dumps(web_records), "processed-email ledger must not expose raw generic email text")
+    processed_csv = client.get("/api/enterprise/exports/processed-emails.csv?content_type=email")
+    assert_true(processed_csv.status_code == 200 and "text/csv" in processed_csv.headers.get("Content-Type", ""), "processed-email CSV export should be available")
 
     signed_secret = "qa-hubspot-ingress-secret"
     previous_secret = os.environ.get("TEXTTRAITS_HUBSPOT_INGRESS_SECRET")

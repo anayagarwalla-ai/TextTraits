@@ -60,6 +60,7 @@ from storage import (
     list_hubspot_policy_versions,
     list_hubspot_review_events,
     list_hubspot_review_states,
+    list_processed_email_records,
     log_event,
     needs_email_verification,
     recent_events,
@@ -69,6 +70,7 @@ from storage import (
     save_hubspot_outcome_event,
     save_hubspot_policy_config,
     save_hubspot_review_event,
+    save_processed_email_record,
     contains_sensitive_key,
     scrub_payload,
     upsert_integration,
@@ -752,6 +754,23 @@ def prediction_confidences(value) -> list[float]:
             values.extend(prediction_confidences(item))
         return values
     return []
+
+
+def processed_content_type(payload: dict[str, Any], text: str) -> str:
+    markers = " ".join(
+        str(payload.get(key, ""))
+        for key in ("mode", "source", "source_type", "channel", "content_type", "workflow")
+    ).lower()
+    if "email" in markers:
+        return "email"
+    if re.search(r"\b(dear|hi|hello)\s+\w+", text, re.IGNORECASE) and re.search(r"\b(thanks|regards|best|sincerely)\b", text, re.IGNORECASE):
+        return "email"
+    return "text"
+
+
+def model_confidence_summary(predictions: dict[str, Any]) -> float:
+    confidences = prediction_confidences(predictions)
+    return round(sum(confidences) / len(confidences), 4) if confidences else 0.0
 
 
 def clamp_int(value: Any, low: int, high: int, fallback: int) -> int:
@@ -1580,10 +1599,46 @@ def evaluate():
     try:
         log_event(current_user_id(), "evaluate", {"mode": payload.get("mode", "unknown"), "words": len(text.split())})
         predictions = predictor.predict(text)
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        idempotency_key = first_text_value(
+            payload.get("idempotency_key"),
+            request.headers.get("X-Idempotency-Key"),
+            max_length=160,
+        )
+        if idempotency_key:
+            digest = hashlib.sha256(f"web_evaluate:{idempotency_key}:{content_hash}".encode("utf-8")).hexdigest()[:28]
+            request_id = f"web_evaluate-{digest}"
+        else:
+            request_id = f"web_evaluate-{secrets.token_urlsafe(12)}"
+        save_processed_email_record(
+            {
+                "request_id": request_id,
+                "user_id": current_user_id(),
+                "workspace_id": first_text_value(payload.get("workspace_id"), max_length=160),
+                "tenant_id": first_text_value(payload.get("tenant_id"), max_length=160),
+                "source_system": first_text_value(payload.get("source_system"), "web", max_length=80),
+                "workflow": "evaluate",
+                "analysis_mode": first_text_value(payload.get("mode"), max_length=80),
+                "content_type": processed_content_type(payload, text),
+                "content_hash": content_hash,
+                "word_count": len(text.split()),
+                "model_id": model_id,
+                "idempotency_key_present": bool(idempotency_key),
+                "status": "processed",
+                "metadata": {
+                    "average_model_confidence": model_confidence_summary(predictions),
+                    "demo": bool(getattr(predictor, "is_demo", False)),
+                    "has_dev_predictions": bool(ENABLE_DEV_TOOLS),
+                },
+            }
+        )
         return jsonify(
             {
                 "model": model_id,
                 "demo": bool(getattr(predictor, "is_demo", False)),
+                "request_id": request_id,
+                "content_hash": content_hash,
+                "recorded": True,
                 "predictions": predictions if ENABLE_DEV_TOOLS else public_prediction_payload(predictions),
             }
         )
@@ -1643,9 +1698,12 @@ def hubspot_analysis_response(payload: dict, workflow: str):
         {
             **context,
             "request_id": request_id,
+            "user_id": current_user_id(),
             "workflow": workflow,
             "idempotency_key": idempotency_key,
             "content_hash": content_hash,
+            "subject_hash": hashlib.sha256(subject.encode("utf-8")).hexdigest() if subject else "",
+            "body_hash": hashlib.sha256(body.encode("utf-8")).hexdigest() if body else "",
             "score": score,
             "gate": gate,
             "route": route,
@@ -1656,6 +1714,7 @@ def hubspot_analysis_response(payload: dict, workflow: str):
             "findings": email_quality["findings"],
             "checks": email_quality["checks"],
             "policy": policy,
+            "model_id": "local",
             "context": context,
         }
     )
@@ -1733,6 +1792,24 @@ def hubspot_analysis_filters_from_request() -> dict[str, str]:
 
 def hubspot_outcome_filters_from_request() -> dict[str, str]:
     allowed = ("request_id", "content_hash", "workspace_id", "tenant_id", "source_system", "event_type")
+    return {key: request.args.get(key, "").strip() for key in allowed if request.args.get(key, "").strip()}
+
+
+def processed_email_filters_from_request() -> dict[str, str]:
+    allowed = (
+        "request_id",
+        "content_hash",
+        "workspace_id",
+        "tenant_id",
+        "source_system",
+        "workflow",
+        "analysis_mode",
+        "content_type",
+        "gate",
+        "route",
+        "status",
+        "model_id",
+    )
     return {key: request.args.get(key, "").strip() for key in allowed if request.args.get(key, "").strip()}
 
 
@@ -1896,6 +1973,76 @@ def api_enterprise_hubspot_dashboard():
     dashboard = hubspot_email_dashboard(limit=limit)
     log_event(user_id, "hubspot_dashboard_viewed", {"total": dashboard["total_analyses"]})
     return jsonify({"dashboard": dashboard})
+
+
+PROCESSED_EMAIL_EXPORT_COLUMNS = (
+    "created_at",
+    "request_id",
+    "user_id",
+    "workspace_id",
+    "tenant_id",
+    "source_system",
+    "workflow",
+    "analysis_mode",
+    "content_type",
+    "content_hash",
+    "subject_hash",
+    "body_hash",
+    "score",
+    "gate",
+    "route",
+    "word_count",
+    "model_id",
+    "idempotency_key_present",
+    "status",
+)
+
+
+@app.get("/api/enterprise/processed-emails")
+@rate_limited(60)
+def api_enterprise_processed_emails():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    records = list_processed_email_records(
+        limit=clamp_int(request.args.get("limit"), 1, 1000, 100),
+        filters=processed_email_filters_from_request(),
+    )
+    log_event(user_id, "processed_email_records_viewed", {"count": len(records)})
+    return jsonify({"records": records})
+
+
+@app.get("/api/enterprise/exports/processed-emails.json")
+@rate_limited(30)
+def api_enterprise_processed_emails_export_json():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    records = list_processed_email_records(
+        limit=clamp_int(request.args.get("limit"), 1, 1000, 1000),
+        filters=processed_email_filters_from_request(),
+    )
+    log_event(user_id, "processed_email_records_exported", {"format": "json", "count": len(records)})
+    return jsonify({"records": records, "exported_at": analyzedTimeForServer()})
+
+
+@app.get("/api/enterprise/exports/processed-emails.csv")
+@rate_limited(30)
+def api_enterprise_processed_emails_export_csv():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    records = list_processed_email_records(
+        limit=clamp_int(request.args.get("limit"), 1, 1000, 1000),
+        filters=processed_email_filters_from_request(),
+    )
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=PROCESSED_EMAIL_EXPORT_COLUMNS)
+    writer.writeheader()
+    for record in records:
+        writer.writerow({column: safe_csv_cell(record.get(column)) for column in PROCESSED_EMAIL_EXPORT_COLUMNS})
+    log_event(user_id, "processed_email_records_exported", {"format": "csv", "count": len(records)})
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=texttraits-processed-emails.csv"})
 
 
 @app.get("/api/enterprise/hubspot/exports/analyses.json")
