@@ -1,0 +1,509 @@
+{
+  "name": "TextTraits Synthetic HubSpot CRM Demo",
+  "description": "Synthetic CRM-style demo data for TextTraits HubSpot governance, review, and outcome reporting. The people, companies, deals, and activities are fictional and use reserved example domains.",
+  "license": "Synthetic data created for this repository. No third-party data or real personally identifying information is included.",
+  "generated_at": "2026-07-08",
+  "workspace_id": "demo_hubspot_crm",
+  "tenant_id": "demo_hubspot_crm",
+  "portal_id": "demo-portal",
+  "environment": "production",
+  "policy": {
+    "version": "demo-crm-2026-07-08",
+    "rule_pack": "general",
+    "ready_score_threshold": 78,
+    "review_score_threshold": 70,
+    "block_score_threshold": 50,
+    "min_body_words": 25,
+    "max_body_words": 220,
+    "required_template_tokens": ["unsubscribe_link"],
+    "required_headers": ["from", "reply_to"],
+    "block_if_no_cta": true,
+    "block_high_severity_findings": true,
+    "compliance_review_on_risk_terms": true,
+    "require_personalization": true
+  },
+  "owners": [
+    {
+      "owner_id": "owner-demo-revops",
+      "name": "Rina Patel",
+      "role": "Revenue operations lead",
+      "queue": "Marketing review",
+      "email": "rina.patel@example.com"
+    },
+    {
+      "owner_id": "owner-demo-compliance",
+      "name": "Marcus Lee",
+      "role": "Lifecycle compliance reviewer",
+      "queue": "Compliance review",
+      "email": "marcus.lee@example.com"
+    },
+    {
+      "owner_id": "owner-demo-healthcare",
+      "name": "Elena Brooks",
+      "role": "Healthcare staffing lead",
+      "queue": "Marketing review",
+      "email": "elena.brooks@example.com"
+    }
+  ],
+  "accounts": [
+    {
+      "company_id": "company-acme-revenue",
+      "name": "Acme Revenue",
+      "industry": "SaaS",
+      "region": "US",
+      "business_unit": "Revenue Operations",
+      "employee_count": 420,
+      "lifecycle_stage": "opportunity"
+    },
+    {
+      "company_id": "company-northwind-ops",
+      "name": "Northwind Ops",
+      "industry": "SaaS",
+      "region": "US",
+      "business_unit": "Revenue Operations",
+      "employee_count": 260,
+      "lifecycle_stage": "sales_qualified_lead"
+    },
+    {
+      "company_id": "company-gable-health",
+      "name": "Gable Health",
+      "industry": "Healthcare staffing",
+      "region": "EU",
+      "business_unit": "Healthcare Staffing",
+      "employee_count": 1800,
+      "lifecycle_stage": "customer"
+    },
+    {
+      "company_id": "company-meridian-finance",
+      "name": "Meridian Finance",
+      "industry": "Financial services",
+      "region": "US",
+      "business_unit": "Financial Services",
+      "employee_count": 640,
+      "lifecycle_stage": "opportunity"
+    },
+    {
+      "company_id": "company-bluepeak-labs",
+      "name": "Bluepeak Labs",
+      "industry": "B2B software",
+      "region": "APAC",
+      "business_unit": "Founder Sales",
+      "employee_count": 48,
+      "lifecycle_stage": "lead"
+    }
+  ],
+  "contacts": [
+    {
+      "contact_id": "contact-maya-chen",
+      "first_name": "Maya",
+      "last_name": "Chen",
+      "role": "VP Revenue",
+      "company_id": "company-acme-revenue",
+      "email": "maya.chen@example.com",
+      "recent_activity": "Downloaded the forecast risk checklist after a board forecast review."
+    },
+    {
+      "contact_id": "contact-jordan-patel",
+      "first_name": "Jordan",
+      "last_name": "Patel",
+      "role": "RevOps Director",
+      "company_id": "company-northwind-ops",
+      "email": "jordan.patel@example.com",
+      "recent_activity": "Asked whether the pilot requires a CRM migration."
+    },
+    {
+      "contact_id": "contact-priya-nair",
+      "first_name": "Priya",
+      "last_name": "Nair",
+      "role": "Regional Staffing Director",
+      "company_id": "company-gable-health",
+      "email": "priya.nair@example.com",
+      "recent_activity": "Requested a nurse pool shortlist for two new locations."
+    },
+    {
+      "contact_id": "contact-sam-rivera",
+      "first_name": "Sam",
+      "last_name": "Rivera",
+      "role": "Procurement Manager",
+      "company_id": "company-meridian-finance",
+      "email": "sam.rivera@example.com",
+      "recent_activity": "Flagged savings claims for legal review."
+    },
+    {
+      "contact_id": "contact-taylor-ng",
+      "first_name": "Taylor",
+      "last_name": "Ng",
+      "role": "Founder",
+      "company_id": "company-bluepeak-labs",
+      "email": "taylor.ng@example.com",
+      "recent_activity": "Referred the handoff workflow to a RevOps lead."
+    }
+  ],
+  "deals": [
+    {
+      "deal_id": "deal-acme-renewal-risk",
+      "name": "Acme forecast risk pilot",
+      "company_id": "company-acme-revenue",
+      "amount": 42000,
+      "stage": "Evaluation",
+      "close_date": "2026-08-14"
+    },
+    {
+      "deal_id": "deal-northwind-pipeline",
+      "name": "Northwind pipeline inspection rollout",
+      "company_id": "company-northwind-ops",
+      "amount": 36000,
+      "stage": "Discovery",
+      "close_date": "2026-09-04"
+    },
+    {
+      "deal_id": "deal-gable-nurse-pool",
+      "name": "Gable nurse pool expansion",
+      "company_id": "company-gable-health",
+      "amount": 78000,
+      "stage": "Proposal",
+      "close_date": "2026-08-28"
+    },
+    {
+      "deal_id": "deal-meridian-renewal",
+      "name": "Meridian renewal compliance review",
+      "company_id": "company-meridian-finance",
+      "amount": 51000,
+      "stage": "Legal review",
+      "close_date": "2026-07-31"
+    },
+    {
+      "deal_id": "deal-bluepeak-handoff",
+      "name": "Bluepeak sales handoff pilot",
+      "company_id": "company-bluepeak-labs",
+      "amount": 18000,
+      "stage": "Qualification",
+      "close_date": "2026-09-18"
+    }
+  ],
+  "campaigns": [
+    {
+      "campaign_id": "campaign-forecast-risk-pilot",
+      "name": "Forecast risk pilot",
+      "audience_type": "client",
+      "source_channel": "HubSpot marketing email"
+    },
+    {
+      "campaign_id": "campaign-pipeline-inspection",
+      "name": "Pipeline inspection nurture",
+      "audience_type": "client",
+      "source_channel": "HubSpot workflow"
+    },
+    {
+      "campaign_id": "campaign-healthcare-staffing",
+      "name": "Healthcare staffing pool",
+      "audience_type": "candidate",
+      "source_channel": "HubSpot form and email"
+    },
+    {
+      "campaign_id": "campaign-renewal-compliance",
+      "name": "Renewal compliance save",
+      "audience_type": "client",
+      "source_channel": "HubSpot CRM card"
+    },
+    {
+      "campaign_id": "campaign-founder-handoff",
+      "name": "Founder handoff reactivation",
+      "audience_type": "client",
+      "source_channel": "HubSpot sequence"
+    }
+  ],
+  "analyses": [
+    {
+      "id": "acme-renewal-ready-email",
+      "endpoint": "/v1/integrations/hubspot/marketing-emails/analyze",
+      "idempotency_key": "demo-crm-acme-renewal-ready-email",
+      "created_at": "2026-07-03T16:05:00+00:00",
+      "contact_id": "contact-maya-chen",
+      "company_id": "company-acme-revenue",
+      "deal_id": "deal-acme-renewal-risk",
+      "owner_id": "owner-demo-revops",
+      "campaign_id": "campaign-forecast-risk-pilot",
+      "template_id": "email-acme-forecast-001",
+      "object_type": "contacts",
+      "object_id": "contact-maya-chen",
+      "locale": "en-US",
+      "analysis_mode": "marketing_email_preflight",
+      "subject": "Forecast risk pilot checklist",
+      "body": "Hi {{first_name}}, your weekly forecast review shows two enterprise renewals without owner notes. Please review the attached two-bullet checklist by Friday and reply with the renewal owner you want us to route first. {{unsubscribe_link}}",
+      "delivery_context": {
+        "asset_type": "MARKETING_EMAIL",
+        "asset_name": "Forecast risk pilot checklist",
+        "email_type": "AUTOMATED"
+      },
+      "outcomes": [
+        {
+          "event_type": "sent",
+          "event_id": "demo-acme-sent-001",
+          "occurred_at": "2026-07-03T17:00:00+00:00",
+          "payload": {"delivered": 42}
+        },
+        {
+          "event_type": "opened",
+          "event_id": "demo-acme-opened-001",
+          "occurred_at": "2026-07-04T09:30:00+00:00",
+          "payload": {"opens": 19}
+        },
+        {
+          "event_type": "replied",
+          "event_id": "demo-acme-replied-001",
+          "occurred_at": "2026-07-04T12:10:00+00:00",
+          "payload": {"reply_sentiment": "interested"}
+        }
+      ],
+      "review_actions": [
+        {
+          "action": "mark_reviewed",
+          "actor_id": "owner-demo-revops",
+          "status": "recorded",
+          "payload": {"notes": "Ready copy reviewed for demo seed.", "owner_queue": "Sending system"}
+        }
+      ]
+    },
+    {
+      "id": "northwind-short-workflow",
+      "endpoint": "/v1/integrations/hubspot/workflow-actions/analyze-email",
+      "idempotency_key": "demo-crm-northwind-short-workflow",
+      "created_at": "2026-07-04T18:15:00+00:00",
+      "contact_id": "contact-jordan-patel",
+      "company_id": "company-northwind-ops",
+      "deal_id": "deal-northwind-pipeline",
+      "owner_id": "owner-demo-revops",
+      "campaign_id": "campaign-pipeline-inspection",
+      "template_id": "workflow-northwind-inspection-002",
+      "object_type": "deals",
+      "object_id": "deal-northwind-pipeline",
+      "locale": "en-US",
+      "analysis_mode": "send_path_gate",
+      "subject": "Pipeline dashboard",
+      "body": "Hi Jordan, please review the migration notes by Thursday and choose the rollout owner.",
+      "delivery_context": {
+        "asset_type": "WORKFLOW_EMAIL",
+        "asset_name": "Pipeline inspection owner ask",
+        "workflow_step": "post-demo follow-up"
+      },
+      "outcomes": [
+        {
+          "event_type": "opened",
+          "event_id": "demo-northwind-opened-001",
+          "occurred_at": "2026-07-05T14:40:00+00:00",
+          "payload": {"opens": 7}
+        }
+      ],
+      "review_actions": [
+        {
+          "action": "send_to_marketing_review",
+          "actor_id": "owner-demo-revops",
+          "status": "queued",
+          "payload": {
+            "notes": "Short body needs more proof before automated routing.",
+            "owner_queue": "Marketing review",
+            "assigned_to": "owner-demo-revops",
+            "blocker_level": "medium",
+            "sla_due_at": "2026-07-06T18:00:00+00:00"
+          }
+        },
+        {
+          "action": "approve_review",
+          "actor_id": "owner-demo-revops",
+          "status": "approved",
+          "payload": {
+            "notes": "Approved after proof point was added in HubSpot.",
+            "owner_queue": "Marketing review"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gable-form-ready",
+      "endpoint": "/v1/integrations/hubspot/assets/analyze",
+      "idempotency_key": "demo-crm-gable-form-ready",
+      "created_at": "2026-07-05T10:25:00+00:00",
+      "contact_id": "contact-priya-nair",
+      "company_id": "company-gable-health",
+      "deal_id": "deal-gable-nurse-pool",
+      "owner_id": "owner-demo-healthcare",
+      "campaign_id": "campaign-healthcare-staffing",
+      "template_id": "form-gable-nurse-pool-003",
+      "object_type": "companies",
+      "object_id": "company-gable-health",
+      "locale": "en-GB",
+      "analysis_mode": "asset_copy_preflight",
+      "asset_type": "FORM",
+      "asset_name": "Nurse pool location preference form",
+      "subject": "Nurse pool update",
+      "body": "Hi {{first_name}}, please review the nurse pool shortlist by Thursday and choose the two locations your team wants prioritized for August. We will send a staffing coverage view once you reply. {{unsubscribe_link}}",
+      "delivery_context": {
+        "asset_type": "FORM",
+        "asset_name": "Nurse pool location preference form",
+        "copy_source": "mapped_form_submit_text"
+      },
+      "outcomes": [
+        {
+          "event_type": "form_submission",
+          "event_id": "demo-gable-form-submission-001",
+          "occurred_at": "2026-07-05T16:50:00+00:00",
+          "payload": {"submissions": 12}
+        },
+        {
+          "event_type": "meeting_booked",
+          "event_id": "demo-gable-meeting-001",
+          "occurred_at": "2026-07-06T11:20:00+00:00",
+          "payload": {"meeting_type": "staffing review"}
+        }
+      ],
+      "review_actions": [
+        {
+          "action": "mark_reviewed",
+          "actor_id": "owner-demo-healthcare",
+          "status": "recorded",
+          "payload": {"notes": "Healthcare staffing copy is send-ready.", "owner_queue": "Sending system"}
+        }
+      ]
+    },
+    {
+      "id": "meridian-risky-crm-card",
+      "endpoint": "/v1/integrations/hubspot/crm-card/analyze-email",
+      "idempotency_key": "demo-crm-meridian-risky-crm-card",
+      "created_at": "2026-07-05T19:45:00+00:00",
+      "contact_id": "contact-sam-rivera",
+      "company_id": "company-meridian-finance",
+      "deal_id": "deal-meridian-renewal",
+      "owner_id": "owner-demo-compliance",
+      "campaign_id": "campaign-renewal-compliance",
+      "template_id": "email-meridian-risk-004",
+      "object_type": "contacts",
+      "object_id": "contact-sam-rivera",
+      "locale": "en-US",
+      "analysis_mode": "crm_card_review",
+      "subject": "Guaranteed renewal savings",
+      "body": "Hi Sam, this renewal plan is guaranteed to save 100% of the time your finance team spends on review. Please approve today so we can lock the discount before it disappears.",
+      "delivery_context": {
+        "asset_type": "CRM_CARD_EMAIL",
+        "asset_name": "Renewal compliance save",
+        "claim_type": "guaranteed_savings"
+      },
+      "outcomes": [
+        {
+          "event_type": "blocked_before_send",
+          "event_id": "demo-meridian-blocked-001",
+          "occurred_at": "2026-07-05T20:00:00+00:00",
+          "payload": {"block_reason": "compliance claim"}
+        }
+      ],
+      "review_actions": [
+        {
+          "action": "send_to_marketing_review",
+          "actor_id": "owner-demo-compliance",
+          "status": "queued",
+          "payload": {
+            "notes": "Compliance risk terms require rewrite before send.",
+            "owner_queue": "Compliance review",
+            "assigned_to": "owner-demo-compliance",
+            "blocker_level": "high",
+            "sla_due_at": "2026-07-06T15:00:00+00:00"
+          }
+        },
+        {
+          "action": "reject_review",
+          "actor_id": "owner-demo-compliance",
+          "status": "rejected",
+          "payload": {
+            "notes": "Rejected until guaranteed savings language is removed.",
+            "owner_queue": "Compliance review"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bluepeak-sequence-ready",
+      "endpoint": "/v1/integrations/hubspot/assets/analyze",
+      "idempotency_key": "demo-crm-bluepeak-sequence-ready",
+      "created_at": "2026-07-06T08:35:00+00:00",
+      "contact_id": "contact-taylor-ng",
+      "company_id": "company-bluepeak-labs",
+      "deal_id": "deal-bluepeak-handoff",
+      "owner_id": "owner-demo-revops",
+      "campaign_id": "campaign-founder-handoff",
+      "template_id": "sequence-bluepeak-handoff-005",
+      "object_type": "deals",
+      "object_id": "deal-bluepeak-handoff",
+      "locale": "en-SG",
+      "analysis_mode": "asset_copy_preflight",
+      "asset_type": "SEQUENCE",
+      "asset_name": "Founder handoff sequence",
+      "subject": "Handoff notes for your RevOps lead",
+      "body": "Hi Taylor, thanks for pointing me to your RevOps lead. I can send a two-bullet summary of the sales handoff gaps you mentioned, or I can draft the intro note for you. Please reply with the owner you prefer by Friday. {{unsubscribe_link}}",
+      "delivery_context": {
+        "asset_type": "SEQUENCE",
+        "asset_name": "Founder handoff sequence",
+        "copy_source": "mapped_sequence_step"
+      },
+      "outcomes": [
+        {
+          "event_type": "replied",
+          "event_id": "demo-bluepeak-replied-001",
+          "occurred_at": "2026-07-06T21:15:00+00:00",
+          "payload": {"reply_sentiment": "referral"}
+        }
+      ],
+      "review_actions": [
+        {
+          "action": "mark_reviewed",
+          "actor_id": "owner-demo-revops",
+          "status": "recorded",
+          "payload": {"notes": "Founder handoff sequence reviewed.", "owner_queue": "Sending system"}
+        }
+      ]
+    },
+    {
+      "id": "northwind-vague-crm-card",
+      "endpoint": "/v1/integrations/hubspot/crm-card/analyze-email",
+      "idempotency_key": "demo-crm-northwind-vague-crm-card",
+      "created_at": "2026-07-06T17:10:00+00:00",
+      "contact_id": "contact-jordan-patel",
+      "company_id": "company-northwind-ops",
+      "deal_id": "deal-northwind-pipeline",
+      "owner_id": "owner-demo-revops",
+      "campaign_id": "campaign-pipeline-inspection",
+      "template_id": "email-northwind-vague-006",
+      "object_type": "contacts",
+      "object_id": "contact-jordan-patel",
+      "locale": "en-US",
+      "analysis_mode": "crm_card_review",
+      "subject": "Checking",
+      "body": "Thoughts?",
+      "delivery_context": {
+        "asset_type": "CRM_CARD_EMAIL",
+        "asset_name": "Pipeline inspection vague follow-up"
+      },
+      "outcomes": [
+        {
+          "event_type": "suppressed",
+          "event_id": "demo-northwind-suppressed-001",
+          "occurred_at": "2026-07-06T17:15:00+00:00",
+          "payload": {"reason": "quality gate blocked send"}
+        }
+      ],
+      "review_actions": [
+        {
+          "action": "send_to_marketing_review",
+          "actor_id": "owner-demo-revops",
+          "status": "queued",
+          "payload": {
+            "notes": "Draft is too short for reliable routing.",
+            "owner_queue": "Marketing review",
+            "assigned_to": "owner-demo-revops",
+            "blocker_level": "medium",
+            "sla_due_at": "2026-07-07T17:00:00+00:00"
+          }
+        }
+      ]
+    }
+  ]
+}

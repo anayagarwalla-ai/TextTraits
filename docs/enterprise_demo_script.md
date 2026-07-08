@@ -1,5 +1,14 @@
 # Enterprise Demo Script
 
+For the backend governance dashboard, load the synthetic CRM fixture first:
+
+```bash
+python scripts/migrate.py
+python scripts/seed_demo_crm.py
+```
+
+The seed uses workspace `demo_hubspot_crm` and fictional accounts, contacts, deals, owners, campaigns, review actions, and outcomes from `texttraits_app/demo_data/hubspot_crm_demo.json`.
+
 Use one HubSpot contact, such as Brian Halligan, and run three existing draft emails through the TextTraits email-fit card.
 
 ## 1. Good Email
@@ -57,4 +66,3 @@ Expected result:
 3. Show score, gate, route, evidence, and failed checks.
 4. Use `Copy recommendation`, `Mark reviewed`, `Send to marketing review`, and `Re-run analysis`.
 5. Show admin exports and dashboard endpoints for reporting.
-
