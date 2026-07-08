@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".mypy_cache", "node_modules", "artifacts"}
+SKIP_DIRS = {".git", ".pytest_cache", "__pycache__", ".mypy_cache", ".venv", "venv", "node_modules", "artifacts"}
 SKIP_SUFFIXES = {".joblib", ".sqlite", ".sqlite3", ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip"}
 
 RISK_PATTERNS = (
