@@ -1,0 +1,150 @@
+{
+  "uid": "texttraits_analyze_and_sync_action",
+  "type": "workflow-action",
+  "config": {
+    "actionUrl": "https://texttraits.onrender.com/v1/integrations/hubspot/analyze-and-sync",
+    "isPublished": true,
+    "supportedClients": [
+      {
+        "client": "WORKFLOWS"
+      }
+    ],
+    "objectTypes": ["CONTACT", "COMPANY", "DEAL", "TICKET"],
+    "inputFields": [
+      {
+        "typeDefinition": {
+          "name": "email_subject",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "email_body",
+          "type": "string",
+          "fieldType": "textarea"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "object_type",
+          "type": "enumeration",
+          "fieldType": "select",
+          "options": [
+            {"value": "contacts", "label": "Contact"},
+            {"value": "companies", "label": "Company"},
+            {"value": "deals", "label": "Deal"},
+            {"value": "tickets", "label": "Ticket"}
+          ]
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "object_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "campaign_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "template_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "analysis_object_type",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "analysis_association_type_ids",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": false
+      }
+    ],
+    "outputFields": [
+      {"name": "texttraits_score", "type": "number"},
+      {"name": "texttraits_gate", "type": "string"},
+      {"name": "texttraits_route", "type": "string"},
+      {"name": "texttraits_next_step", "type": "string"},
+      {"name": "texttraits_owner_queue", "type": "string"},
+      {"name": "texttraits_blocker_level", "type": "string"},
+      {"name": "texttraits_blocker_reason", "type": "string"},
+      {"name": "texttraits_policy_version", "type": "string"},
+      {"name": "texttraits_request_id", "type": "string"},
+      {"name": "texttraits_content_hash", "type": "string"},
+      {"name": "texttraits_sync_status", "type": "string"},
+      {"name": "texttraits_sync_actions", "type": "string"}
+    ],
+    "labels": {
+      "en": {
+        "appDisplayName": "TextTraits Email Fit",
+        "actionName": "Analyze and sync email fit",
+        "actionDescription": "Scores an existing email draft, writes TextTraits fields back to HubSpot, and opens review work when policy requires it.",
+        "actionCardContent": "Analyze and sync {{email_subject}} with TextTraits",
+        "inputFieldLabels": {
+          "email_subject": "Email subject",
+          "email_body": "Email body",
+          "object_type": "HubSpot object type",
+          "object_id": "HubSpot object ID",
+          "campaign_id": "Campaign ID",
+          "template_id": "Template or email ID",
+          "analysis_object_type": "TextTraits analysis object type",
+          "analysis_association_type_ids": "Analysis association type IDs"
+        },
+        "inputFieldDescriptions": {
+          "email_subject": "Subject line to score.",
+          "email_body": "Existing draft body to score before send or review.",
+          "object_type": "CRM object type to receive TextTraits writeback fields.",
+          "object_id": "CRM object ID to receive TextTraits writeback fields.",
+          "campaign_id": "Optional campaign identifier for reporting.",
+          "template_id": "Optional email/template identifier for reporting.",
+          "analysis_object_type": "Optional HubSpot custom object type for durable TextTraits analysis records.",
+          "analysis_association_type_ids": "Optional JSON map of real HubSpot association type IDs, for example {\"contacts\":123,\"companies\":456}. TextTraits never invents these IDs."
+        },
+        "outputFieldLabels": {
+          "texttraits_score": "TextTraits score",
+          "texttraits_gate": "TextTraits gate",
+          "texttraits_route": "TextTraits route",
+          "texttraits_next_step": "TextTraits next step",
+          "texttraits_owner_queue": "TextTraits owner queue",
+          "texttraits_blocker_level": "TextTraits blocker level",
+          "texttraits_blocker_reason": "TextTraits blocker reason",
+          "texttraits_policy_version": "TextTraits policy version",
+          "texttraits_request_id": "TextTraits request ID",
+          "texttraits_content_hash": "TextTraits content hash",
+          "texttraits_sync_status": "TextTraits sync status",
+          "texttraits_sync_actions": "TextTraits sync actions"
+        }
+      }
+    }
+  }
+}

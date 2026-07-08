@@ -1,0 +1,48 @@
+{
+  "uid": "texttraits_email_fit_app",
+  "type": "app",
+  "config": {
+    "name": "TextTraits Email Fit",
+    "description": "Pre-send campaign and email governance for HubSpot workflows.",
+    "distribution": "marketplace",
+    "permittedUrls": {
+      "fetch": [
+        "https://texttraits.onrender.com",
+        "http://localhost:5001",
+        "http://127.0.0.1:5001"
+      ]
+    },
+    "auth": {
+      "type": "oauth",
+      "redirectUrls": [
+        "https://texttraits.onrender.com/api/integrations/hubspot/oauth/callback",
+        "http://localhost:5001/api/integrations/hubspot/oauth/callback"
+      ],
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write",
+        "crm.objects.companies.read",
+        "crm.objects.companies.write",
+        "crm.objects.deals.read",
+        "crm.objects.deals.write",
+        "crm.objects.custom.read",
+        "crm.objects.custom.write",
+        "crm.lists.read",
+        "crm.lists.write"
+      ],
+      "optionalScopes": [
+        "tickets",
+        "crm.objects.owners.read",
+        "marketing-email",
+        "marketing.campaigns.read",
+        "marketing.campaigns.write",
+        "marketing.campaigns.revenue.read",
+        "forms",
+        "content",
+        "timeline",
+        "automation"
+      ]
+    }
+  }
+}

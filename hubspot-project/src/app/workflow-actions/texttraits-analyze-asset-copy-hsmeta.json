@@ -1,0 +1,215 @@
+{
+  "uid": "texttraits_analyze_asset_copy_action",
+  "type": "workflow-action",
+  "config": {
+    "actionUrl": "https://texttraits.onrender.com/v1/integrations/hubspot/workflow-actions/analyze-asset-copy",
+    "isPublished": true,
+    "supportedClients": [
+      {
+        "client": "WORKFLOWS"
+      }
+    ],
+    "objectTypes": ["CONTACT", "COMPANY", "DEAL", "TICKET"],
+    "inputFields": [
+      {
+        "typeDefinition": {
+          "name": "asset_type",
+          "type": "enumeration",
+          "fieldType": "select",
+          "options": [
+            {
+              "value": "FORM",
+              "label": "Form"
+            },
+            {
+              "value": "LANDING_PAGE",
+              "label": "Landing page"
+            },
+            {
+              "value": "SITE_PAGE",
+              "label": "Site page"
+            },
+            {
+              "value": "BLOG_POST",
+              "label": "Blog post"
+            },
+            {
+              "value": "MARKETING_EMAIL",
+              "label": "Marketing email"
+            },
+            {
+              "value": "MARKETING_SMS",
+              "label": "Marketing SMS"
+            },
+            {
+              "value": "SOCIAL_BROADCAST",
+              "label": "Social post"
+            },
+            {
+              "value": "CTA",
+              "label": "CTA"
+            },
+            {
+              "value": "HUBSPOT_ASSET",
+              "label": "Other HubSpot asset"
+            }
+          ]
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "asset_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "asset_name",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "asset_copy",
+          "type": "string",
+          "fieldType": "textarea"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "campaign_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "analysis_mode",
+          "type": "enumeration",
+          "fieldType": "select",
+          "options": [
+            {
+              "value": "asset_copy_workflow_gate",
+              "label": "Asset copy gate"
+            },
+            {
+              "value": "campaign_preflight",
+              "label": "Campaign preflight"
+            },
+            {
+              "value": "compliance_review",
+              "label": "Compliance review"
+            }
+          ]
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": true
+      }
+    ],
+    "outputFields": [
+      {
+        "name": "texttraits_score",
+        "type": "number"
+      },
+      {
+        "name": "texttraits_gate",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_route",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_next_step",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_owner_queue",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_blocker_level",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_blocker_reason",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_policy_version",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_asset_type",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_asset_id",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_asset_name",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_request_id",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_content_hash",
+        "type": "string"
+      }
+    ],
+    "labels": {
+      "en": {
+        "appDisplayName": "TextTraits Email Fit",
+        "actionName": "Analyze asset copy",
+        "actionDescription": "Scores mapped copy from a HubSpot form, page, SMS, social post, CTA, or other campaign asset and returns routing fields for workflow branches.",
+        "actionCardContent": "Analyze {{asset_type}} copy with TextTraits",
+        "inputFieldLabels": {
+          "asset_type": "Asset type",
+          "asset_id": "Asset ID",
+          "asset_name": "Asset name",
+          "asset_copy": "Asset copy",
+          "campaign_id": "Campaign ID",
+          "analysis_mode": "Analysis mode"
+        },
+        "inputFieldDescriptions": {
+          "asset_type": "The HubSpot asset family being reviewed.",
+          "asset_id": "Optional HubSpot asset ID for traceability.",
+          "asset_name": "Optional asset name or title for audit trails.",
+          "asset_copy": "Reviewable copy from the asset, such as form text, page copy, SMS text, social copy, or CTA text.",
+          "campaign_id": "Optional HubSpot campaign identifier for reporting.",
+          "analysis_mode": "How this workflow will use the TextTraits decision."
+        },
+        "outputFieldLabels": {
+          "texttraits_score": "TextTraits score",
+          "texttraits_gate": "TextTraits gate",
+          "texttraits_route": "TextTraits route",
+          "texttraits_next_step": "TextTraits next step",
+          "texttraits_owner_queue": "TextTraits owner queue",
+          "texttraits_blocker_level": "TextTraits blocker level",
+          "texttraits_blocker_reason": "TextTraits blocker reason",
+          "texttraits_policy_version": "TextTraits policy version",
+          "texttraits_asset_type": "TextTraits asset type",
+          "texttraits_asset_id": "TextTraits asset ID",
+          "texttraits_asset_name": "TextTraits asset name",
+          "texttraits_request_id": "TextTraits request ID",
+          "texttraits_content_hash": "TextTraits content hash"
+        }
+      }
+    }
+  }
+}

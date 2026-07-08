@@ -1,0 +1,9 @@
+{
+  "uid": "texttraits_home_page",
+  "type": "home",
+  "config": {
+    "name": "TextTraits",
+    "description": "Campaign review health, review queues, and HubSpot writeback readiness.",
+    "entrypoint": "/app/home/TextTraitsHome.jsx"
+  }
+}

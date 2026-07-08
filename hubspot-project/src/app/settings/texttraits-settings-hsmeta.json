@@ -1,0 +1,9 @@
+{
+  "uid": "texttraits_settings_page",
+  "type": "settings",
+  "config": {
+    "name": "TextTraits settings",
+    "description": "Manage TextTraits portal connection, scopes, surfaces, policy, webhooks, and writeback readiness.",
+    "entrypoint": "/app/settings/TextTraitsSettings.jsx"
+  }
+}

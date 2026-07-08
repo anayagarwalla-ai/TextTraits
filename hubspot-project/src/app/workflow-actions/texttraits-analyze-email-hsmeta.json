@@ -1,0 +1,151 @@
+{
+  "uid": "texttraits_analyze_email_action",
+  "type": "workflow-action",
+  "config": {
+    "actionUrl": "https://texttraits.onrender.com/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "isPublished": true,
+    "supportedClients": [
+      {
+        "client": "WORKFLOWS"
+      }
+    ],
+    "objectTypes": ["CONTACT", "COMPANY", "DEAL", "TICKET"],
+    "inputFields": [
+      {
+        "typeDefinition": {
+          "name": "email_subject",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "email_body",
+          "type": "string",
+          "fieldType": "textarea"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "campaign_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "template_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "analysis_mode",
+          "type": "enumeration",
+          "fieldType": "select",
+          "options": [
+            {
+              "value": "send_path_gate",
+              "label": "Send path gate"
+            },
+            {
+              "value": "campaign_preflight",
+              "label": "Campaign preflight"
+            },
+            {
+              "value": "compliance_review",
+              "label": "Compliance review"
+            }
+          ]
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": true
+      }
+    ],
+    "outputFields": [
+      {
+        "name": "texttraits_score",
+        "type": "number"
+      },
+      {
+        "name": "texttraits_gate",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_route",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_next_step",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_owner_queue",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_blocker_level",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_blocker_reason",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_policy_version",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_request_id",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_content_hash",
+        "type": "string"
+      }
+    ],
+    "labels": {
+      "en": {
+        "appDisplayName": "TextTraits Email Fit",
+        "actionName": "Analyze email fit",
+        "actionDescription": "Scores an existing email draft and returns routing fields for ready, needs review, or blocked workflow branches.",
+        "actionCardContent": "Analyze {{email_subject}} with TextTraits",
+        "inputFieldLabels": {
+          "email_subject": "Email subject",
+          "email_body": "Email body",
+          "campaign_id": "Campaign ID",
+          "template_id": "Template or email ID",
+          "analysis_mode": "Analysis mode"
+        },
+        "inputFieldDescriptions": {
+          "email_subject": "Subject line to score.",
+          "email_body": "Existing draft body to score before send or review.",
+          "campaign_id": "Optional campaign identifier for reporting.",
+          "template_id": "Optional email/template identifier for reporting.",
+          "analysis_mode": "How this workflow will use the TextTraits decision."
+        },
+        "outputFieldLabels": {
+          "texttraits_score": "TextTraits score",
+          "texttraits_gate": "TextTraits gate",
+          "texttraits_route": "TextTraits route",
+          "texttraits_next_step": "TextTraits next step",
+          "texttraits_owner_queue": "TextTraits owner queue",
+          "texttraits_blocker_level": "TextTraits blocker level",
+          "texttraits_blocker_reason": "TextTraits blocker reason",
+          "texttraits_policy_version": "TextTraits policy version",
+          "texttraits_request_id": "TextTraits request ID",
+          "texttraits_content_hash": "TextTraits content hash"
+        }
+      }
+    }
+  }
+}

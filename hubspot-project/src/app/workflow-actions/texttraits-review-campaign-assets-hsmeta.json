@@ -1,0 +1,112 @@
+{
+  "uid": "texttraits_review_campaign_assets_action",
+  "type": "workflow-action",
+  "config": {
+    "actionUrl": "https://texttraits.onrender.com/v1/integrations/hubspot/workflow-actions/review-campaign-assets",
+    "isPublished": true,
+    "supportedClients": [
+      {
+        "client": "WORKFLOWS"
+      }
+    ],
+    "objectTypes": ["CONTACT", "COMPANY", "DEAL", "TICKET"],
+    "inputFields": [
+      {
+        "typeDefinition": {
+          "name": "portal_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "campaign_id",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": true
+      },
+      {
+        "typeDefinition": {
+          "name": "asset_types",
+          "type": "string",
+          "fieldType": "text"
+        },
+        "supportedValueTypes": ["STATIC_VALUE", "OBJECT_PROPERTY"],
+        "isRequired": false
+      },
+      {
+        "typeDefinition": {
+          "name": "limit",
+          "type": "number",
+          "fieldType": "number"
+        },
+        "supportedValueTypes": ["STATIC_VALUE"],
+        "isRequired": false
+      }
+    ],
+    "outputFields": [
+      {"name": "texttraits_campaign_health", "type": "string"},
+      {"name": "texttraits_gate", "type": "string"},
+      {"name": "texttraits_route", "type": "string"},
+      {"name": "texttraits_next_step", "type": "string"},
+      {"name": "texttraits_campaign_id", "type": "string"},
+      {"name": "texttraits_asset_types", "type": "string"},
+      {"name": "texttraits_assets_seen", "type": "number"},
+      {"name": "texttraits_analyzed_count", "type": "number"},
+      {"name": "texttraits_ready_count", "type": "number"},
+      {"name": "texttraits_needs_review_count", "type": "number"},
+      {"name": "texttraits_blocked_count", "type": "number"},
+      {"name": "texttraits_skipped_count", "type": "number"},
+      {"name": "texttraits_error_count", "type": "number"},
+      {"name": "texttraits_average_score", "type": "number"},
+      {"name": "texttraits_copy_coverage", "type": "string"},
+      {"name": "texttraits_coverage_score", "type": "number"},
+      {"name": "texttraits_coverage_label", "type": "string"},
+      {"name": "texttraits_content_hash", "type": "string"}
+    ],
+    "labels": {
+      "en": {
+        "appDisplayName": "TextTraits Email Fit",
+        "actionName": "Review campaign assets",
+        "actionDescription": "Fetches a HubSpot campaign asset map, scores reviewable assets, and returns campaign-level routing fields.",
+        "actionCardContent": "Review campaign {{campaign_id}} with TextTraits",
+        "inputFieldLabels": {
+          "portal_id": "HubSpot portal ID",
+          "campaign_id": "Campaign ID",
+          "asset_types": "Asset types",
+          "limit": "Assets per type"
+        },
+        "inputFieldDescriptions": {
+          "portal_id": "Connected HubSpot portal ID with TextTraits OAuth token storage.",
+          "campaign_id": "HubSpot campaign GUID to review.",
+          "asset_types": "Comma-separated Campaigns API asset types. Defaults include marketing emails, forms, pages, ads, CTAs, workflows, lists, social, SMS, sequences, site pages, and blog posts.",
+          "limit": "Maximum assets to inspect per asset type."
+        },
+        "outputFieldLabels": {
+          "texttraits_campaign_health": "TextTraits campaign health",
+          "texttraits_gate": "TextTraits gate",
+          "texttraits_route": "TextTraits route",
+          "texttraits_next_step": "TextTraits next step",
+          "texttraits_campaign_id": "TextTraits campaign ID",
+          "texttraits_asset_types": "TextTraits asset types",
+          "texttraits_assets_seen": "TextTraits assets seen",
+          "texttraits_analyzed_count": "TextTraits analyzed count",
+          "texttraits_ready_count": "TextTraits ready count",
+          "texttraits_needs_review_count": "TextTraits needs review count",
+          "texttraits_blocked_count": "TextTraits blocked count",
+          "texttraits_skipped_count": "TextTraits skipped count",
+          "texttraits_error_count": "TextTraits error count",
+          "texttraits_average_score": "TextTraits average score",
+          "texttraits_copy_coverage": "TextTraits reviewed asset types",
+          "texttraits_coverage_score": "TextTraits coverage score",
+          "texttraits_coverage_label": "TextTraits coverage label",
+          "texttraits_content_hash": "TextTraits content hash"
+        }
+      }
+    }
+  }
+}
