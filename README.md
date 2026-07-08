@@ -110,6 +110,27 @@ The smoke test verifies:
 - The evaluation endpoint returns a structured response.
 - The health endpoint responds.
 
+Run the demo CRM seed regression:
+
+```bash
+python tests/demo_crm_seed_test.py
+```
+
+## Demo CRM Dataset
+
+The HubSpot governance and reporting surfaces can be populated with a synthetic CRM-style dataset:
+
+```bash
+python scripts/migrate.py
+python scripts/seed_demo_crm.py
+```
+
+The fixture lives at `texttraits_app/demo_data/hubspot_crm_demo.json`. It includes fictional companies, contacts, deals, owners, campaigns, review actions, and activity/outcome events using reserved example domains. It is synthetic repository data, so it avoids third-party licensing constraints and real personal data.
+
+The seed uses the configured database environment, just like `scripts/migrate.py`. To force a local SQLite demo database, set `TEXTTRAITS_DATABASE_URL=` and `DATABASE_URL=` and point `TEXTTRAITS_DB_PATH` at the desired `.sqlite3` file.
+
+The seed targets workspace `demo_hubspot_crm` and refreshes that workspace by default before loading data, so rerunning the command does not duplicate analyses or outcomes. Use `python scripts/seed_demo_crm.py --no-refresh` only when you intentionally want to append. After seeding, open the Enterprise view, expand CRM setup, and load HubSpot governance data; use workspace `demo_hubspot_crm` when inspecting the saved demo policy.
+
 ## Training
 
 High-RAM training scripts live in `training/`. See `training/README.md` for Colab commands, expected Google Drive paths, and output files.
