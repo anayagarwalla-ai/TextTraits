@@ -15,6 +15,14 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from werkzeug.security import check_password_hash, generate_password_hash
 
 try:
+    from cryptography.fernet import Fernet, InvalidToken
+except ImportError:  # pragma: no cover - optional until token storage is enabled
+    Fernet = None
+
+    class InvalidToken(Exception):
+        pass
+
+try:
     import psycopg
     from psycopg.rows import dict_row
 except ImportError:  # pragma: no cover - optional production dependency
@@ -384,6 +392,40 @@ def init_db() -> None:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_portal_tokens (
+                  portal_id TEXT PRIMARY KEY,
+                  hub_domain TEXT NOT NULL DEFAULT '',
+                  account_name TEXT NOT NULL DEFAULT '',
+                  access_token_encrypted TEXT NOT NULL DEFAULT '',
+                  refresh_token_encrypted TEXT NOT NULL DEFAULT '',
+                  scopes TEXT NOT NULL DEFAULT '[]',
+                  token_type TEXT NOT NULL DEFAULT 'bearer',
+                  expires_at TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT 'connected',
+                  installed_by TEXT NOT NULL DEFAULT '',
+                  connected_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  disconnected_at TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS hubspot_route_owner_maps (
+                  id BIGSERIAL PRIMARY KEY,
+                  portal_id TEXT NOT NULL,
+                  workspace_id TEXT NOT NULL DEFAULT '',
+                  route_map TEXT NOT NULL DEFAULT '{}',
+                  default_owner_id TEXT NOT NULL DEFAULT '',
+                  updated_by TEXT NOT NULL DEFAULT '',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE(portal_id, workspace_id)
+                )
+                """
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system)")
@@ -393,6 +435,8 @@ def init_db() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_request ON hubspot_email_outcome_events (request_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_hash ON hubspot_email_outcome_events (content_hash)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_policy_versions_workspace ON hubspot_policy_versions (workspace_id, environment)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_portal_tokens_status ON hubspot_portal_tokens (status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hubspot_route_owner_maps_portal ON hubspot_route_owner_maps (portal_id, workspace_id)")
         else:
             conn.executescript(
                 """
@@ -569,6 +613,34 @@ def init_db() -> None:
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS hubspot_portal_tokens (
+              portal_id TEXT PRIMARY KEY,
+              hub_domain TEXT NOT NULL DEFAULT '',
+              account_name TEXT NOT NULL DEFAULT '',
+              access_token_encrypted TEXT NOT NULL DEFAULT '',
+              refresh_token_encrypted TEXT NOT NULL DEFAULT '',
+              scopes TEXT NOT NULL DEFAULT '[]',
+              token_type TEXT NOT NULL DEFAULT 'bearer',
+              expires_at TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'connected',
+              installed_by TEXT NOT NULL DEFAULT '',
+              connected_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              disconnected_at TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS hubspot_route_owner_maps (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              portal_id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL DEFAULT '',
+              route_map TEXT NOT NULL DEFAULT '{}',
+              default_owner_id TEXT NOT NULL DEFAULT '',
+              updated_by TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE(portal_id, workspace_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_created_at ON hubspot_email_analyses (created_at);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_gate ON hubspot_email_analyses (gate);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_source ON hubspot_email_analyses (source_system);
@@ -578,6 +650,8 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_request ON hubspot_email_outcome_events (request_id);
             CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_hash ON hubspot_email_outcome_events (content_hash);
             CREATE INDEX IF NOT EXISTS idx_hubspot_policy_versions_workspace ON hubspot_policy_versions (workspace_id, environment);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_portal_tokens_status ON hubspot_portal_tokens (status);
+            CREATE INDEX IF NOT EXISTS idx_hubspot_route_owner_maps_portal ON hubspot_route_owner_maps (portal_id, workspace_id);
             """
             )
         ensure_schema_version(conn)
@@ -1039,6 +1113,356 @@ def _json_load(value: str | None, fallback: Any) -> Any:
         return fallback
 
 
+def oauth_token_storage_enabled() -> bool:
+    return os.getenv("TEXTTRAITS_STORE_OAUTH_TOKENS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def token_encryption_key() -> str:
+    return os.getenv("TEXTTRAITS_TOKEN_ENCRYPTION_KEY", "").strip()
+
+
+def token_storage_status() -> dict[str, Any]:
+    key = token_encryption_key()
+    key_valid = False
+    if Fernet is not None and key:
+        try:
+            Fernet(key.encode("utf-8"))
+            key_valid = True
+        except Exception:
+            key_valid = False
+    return {
+        "enabled": oauth_token_storage_enabled(),
+        "encryption_library": "cryptography.fernet" if Fernet is not None else "missing",
+        "encryption_key_configured": bool(key),
+        "encryption_key_valid": key_valid,
+        "ready": bool(oauth_token_storage_enabled() and key_valid),
+    }
+
+
+def _token_fernet() -> Any:
+    if Fernet is None:
+        raise RuntimeError("Install the cryptography package before enabling OAuth token storage.")
+    key = token_encryption_key()
+    if not key:
+        raise RuntimeError("Configure TEXTTRAITS_TOKEN_ENCRYPTION_KEY before storing HubSpot OAuth tokens.")
+    try:
+        return Fernet(key.encode("utf-8"))
+    except Exception as error:
+        raise RuntimeError("TEXTTRAITS_TOKEN_ENCRYPTION_KEY must be a valid Fernet key.") from error
+
+
+def encrypt_secret_value(value: str) -> str:
+    clean = str(value or "")
+    if not clean:
+        return ""
+    return _token_fernet().encrypt(clean.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_secret_value(value: str) -> str:
+    clean = str(value or "")
+    if not clean:
+        return ""
+    try:
+        return _token_fernet().decrypt(clean.encode("utf-8")).decode("utf-8")
+    except InvalidToken as error:
+        raise RuntimeError("Stored HubSpot OAuth token could not be decrypted with the configured key.") from error
+
+
+def normalize_hubspot_scopes(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\s,]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = []
+    scopes: list[str] = []
+    for item in raw_items:
+        clean = str(item or "").strip()
+        if clean and clean not in scopes:
+            scopes.append(clean)
+    return scopes[:200]
+
+
+def hubspot_expires_at(expires_in: Any) -> str:
+    try:
+        seconds = int(expires_in or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    if seconds <= 0:
+        return ""
+    return (datetime.now(timezone.utc) + timedelta(seconds=max(1, seconds - 60))).isoformat(timespec="seconds")
+
+
+def public_hubspot_portal_connection(row: Any, include_tokens: bool = False) -> dict[str, Any]:
+    connection = {
+        "portal_id": row["portal_id"],
+        "hub_domain": row["hub_domain"],
+        "account_name": row["account_name"],
+        "scopes": _json_load(row["scopes"], []),
+        "token_type": row["token_type"],
+        "expires_at": row["expires_at"],
+        "status": row["status"],
+        "installed_by": row["installed_by"],
+        "connected_at": row["connected_at"],
+        "updated_at": row["updated_at"],
+        "disconnected_at": row["disconnected_at"],
+        "tokens_available": bool(row["access_token_encrypted"] or row["refresh_token_encrypted"]),
+    }
+    if include_tokens:
+        connection["access_token"] = decrypt_secret_value(row["access_token_encrypted"])
+        connection["refresh_token"] = decrypt_secret_value(row["refresh_token_encrypted"])
+    return connection
+
+
+def save_hubspot_portal_tokens(token_payload: dict[str, Any], installed_by: str = "") -> dict[str, Any]:
+    portal_id = str(token_payload.get("hub_id") or token_payload.get("portal_id") or "").strip()
+    if not portal_id:
+        raise ValueError("HubSpot OAuth token payload did not include a portal ID.")
+    scopes = normalize_hubspot_scopes(token_payload.get("scopes") or token_payload.get("scope"))
+    access_token = str(token_payload.get("access_token") or "")
+    refresh_token = str(token_payload.get("refresh_token") or "")
+    tokens_available = bool(access_token or refresh_token)
+    if tokens_available and not token_storage_status()["ready"]:
+        raise RuntimeError("HubSpot OAuth token storage is enabled but encryption is not ready.")
+    now = utc_now()
+    values = {
+        "portal_id": portal_id[:160],
+        "hub_domain": str(token_payload.get("hub_domain") or "")[:240],
+        "account_name": str(token_payload.get("account_name") or token_payload.get("hub_domain") or "")[:240],
+        "access_token_encrypted": encrypt_secret_value(access_token) if access_token else "",
+        "refresh_token_encrypted": encrypt_secret_value(refresh_token) if refresh_token else "",
+        "scopes": _json_dump(scopes),
+        "token_type": str(token_payload.get("token_type") or "bearer")[:40],
+        "expires_at": hubspot_expires_at(token_payload.get("expires_in")),
+        "status": "connected" if tokens_available else "metadata_only",
+        "installed_by": str(installed_by or "")[:240],
+        "now": now,
+    }
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_portal_tokens (
+              portal_id, hub_domain, account_name, access_token_encrypted, refresh_token_encrypted,
+              scopes, token_type, expires_at, status, installed_by, connected_at, updated_at, disconnected_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+            ON CONFLICT(portal_id) DO UPDATE SET
+              hub_domain = excluded.hub_domain,
+              account_name = excluded.account_name,
+              access_token_encrypted = COALESCE(NULLIF(excluded.access_token_encrypted, ''), hubspot_portal_tokens.access_token_encrypted),
+              refresh_token_encrypted = COALESCE(NULLIF(excluded.refresh_token_encrypted, ''), hubspot_portal_tokens.refresh_token_encrypted),
+              scopes = excluded.scopes,
+              token_type = excluded.token_type,
+              expires_at = excluded.expires_at,
+              status = excluded.status,
+              installed_by = COALESCE(NULLIF(excluded.installed_by, ''), hubspot_portal_tokens.installed_by),
+              updated_at = excluded.updated_at,
+              disconnected_at = ''
+            """,
+            (
+                values["portal_id"],
+                values["hub_domain"],
+                values["account_name"],
+                values["access_token_encrypted"],
+                values["refresh_token_encrypted"],
+                values["scopes"],
+                values["token_type"],
+                values["expires_at"],
+                values["status"],
+                values["installed_by"],
+                values["now"],
+                values["now"],
+            ),
+        )
+        row = execute(conn, "SELECT * FROM hubspot_portal_tokens WHERE portal_id = ?", (values["portal_id"],)).fetchone()
+    return public_hubspot_portal_connection(row)
+
+
+def update_hubspot_portal_access_token(portal_id: str, token_payload: dict[str, Any]) -> dict[str, Any]:
+    clean_portal_id = str(portal_id or token_payload.get("hub_id") or "").strip()[:160]
+    if not clean_portal_id:
+        raise ValueError("HubSpot portal ID is required to update an access token.")
+    access_token = str(token_payload.get("access_token") or "")
+    refresh_token = str(token_payload.get("refresh_token") or "")
+    if (access_token or refresh_token) and not token_storage_status()["ready"]:
+        raise RuntimeError("HubSpot OAuth token storage is enabled but encryption is not ready.")
+    fields = {
+        "access_token_encrypted": encrypt_secret_value(access_token) if access_token else "",
+        "refresh_token_encrypted": encrypt_secret_value(refresh_token) if refresh_token else "",
+        "scopes": _json_dump(normalize_hubspot_scopes(token_payload.get("scopes") or token_payload.get("scope"))),
+        "token_type": str(token_payload.get("token_type") or "bearer")[:40],
+        "expires_at": hubspot_expires_at(token_payload.get("expires_in")),
+        "updated_at": utc_now(),
+    }
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            UPDATE hubspot_portal_tokens
+            SET access_token_encrypted = COALESCE(NULLIF(?, ''), access_token_encrypted),
+                refresh_token_encrypted = COALESCE(NULLIF(?, ''), refresh_token_encrypted),
+                scopes = COALESCE(NULLIF(?, '[]'), scopes),
+                token_type = COALESCE(NULLIF(?, ''), token_type),
+                expires_at = COALESCE(NULLIF(?, ''), expires_at),
+                status = 'connected',
+                updated_at = ?,
+                disconnected_at = ''
+            WHERE portal_id = ?
+            """,
+            (
+                fields["access_token_encrypted"],
+                fields["refresh_token_encrypted"],
+                fields["scopes"],
+                fields["token_type"],
+                fields["expires_at"],
+                fields["updated_at"],
+                clean_portal_id,
+            ),
+        )
+        row = execute(conn, "SELECT * FROM hubspot_portal_tokens WHERE portal_id = ?", (clean_portal_id,)).fetchone()
+    if row is None:
+        raise ValueError("HubSpot portal connection was not found.")
+    return public_hubspot_portal_connection(row)
+
+
+def get_hubspot_portal_connection(portal_id: str, include_tokens: bool = False) -> dict[str, Any] | None:
+    clean_portal_id = str(portal_id or "").strip()[:160]
+    if not clean_portal_id:
+        return None
+    with connect() as conn:
+        row = execute(conn, "SELECT * FROM hubspot_portal_tokens WHERE portal_id = ?", (clean_portal_id,)).fetchone()
+    if row is None:
+        return None
+    return public_hubspot_portal_connection(row, include_tokens=include_tokens)
+
+
+def list_hubspot_portal_connections(limit: int = 100) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with connect() as conn:
+        rows = execute(conn, "SELECT * FROM hubspot_portal_tokens ORDER BY updated_at DESC LIMIT ?", (safe_limit,)).fetchall()
+    return [public_hubspot_portal_connection(row) for row in rows]
+
+
+def disconnect_hubspot_portal(portal_id: str, actor: str = "") -> dict[str, Any] | None:
+    clean_portal_id = str(portal_id or "").strip()[:160]
+    if not clean_portal_id:
+        return None
+    now = utc_now()
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            UPDATE hubspot_portal_tokens
+            SET access_token_encrypted = '',
+                refresh_token_encrypted = '',
+                status = 'disconnected',
+                updated_at = ?,
+                disconnected_at = ?
+            WHERE portal_id = ?
+            """,
+            (now, now, clean_portal_id),
+        )
+        row = execute(conn, "SELECT * FROM hubspot_portal_tokens WHERE portal_id = ?", (clean_portal_id,)).fetchone()
+        if row and actor:
+            execute(
+                conn,
+                "INSERT INTO audit_events (user_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
+                (None, "hubspot_portal_disconnected", _json_dump({"portal_id": clean_portal_id, "actor": actor}), now),
+            )
+    return public_hubspot_portal_connection(row) if row else None
+
+
+def public_hubspot_route_owner_map(row: Any | None) -> dict[str, Any]:
+    if row is None:
+        return {"portal_id": "", "workspace_id": "", "route_owner_map": {}, "default_owner_id": "", "updated_by": "", "updated_at": ""}
+    return {
+        "portal_id": row["portal_id"],
+        "workspace_id": row["workspace_id"],
+        "route_owner_map": _json_load(row["route_map"], {}),
+        "default_owner_id": row["default_owner_id"],
+        "updated_by": row["updated_by"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def save_hubspot_route_owner_map(
+    portal_id: str,
+    workspace_id: str,
+    route_owner_map: dict[str, Any],
+    default_owner_id: str = "",
+    updated_by: str = "",
+) -> dict[str, Any]:
+    clean_portal_id = str(portal_id or "").strip()[:160]
+    if not clean_portal_id:
+        raise ValueError("HubSpot portal_id is required to save review routing.")
+    clean_workspace_id = str(workspace_id or f"hubspot_{clean_portal_id}")[:160]
+    clean_route_map = {
+        str(key).strip()[:160]: str(value).strip()[:160]
+        for key, value in (route_owner_map or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    now = utc_now()
+    with connect() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO hubspot_route_owner_maps (
+              portal_id, workspace_id, route_map, default_owner_id, updated_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(portal_id, workspace_id) DO UPDATE SET
+              route_map = excluded.route_map,
+              default_owner_id = excluded.default_owner_id,
+              updated_by = excluded.updated_by,
+              updated_at = excluded.updated_at
+            """,
+            (
+                clean_portal_id,
+                clean_workspace_id,
+                _json_dump(clean_route_map),
+                str(default_owner_id or "")[:160],
+                str(updated_by or "")[:160],
+                now,
+                now,
+            ),
+        )
+        row = execute(
+            conn,
+            "SELECT * FROM hubspot_route_owner_maps WHERE portal_id = ? AND workspace_id = ?",
+            (clean_portal_id, clean_workspace_id),
+        ).fetchone()
+    return public_hubspot_route_owner_map(row)
+
+
+def get_hubspot_route_owner_map(portal_id: str, workspace_id: str = "") -> dict[str, Any] | None:
+    clean_portal_id = str(portal_id or "").strip()[:160]
+    if not clean_portal_id:
+        return None
+    clean_workspace_id = str(workspace_id or f"hubspot_{clean_portal_id}")[:160]
+    with connect() as conn:
+        row = execute(
+            conn,
+            "SELECT * FROM hubspot_route_owner_maps WHERE portal_id = ? AND workspace_id = ?",
+            (clean_portal_id, clean_workspace_id),
+        ).fetchone()
+        if row is None and clean_workspace_id:
+            row = execute(
+                conn,
+                "SELECT * FROM hubspot_route_owner_maps WHERE portal_id = ? AND workspace_id = ''",
+                (clean_portal_id,),
+            ).fetchone()
+    return public_hubspot_route_owner_map(row) if row else None
+
+
+def hubspot_connection_has_scopes(connection: dict[str, Any] | None, required_scopes: list[str] | tuple[str, ...]) -> bool:
+    if not required_scopes:
+        return True
+    granted = {str(scope).strip() for scope in (connection or {}).get("scopes", []) if str(scope).strip()}
+    return set(required_scopes).issubset(granted)
+
+
 def _hubspot_analysis_from_row(row) -> dict[str, Any]:
     return {
         "request_id": row["request_id"],
@@ -1072,6 +1496,50 @@ def _hubspot_analysis_from_row(row) -> dict[str, Any]:
         "context": _json_load(row["context"], {}),
         "created_at": row["created_at"],
     }
+
+
+def get_hubspot_email_analysis(request_id: str) -> dict[str, Any] | None:
+    clean_request_id = str(request_id or "").strip()[:160]
+    if not clean_request_id:
+        return None
+    with connect() as conn:
+        row = execute(conn, "SELECT * FROM hubspot_email_analyses WHERE request_id = ?", (clean_request_id,)).fetchone()
+    return _hubspot_analysis_from_row(row) if row else None
+
+
+def find_hubspot_email_analysis_for_context(
+    *,
+    workspace_id: str = "",
+    portal_id: str = "",
+    campaign_id: str = "",
+    template_id: str = "",
+    object_type: str = "",
+    object_id: str = "",
+) -> dict[str, Any] | None:
+    clauses: list[str] = []
+    params: list[Any] = []
+    for key, value in (
+        ("workspace_id", workspace_id),
+        ("portal_id", portal_id),
+        ("campaign_id", campaign_id),
+        ("template_id", template_id),
+        ("object_type", object_type),
+        ("object_id", object_id),
+    ):
+        clean = str(value or "").strip()
+        if clean:
+            clauses.append(f"{key} = ?")
+            params.append(clean[:160])
+    if not clauses:
+        return None
+    where = " AND ".join(clauses)
+    with connect() as conn:
+        row = execute(
+            conn,
+            f"SELECT * FROM hubspot_email_analyses WHERE {where} ORDER BY id DESC LIMIT 1",
+            tuple(params),
+        ).fetchone()
+    return _hubspot_analysis_from_row(row) if row else None
 
 
 def save_hubspot_analysis_artifacts(request_id: str, checks: list[dict[str, Any]], findings: list[dict[str, Any]], created_at: str) -> None:
@@ -1282,7 +1750,21 @@ def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None
     filters = filters or {}
     clauses: list[str] = []
     params: list[Any] = []
-    for key in ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id"):
+    for key in (
+        "workspace_id",
+        "tenant_id",
+        "source_system",
+        "gate",
+        "route",
+        "campaign_id",
+        "template_id",
+        "contact_id",
+        "company_id",
+        "deal_id",
+        "portal_id",
+        "object_type",
+        "object_id",
+    ):
         value = str(filters.get(key, "")).strip()
         if value:
             clauses.append(f"{key} = ?")
@@ -1300,7 +1782,7 @@ def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None
 
 def save_hubspot_review_event(request_id: str, action: str, payload: dict[str, Any] | None = None, actor_id: str = "", status: str = "recorded") -> dict[str, Any]:
     clean_action = SAFE_EVENT_TYPE_RE.sub("_", str(action or "")).strip("_")[:80]
-    if clean_action not in {"copy_recommendation", "mark_reviewed", "send_to_marketing_review", "rerun_analysis", "assign_reviewer", "resolve_review", "add_review_note"}:
+    if clean_action not in {"copy_recommendation", "mark_reviewed", "send_to_marketing_review", "rerun_analysis", "assign_reviewer", "approve_review", "reject_review", "resolve_review", "add_review_note"}:
         raise ValueError("Unsupported HubSpot review action.")
     clean_request_id = str(request_id or "").strip()[:160]
     if not clean_request_id:
@@ -1335,6 +1817,12 @@ def upsert_hubspot_review_state_from_event(event: dict[str, Any]) -> dict[str, A
         status = "queued"
     elif action == "assign_reviewer":
         status = "assigned"
+    elif action == "approve_review":
+        status = "approved"
+        resolved_at = now
+    elif action == "reject_review":
+        status = "rejected"
+        resolved_at = now
     elif action in {"mark_reviewed", "resolve_review"}:
         status = "resolved"
         resolved_at = now
@@ -1628,17 +2116,50 @@ def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None
 def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
     analyses = list_hubspot_email_analyses(limit=limit)
     outcomes = list_hubspot_outcome_events(limit=limit)
+    review_states = list_hubspot_review_states(limit=limit)
     total = len(analyses)
     gates: dict[str, int] = {}
     source_scores: dict[str, list[int]] = {}
+    campaign_scores: dict[str, list[int]] = {}
+    template_scores: dict[str, list[int]] = {}
+    source_gate_counts: dict[str, dict[str, int]] = {}
     failed_checks: dict[str, int] = {}
     route_counts: dict[str, int] = {}
     outcome_counts: dict[str, int] = {}
+    blocked_by_region: dict[str, dict[str, int]] = {}
+    send_ready_by_business_unit: dict[str, dict[str, int]] = {}
+    risky_claim_type: dict[str, int] = {}
+    outcome_by_audience_segment: dict[str, dict[str, int]] = {}
+    outcome_by_region: dict[str, dict[str, int]] = {}
+    outcome_by_skill_family: dict[str, dict[str, int]] = {}
+    outcome_by_job_family: dict[str, dict[str, int]] = {}
     blocked = []
     outcomes_by_request: dict[str, list[dict[str, Any]]] = {}
     outcomes_by_hash: dict[str, list[dict[str, Any]]] = {}
+
+    def context_value(item: dict[str, Any], key: str, fallback: str = "unmapped") -> str:
+        context = item.get("context") if isinstance(item.get("context"), dict) else {}
+        delivery = context.get("delivery_context") if isinstance(context.get("delivery_context"), dict) else {}
+        value = context.get(key) or delivery.get(key) or item.get(key) or ""
+        clean = str(value or "").strip()
+        return clean[:160] if clean else fallback
+
+    def increment_rollup(target: dict[str, dict[str, int]], segment: str, event_or_gate: str) -> None:
+        bucket = target.setdefault(segment or "unmapped", {"total": 0})
+        bucket["total"] = bucket.get("total", 0) + 1
+        bucket[event_or_gate or "unknown"] = bucket.get(event_or_gate or "unknown", 0) + 1
+
     for event in outcomes:
         outcome_counts[event["event_type"]] = outcome_counts.get(event["event_type"], 0) + 1
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        for key, target in (
+            ("audience_type", outcome_by_audience_segment),
+            ("region", outcome_by_region),
+            ("skill_family", outcome_by_skill_family),
+            ("job_family", outcome_by_job_family),
+        ):
+            segment = str(payload.get(key) or "unmapped")[:160]
+            increment_rollup(target, segment, event["event_type"])
         if event["request_id"]:
             outcomes_by_request.setdefault(event["request_id"], []).append(event)
         if event["content_hash"]:
@@ -1652,27 +2173,153 @@ def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
         source_scores.setdefault(source, []).append(item["score"])
         if item["gate"] == "blocked":
             blocked.append(item)
+        region = context_value(item, "region")
+        business_unit = context_value(item, "business_unit")
+        increment_rollup(blocked_by_region, region, item["gate"])
+        increment_rollup(send_ready_by_business_unit, business_unit, "send_ready" if item.get("send_ready") else "not_ready")
+        campaign = item["campaign_id"] or "unmapped"
+        template = item["template_id"] or "unmapped"
+        campaign_scores.setdefault(campaign, []).append(item["score"])
+        template_scores.setdefault(template, []).append(item["score"])
+        source_gate_counts.setdefault(source, {})
+        source_gate_counts[source][item["gate"]] = source_gate_counts[source].get(item["gate"], 0) + 1
         for check in item.get("checks", []):
             if check.get("status") != "pass":
                 label = check.get("label") or check.get("id") or "Unknown check"
                 failed_checks[label] = failed_checks.get(label, 0) + 1
+        for finding in item.get("findings", []):
+            if finding.get("id") == "risk_terms_detected":
+                evidence = finding.get("evidence") if isinstance(finding.get("evidence"), list) else []
+                claim_type = str(evidence[0] if evidence else finding.get("title") or "Risk terms detected")[:160]
+                risky_claim_type[claim_type] = risky_claim_type.get(claim_type, 0) + 1
     average_by_source = {
         source: round(sum(scores) / len(scores), 1)
         for source, scores in source_scores.items()
         if scores
     }
+    campaign_health = [
+        {
+            "campaign_id": campaign,
+            "total": len(scores),
+            "average_score": round(sum(scores) / len(scores), 1),
+            "blocked": sum(1 for item in analyses if (item["campaign_id"] or "unmapped") == campaign and item["gate"] == "blocked"),
+            "needs_review": sum(1 for item in analyses if (item["campaign_id"] or "unmapped") == campaign and item["gate"] == "needs_review"),
+        }
+        for campaign, scores in campaign_scores.items()
+    ]
+    template_health = [
+        {
+            "template_id": template,
+            "total": len(scores),
+            "average_score": round(sum(scores) / len(scores), 1),
+            "blocked": sum(1 for item in analyses if (item["template_id"] or "unmapped") == template and item["gate"] == "blocked"),
+            "needs_review": sum(1 for item in analyses if (item["template_id"] or "unmapped") == template and item["gate"] == "needs_review"),
+        }
+        for template, scores in template_scores.items()
+    ]
+    source_health = [
+        {
+            "source_system": source,
+            "total": len(source_scores.get(source, [])),
+            "average_score": average_by_source.get(source, 0),
+            "ready": counts.get("ready", 0),
+            "needs_review": counts.get("needs_review", 0),
+            "blocked": counts.get("blocked", 0),
+        }
+        for source, counts in source_gate_counts.items()
+    ]
+    outcome_rates = [
+        {
+            "event_type": event_type,
+            "count": count,
+            "rate": round((count / total) * 100, 1) if total else 0,
+        }
+        for event_type, count in sorted(outcome_counts.items(), key=lambda item: item[1], reverse=True)
+    ]
+    now = datetime.now(timezone.utc)
+    review_sla = {"open": 0, "overdue": 0, "resolved": 0, "missing_due_date": 0}
+    for state in review_states:
+        status = str(state.get("status") or "")
+        if status in {"approved", "rejected", "resolved"} or state.get("resolved_at"):
+            review_sla["resolved"] += 1
+            continue
+        review_sla["open"] += 1
+        due_at = str(state.get("sla_due_at") or "").strip()
+        if not due_at:
+            review_sla["missing_due_date"] += 1
+            continue
+        try:
+            parsed = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+            if parsed < now:
+                review_sla["overdue"] += 1
+        except ValueError:
+            review_sla["missing_due_date"] += 1
+
+    def rollup_rows(target: dict[str, dict[str, int]], label_key: str) -> list[dict[str, Any]]:
+        rows = [{label_key: segment, **counts} for segment, counts in target.items()]
+        return sorted(rows, key=lambda item: (int(item.get("blocked", 0)), int(item.get("not_ready", 0)), int(item.get("total", 0))), reverse=True)[:20]
+
     return {
         "total_analyses": total,
         "gate_counts": gates,
         "route_counts": route_counts,
         "outcome_counts": outcome_counts,
+        "outcome_rates": outcome_rates,
         "average_score_by_source": average_by_source,
+        "source_health": sorted(source_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
+        "campaign_health": sorted(campaign_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
+        "template_health": sorted(template_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
         "top_failed_checks": [
             {"check": check, "count": count}
             for check, count in sorted(failed_checks.items(), key=lambda item: item[1], reverse=True)[:10]
         ],
+        "blocked_by_region": rollup_rows(blocked_by_region, "region"),
+        "risky_claim_types": [
+            {"claim_type": claim_type, "count": count}
+            for claim_type, count in sorted(risky_claim_type.items(), key=lambda item: item[1], reverse=True)[:20]
+        ],
+        "review_sla": review_sla,
+        "send_ready_by_business_unit": rollup_rows(send_ready_by_business_unit, "business_unit"),
+        "outcome_by_audience_segment": rollup_rows(outcome_by_audience_segment, "audience_type"),
+        "outcome_by_region": rollup_rows(outcome_by_region, "region"),
+        "outcome_by_skill_family": rollup_rows(outcome_by_skill_family, "skill_family"),
+        "outcome_by_job_family": rollup_rows(outcome_by_job_family, "job_family"),
         "recent_blocked_drafts": blocked[:10],
         "generated_at": utc_now(),
+    }
+
+
+HUBSPOT_RETENTION_TABLES = (
+    ("hubspot_email_analyses", "created_at"),
+    ("hubspot_email_checks", "created_at"),
+    ("hubspot_email_findings", "created_at"),
+    ("hubspot_email_review_events", "created_at"),
+    ("hubspot_email_review_states", "updated_at"),
+    ("hubspot_email_outcome_events", "created_at"),
+)
+
+
+def hubspot_retention_cutoff(days: int) -> str:
+    clean_days = max(1, min(int(days or 90), 3650))
+    return (datetime.now(timezone.utc) - timedelta(days=clean_days)).isoformat(timespec="seconds")
+
+
+def hubspot_retention_summary(days: int = 90, dry_run: bool = True) -> dict[str, Any]:
+    cutoff = hubspot_retention_cutoff(days)
+    counts: dict[str, int] = {}
+    with connect() as conn:
+        for table, column in HUBSPOT_RETENTION_TABLES:
+            row = execute(conn, f"SELECT COUNT(*) AS count FROM {table} WHERE {column} < ?", (cutoff,)).fetchone()
+            counts[table] = int(row["count"] if row else 0)
+        if not dry_run:
+            for table, column in HUBSPOT_RETENTION_TABLES:
+                execute(conn, f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
+    return {
+        "days": max(1, min(int(days or 90), 3650)),
+        "cutoff": cutoff,
+        "dry_run": bool(dry_run),
+        "tables": counts,
+        "total_records": sum(counts.values()),
     }
 
 

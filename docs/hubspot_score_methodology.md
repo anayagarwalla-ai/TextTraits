@@ -16,6 +16,8 @@ The score starts with a 0-100 weighted checklist:
 
 Risk terms also apply explicit scoring penalties during the score calculation. Medium-risk language subtracts 25 points. High-risk language, such as `guaranteed`, `guarantee`, or `100%`, subtracts 45 points. That means a draft with strong structure can still receive a low score when the text itself contains risky claims.
 
+Generic subject lines such as `Checking in`, `Follow up`, and `Quick question` receive a subject-specific finding because they do not name the concrete topic or decision. Specificity scoring also drops more sharply when a draft contains multiple configured vague phrases, so weak copy is lowered by the underlying checklist rather than by a hidden display cap.
+
 Model confidence is shown as supporting evidence only. It is not averaged into the score.
 
 ## Evidence

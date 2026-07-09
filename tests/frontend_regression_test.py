@@ -174,6 +174,9 @@ def main() -> int:
     assert_true("const validation = validateExportReadiness([draft], context);" in app_js, "Single-draft export should block invalid drafts")
     assert_true("inboxFirstName" in app_js and "{...context, firstName: inboxFirstName(thread) || context.firstName}" in app_js, "Inbox reply drafts should use the selected thread's name")
     assert_true(".send-checklist span.needs-work" in styles_css and ".send-checklist span.is-ok" in styles_css, "Send-readiness checklist should visually distinguish issues from completed items")
+    assert_true("HubSpot coming soon" not in app_js + html + config_js, "HubSpot should not be described as coming soon after native project integration exists")
+    assert_true("HubSpot native app ready" in app_js, "Enterprise integration copy should frame HubSpot as native but credential-gated")
+    assert_true("Map CRM, campaign, email, workflow, task, and review fields" in app_js, "HubSpot setup guidance should cover the native integration surfaces")
 
     print("Frontend regression checks passed.")
     return 0

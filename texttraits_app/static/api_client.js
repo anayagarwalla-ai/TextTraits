@@ -110,5 +110,10 @@
     hubspotFindings: (query = "") => request(`/api/enterprise/hubspot/findings${query}`),
     hubspotOutcomes: (query = "") => request(`/api/enterprise/hubspot/outcomes${query}`),
     hubspotReviewStates: (query = "") => request(`/api/enterprise/hubspot/review-states${query}`),
+    hubspotSurfaces: () => request("/api/enterprise/hubspot/surfaces"),
+    hubspotConnections: () => request("/api/enterprise/hubspot/connections"),
+    enterpriseReadiness: () => request("/api/enterprise/readiness"),
+    hubspotScoreValidation: (query = "") => request(`/api/enterprise/hubspot/score-validation${query}`),
+    hubspotRetention: (query = "") => request(`/api/enterprise/hubspot/retention${query}`),
   };
 })();

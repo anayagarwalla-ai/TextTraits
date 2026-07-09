@@ -55,12 +55,32 @@ PROVIDERS: tuple[IntegrationProvider, ...] = (
         category="CRM",
         status="needs_credentials",
         auth="OAuth 2.0",
-        scopes=("contacts", "companies", "deals", "timeline_events"),
-        setup_steps=("Create a HubSpot private app or OAuth app.", "Add redirect URL.", "Map contacts, companies, and campaign status fields."),
+        scopes=(
+            "oauth",
+            "crm.objects.contacts.read",
+            "crm.objects.contacts.write",
+            "crm.objects.companies.read",
+            "crm.objects.companies.write",
+            "crm.objects.deals.read",
+            "crm.objects.deals.write",
+            "tickets",
+            "crm.objects.owners.read",
+            "crm.objects.custom.read",
+            "crm.objects.custom.write",
+            "crm.lists.read",
+            "crm.lists.write",
+            "marketing.campaigns.read",
+            "marketing.campaigns.write",
+            "marketing.campaigns.revenue.read",
+            "marketing-email",
+            "timeline",
+            "automation",
+        ),
+        setup_steps=("Create a HubSpot project app.", "Add OAuth redirect URL.", "Map CRM objects, campaign assets, workflow outputs, and review writeback fields."),
         client_id_env="HUBSPOT_CLIENT_ID",
         client_secret_env="HUBSPOT_CLIENT_SECRET",  # nosec B106
         auth_url="https://app.hubspot.com/oauth/authorize",
-        token_url="https://api.hubapi.com/oauth/v1/token",
+        token_url="https://api.hubapi.com/oauth/2026-03/token",
     ),
     IntegrationProvider(
         name="Salesforce",
@@ -207,6 +227,8 @@ def exchange_oauth_code(provider: IntegrationProvider, redirect_uri: str, code: 
 
 def require_https(url: str) -> None:
     parsed = urllib.parse.urlparse(url)
+    if parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
+        return
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("OAuth endpoints and redirect URIs must use HTTPS.")
 

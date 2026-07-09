@@ -172,6 +172,12 @@ const state = {
     findings: [],
     outcomes: [],
     reviewStates: [],
+    surfaces: [],
+    connections: [],
+    tokenStorage: null,
+    readiness: null,
+    scoreValidation: null,
+    retention: null,
   },
   tabScroll: {},
   hiddenSensitive: false,
@@ -442,18 +448,24 @@ function readHubspotAdminFilters() {
 
 async function loadHubspotAdminConsole({silent = false} = {}) {
   readHubspotAdminFilters();
+  state.integrationSetupOpen = true;
   state.hubspotAdmin.loading = true;
   state.hubspotAdmin.error = "";
   if (!silent && state.latestData) renderEnterpriseResult(state.latestData);
   try {
     const query = hubspotAdminQuery();
     const limitedQuery = `${query}&limit=25`;
-    const [dashboard, policy, findings, outcomes, reviewStates] = await Promise.all([
+    const [dashboard, policy, findings, outcomes, reviewStates, surfaces, connections, readiness, scoreValidation, retention] = await Promise.all([
       apiClient.hubspotDashboard("?limit=500"),
       apiClient.hubspotPolicy(query),
       apiClient.hubspotFindings("?limit=25"),
       apiClient.hubspotOutcomes(limitedQuery),
       apiClient.hubspotReviewStates("?limit=25"),
+      apiClient.hubspotSurfaces(),
+      apiClient.hubspotConnections(),
+      apiClient.enterpriseReadiness(),
+      apiClient.hubspotScoreValidation(query),
+      apiClient.hubspotRetention("?days=90"),
     ]);
     state.hubspotAdmin.dashboard = dashboard.dashboard || null;
     state.hubspotAdmin.policy = policy.policy || null;
@@ -462,6 +474,12 @@ async function loadHubspotAdminConsole({silent = false} = {}) {
     state.hubspotAdmin.findings = findings.findings || [];
     state.hubspotAdmin.outcomes = outcomes.events || [];
     state.hubspotAdmin.reviewStates = reviewStates.review_states || [];
+    state.hubspotAdmin.surfaces = surfaces.surfaces || [];
+    state.hubspotAdmin.connections = connections.connections || [];
+    state.hubspotAdmin.tokenStorage = connections.token_storage || null;
+    state.hubspotAdmin.readiness = readiness.readiness || null;
+    state.hubspotAdmin.scoreValidation = scoreValidation.validation || null;
+    state.hubspotAdmin.retention = retention.retention || null;
     state.hubspotAdmin.lastLoaded = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
   } catch (error) {
     state.hubspotAdmin.error = error.status === 401
@@ -507,6 +525,7 @@ function hubspotPolicyPayloadFromForm() {
 
 async function saveHubspotPolicyFromConsole(button) {
   const payload = hubspotPolicyPayloadFromForm();
+  state.integrationSetupOpen = true;
   state.hubspotAdmin.loading = true;
   state.hubspotAdmin.error = "";
   if (state.latestData) renderEnterpriseResult(state.latestData);
@@ -4489,7 +4508,7 @@ function librariesPanel() {
 
 function integrationSetupCards() {
   const steps = {
-    HubSpot: ["Create OAuth app", "Add redirect URL", "Map contacts and deals"],
+    HubSpot: ["Create OAuth app", "Add redirect URL", "Map CRM, campaign, email, workflow, task, and review fields"],
     Salesforce: ["Create connected app", "Enable API scopes", "Map leads and tasks"],
     Gmail: ["Create Google OAuth client", "Verify consent screen", "Enable draft creation"],
     Outlook: ["Create Azure app", "Add Mail scopes", "Enable reply queue"],
@@ -4559,6 +4578,30 @@ function compactRows(rows, columns, fallback = "No rows yet.") {
   `;
 }
 
+function readinessRows(readiness) {
+  return (readiness?.checks || []).map((item) => ({
+    status: displayAdminLabel(item.status || "unknown"),
+    label: item.label || item.id || "Readiness check",
+    next_step: item.next_step || "No action needed",
+  }));
+}
+
+function validationRows(validation) {
+  return (validation?.cases || []).map((item) => ({
+    status: item.passed ? "Pass" : "Review",
+    name: item.name || item.id || "Validation case",
+    actual: `${displayAdminLabel(item.actual_gate || "unknown")} / ${item.actual_score ?? "n/a"}`,
+  }));
+}
+
+function retentionRows(retention) {
+  return Object.entries(retention?.tables || {}).map(([table, count]) => ({
+    table: displayAdminLabel(table.replace(/^hubspot_email_/, "").replace(/^hubspot_/, "")),
+    count,
+    action: retention?.dry_run === false ? "Purged" : "Preview",
+  }));
+}
+
 function hubspotRulePackOptions(rulePacks, selected) {
   const packs = rulePacks?.length ? rulePacks : [
     {id: "general", label: "General B2B"},
@@ -4575,7 +4618,13 @@ function hubspotAdminConsole() {
   const admin = state.hubspotAdmin;
   const dashboard = admin.dashboard || {};
   const policy = admin.policy || {};
+  const readiness = admin.readiness || {};
+  const validation = admin.scoreValidation || {};
+  const retention = admin.retention || {};
   const exportQuery = hubspotAdminQuery();
+  const readinessBlockers = readiness.production_blockers?.length;
+  const validationSummary = validation.cases_total ? `${validation.cases_passed}/${validation.cases_total}` : "Load data";
+  const tokenStorageLabel = admin.tokenStorage?.ready ? "Encrypted" : admin.tokenStorage ? "Needs setup" : "Load data";
   return `
     <article class="strategy-card enterprise-admin-console">
       <div class="section-title">
@@ -4608,6 +4657,12 @@ function hubspotAdminConsole() {
         ${summaryItem("Blocked drafts", String((dashboard.gate_counts || {}).blocked || 0))}
         ${summaryItem("Review queue", String(admin.reviewStates?.length || 0))}
         ${summaryItem("Outcome events", String(Object.values(dashboard.outcome_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)))}
+        ${summaryItem("Connected portals", String(admin.connections?.length || 0))}
+        ${summaryItem("Token storage", tokenStorageLabel)}
+        ${summaryItem("HubSpot surfaces", String(admin.surfaces?.length || "Load data"))}
+        ${summaryItem("Readiness blockers", readinessBlockers === undefined ? "Load data" : String(readinessBlockers))}
+        ${summaryItem("Score QA", validationSummary)}
+        ${summaryItem("Retention preview", retention.total_records === undefined ? "Load data" : `${retention.total_records} old rows`)}
       </div>
 
       <details class="analytics-section" open>
@@ -4647,6 +4702,55 @@ function hubspotAdminConsole() {
         <article>
           <strong>Top failing checks</strong>
           ${compactRows(dashboard.top_failed_checks, [["Check", "check"], ["Count", "count"]], "No failed checks loaded.")}
+        </article>
+        <article>
+          <strong>HubSpot coverage</strong>
+          ${compactRows(admin.surfaces, [["Area", "hubspot_area"], ["Surface", "label"], ["Status", "status"]], "Load integration surfaces.")}
+        </article>
+        <article>
+          <strong>Portal connections</strong>
+          ${compactRows((admin.connections || []).map((connection) => ({
+            portal_id: connection.portal_id,
+            hub_domain: connection.hub_domain || connection.account_name,
+            status: displayAdminLabel(connection.status || "unknown"),
+            tokens: connection.tokens_available ? "Stored" : "Metadata only",
+          })), [["Portal", "portal_id"], ["Domain", "hub_domain"], ["Status", "status"], ["Tokens", "tokens"]], "No connected HubSpot portals loaded.")}
+        </article>
+        <article>
+          <strong>OAuth token storage</strong>
+          ${compactRows([{
+            status: admin.tokenStorage?.ready ? "Ready" : "Needs setup",
+            enabled: admin.tokenStorage?.enabled ? "Enabled" : "Disabled",
+            key: admin.tokenStorage?.key_configured ? "Configured" : "Missing",
+          }], [["Status", "status"], ["Storage", "enabled"], ["Encryption key", "key"]], "Load token storage status.")}
+        </article>
+        <article>
+          <strong>Production readiness</strong>
+          ${compactRows(readinessRows(readiness), [["Status", "status"], ["Check", "label"], ["Next", "next_step"]], "Load readiness data.")}
+        </article>
+        <article>
+          <strong>Score validation</strong>
+          ${compactRows(validationRows(validation), [["Status", "status"], ["Case", "name"], ["Actual", "actual"]], "Load score validation.")}
+        </article>
+        <article>
+          <strong>Retention preview</strong>
+          ${compactRows(retentionRows(retention), [["Table", "table"], ["Rows", "count"], ["Mode", "action"]], "Load retention preview.")}
+        </article>
+        <article>
+          <strong>Campaign health</strong>
+          ${compactRows(dashboard.campaign_health, [["Campaign", "campaign_id"], ["Blocked", "blocked"], ["Avg", "average_score"]], "No campaign data loaded.")}
+        </article>
+        <article>
+          <strong>Template health</strong>
+          ${compactRows(dashboard.template_health, [["Template", "template_id"], ["Blocked", "blocked"], ["Avg", "average_score"]], "No template data loaded.")}
+        </article>
+        <article>
+          <strong>Source trends</strong>
+          ${compactRows(dashboard.source_health, [["Source", "source_system"], ["Ready", "ready"], ["Blocked", "blocked"]], "No source trends loaded.")}
+        </article>
+        <article>
+          <strong>Outcome rates</strong>
+          ${compactRows(dashboard.outcome_rates, [["Event", "event_type"], ["Count", "count"], ["Rate", "rate"]], "No outcome-rate data loaded.")}
         </article>
         <article>
           <strong>Recent findings</strong>
@@ -4939,7 +5043,7 @@ function renderEnterpriseTab(data, context, profile, variants, angles, sequence)
         <article class="strategy-card"><strong>Best CTA</strong><p>${escapeHtml(ctaText(context))}</p><strong>Backup CTA</strong><p>Open to a two-bullet summary instead?</p></article>
         <article class="strategy-card"><strong>Objection likely</strong><p>"We already have dashboards." Counter with implementation clarity, workflow fit, and fewer manual reporting loops.</p></article>
         <article class="strategy-card"><strong>Email quality score</strong>${scoreGrid([["Clarity", 92], ["Specificity", 87], ["CTA strength", 90], ["Skimmability", 86]])}</article>
-        <article class="strategy-card"><strong>Exports and integrations</strong><div class="integration-list"><span data-status="connected">CSV connected</span><span data-status="soon">HubSpot coming soon</span><span data-status="soon">Salesforce coming soon</span><span data-status="disabled">Outreach disabled</span><span data-status="disabled">Salesloft disabled</span></div></article>
+        <article class="strategy-card"><strong>Exports and integrations</strong><div class="integration-list"><span data-status="connected">CSV connected</span><span data-status="setup">HubSpot native app ready</span><span data-status="soon">Salesforce coming soon</span><span data-status="disabled">Outreach disabled</span><span data-status="disabled">Salesloft disabled</span></div></article>
         <article class="strategy-card"><strong>Merge fields manager</strong>${tokens(["{{first_name}}", "{{company}}", "{{recent_signal}}", "{{pipeline_priority}}", "{{unsubscribe_link}}"])}</article>
         <article class="strategy-card"><strong>Admin controls</strong><p>Approved claims, proof assets, unsubscribe tokens, API keys, seats, and prompt presets are represented in this workspace setup.</p></article>
       </div>

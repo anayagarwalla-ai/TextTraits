@@ -3869,7 +3869,8 @@ body[data-mode="enterprise"] .advanced-card {
 }
 
 .drafts-workspace {
-  grid-template-columns: minmax(190px, 0.36fr) minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 0.34fr) minmax(0, 1fr);
+  min-width: 0;
 }
 
 .drafts-workspace.is-focus-mode {
@@ -3884,6 +3885,7 @@ body[data-mode="enterprise"] .advanced-card {
   display: grid;
   align-content: start;
   gap: 8px;
+  min-width: 0;
 }
 
 .review-queue button {
@@ -3918,6 +3920,7 @@ body[data-mode="enterprise"] .advanced-card {
 
 .focused-editor {
   padding: 14px;
+  min-width: 0;
   border: 1px solid rgba(221, 226, 234, 0.72);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.86);
@@ -3929,12 +3932,14 @@ body[data-mode="enterprise"] .advanced-card {
 }
 
 .compact-draft-workspace {
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.34fr);
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.28fr);
+  min-width: 0;
 }
 
 .draft-focus-card {
   display: grid;
   gap: 14px;
+  min-width: 0;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -3945,6 +3950,7 @@ body[data-mode="enterprise"] .advanced-card {
   display: grid;
   align-content: start;
   gap: 12px;
+  min-width: 0;
 }
 
 .approval-rail {
