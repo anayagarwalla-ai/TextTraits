@@ -1,7 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, Text, hubspot} from "@hubspot/ui-extensions";
-
-const API_BASE = "https://texttraits.onrender.com";
+import {hubspotApi} from "../lib/api";
 
 hubspot.extend(() => <TextTraitsSettings />);
 
@@ -49,34 +48,17 @@ function TextTraitsSettings() {
     let cancelled = false;
     async function load() {
       try {
-        const [surfacesResponse, connectionsResponse, wizardResponse, approvalResponse] = await Promise.all([
-          hubspot.fetch(`${API_BASE}/api/enterprise/hubspot/surfaces`, {timeout: 15000}),
-          hubspot.fetch(`${API_BASE}/api/enterprise/hubspot/connections`, {timeout: 15000}),
-          hubspot.fetch(`${API_BASE}/api/enterprise/hubspot/setup-wizard`, {timeout: 15000}),
-          hubspot.fetch(`${API_BASE}/api/enterprise/hubspot/approval-chain-templates`, {timeout: 15000}),
-        ]);
-        const surfaces = await surfacesResponse.json();
-        const connections = await connectionsResponse.json();
-        const wizard = await wizardResponse.json();
-        const approvals = await approvalResponse.json();
-        const nextConnections = connections.connections || surfaces.connections || [];
-        let setupStatus = null;
-        try {
-          const setupResponse = await hubspot.fetch(`${API_BASE}/api/enterprise/hubspot/setup-status`, {timeout: 15000});
-          const setupPayload = await setupResponse.json();
-          setupStatus = setupPayload.setup_status || null;
-        } catch (setupError) {
-          setupStatus = null;
-        }
+        const {payload} = await hubspotApi("/api/enterprise/hubspot/settings-bootstrap", {timeout: 15000});
+        const nextConnections = payload.connections || [];
         if (!cancelled) {
           setState({
             loading: false,
-            surfaces: surfaces.surfaces || [],
+            surfaces: payload.surfaces || [],
             connections: nextConnections,
-            tokenStorage: connections.token_storage || surfaces.token_storage || {},
-            setupStatus,
-            setupWizard: wizard.steps || [],
-            approvalChains: approvals.approval_chains || [],
+            tokenStorage: payload.token_storage || {},
+            setupStatus: payload.setup_status || null,
+            setupWizard: payload.setup_steps || [],
+            approvalChains: payload.approval_chains || [],
             error: "",
           });
           if (!portalId && nextConnections[0]?.portal_id) setPortalId(String(nextConnections[0].portal_id));
@@ -102,9 +84,7 @@ function TextTraitsSettings() {
     setSetup((current) => ({...current, loading: current.loading || "status", message: "", error: ""}));
     try {
       const query = nextPortalId ? `?portal_id=${encodeURIComponent(nextPortalId)}` : "";
-      const response = await hubspot.fetch(`${API_BASE}/api/enterprise/hubspot/setup-status${query}`, {timeout: 15000});
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Setup status refresh failed.");
+      const {payload} = await hubspotApi(`/api/enterprise/hubspot/setup-status${query}`, {timeout: 15000, errorMessage: "Setup status refresh failed."});
       setState((current) => ({...current, setupStatus: payload.setup_status || null}));
       setSetup((current) => ({...current, loading: "", message: "Setup status refreshed.", error: ""}));
     } catch (error) {
@@ -121,17 +101,17 @@ function TextTraitsSettings() {
     };
     setSetup({loading: action, message: "", error: ""});
     try {
-      const response = await hubspot.fetch(`${API_BASE}${endpointByAction[action]}`, {
+      const {payload, status} = await hubspotApi(endpointByAction[action], {
         method: "POST",
         body: {
           portal_id: portalId,
           app_id: appId,
         },
         timeout: 30000,
+        allowStatuses: [207],
+        errorMessage: "Setup action failed.",
       });
-      const payload = await response.json();
-      if (!response.ok && response.status !== 207) throw new Error(payload.error || "Setup action failed.");
-      setSetup({loading: "", message: `${action} setup returned ${response.status}.`, error: ""});
+      setSetup({loading: "", message: `${action} setup returned ${status}.`, error: ""});
       refreshSetupStatus(portalId);
     } catch (error) {
       setSetup({loading: "", message: "", error: error.message || "Setup action failed."});
@@ -153,13 +133,12 @@ function TextTraitsSettings() {
   async function loadOwners() {
     setRouting((current) => ({...current, loading: "owners", message: "", error: ""}));
     try {
-      const response = await hubspot.fetch(`${API_BASE}/v1/integrations/hubspot/owners/list`, {
+      const {payload} = await hubspotApi("/v1/integrations/hubspot/owners/list", {
         method: "POST",
         body: {portal_id: portalId, limit: 100},
         timeout: 30000,
+        errorMessage: "Owner lookup failed.",
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Owner lookup failed.");
       applyRoutingConfig(payload.routing);
       setRouting((current) => ({
         ...current,
@@ -176,7 +155,7 @@ function TextTraitsSettings() {
   async function saveRouting() {
     setRouting((current) => ({...current, loading: "save", message: "", error: ""}));
     try {
-      const response = await hubspot.fetch(`${API_BASE}/v1/integrations/hubspot/review-routing/config`, {
+      const {payload} = await hubspotApi("/v1/integrations/hubspot/review-routing/config", {
         method: "POST",
         body: {
           portal_id: portalId,
@@ -189,9 +168,8 @@ function TextTraitsSettings() {
           action: "save",
         },
         timeout: 30000,
+        errorMessage: "Review routing save failed.",
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Review routing save failed.");
       applyRoutingConfig(payload.routing);
       setRouting((current) => ({...current, loading: "", message: "Review routing saved.", error: ""}));
     } catch (error) {

@@ -4,6 +4,7 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const requiredFiles = [
   "hsproject.json",
+  "contracts/analysis-contract.json",
   "src/app/app-hsmeta.json",
   "src/app/cards/texttraits-email-fit-card-hsmeta.json",
   "src/app/cards/TextTraitsEmailFitCard.jsx",
@@ -15,6 +16,10 @@ const requiredFiles = [
   "src/app/settings/TextTraitsSettings.jsx",
   "src/app/home/texttraits-home-hsmeta.json",
   "src/app/home/TextTraitsHome.jsx",
+  "src/app/components/HomePanels.jsx",
+  "src/app/lib/api.js",
+  "src/app/lib/context.js",
+  "src/app/lib/form-state.js",
 ];
 
 for (const relativePath of requiredFiles) {
@@ -28,6 +33,7 @@ for (const relativePath of requiredFiles) {
 }
 
 const appConfig = JSON.parse(fs.readFileSync(path.join(root, "src/app/app-hsmeta.json"), "utf8"));
+const analysisContract = JSON.parse(fs.readFileSync(path.join(root, "contracts/analysis-contract.json"), "utf8"));
 const scopes = [
   ...appConfig.config.auth.requiredScopes,
   ...appConfig.config.auth.optionalScopes,
@@ -44,7 +50,10 @@ for (const optionalScope of ["forms", "content", "crm.objects.owners.read"]) {
 }
 
 const homeSource = fs.readFileSync(path.join(root, "src/app/home/TextTraitsHome.jsx"), "utf8");
+const homePanelSource = fs.readFileSync(path.join(root, "src/app/components/HomePanels.jsx"), "utf8");
+const homeSources = `${homeSource}\n${homePanelSource}`;
 for (const expected of [
+  "/api/enterprise/hubspot/home-bootstrap",
   "/v1/integrations/hubspot/campaigns/review",
   "/v1/integrations/hubspot/campaigns/list",
   "/v1/integrations/hubspot/campaigns/create",
@@ -55,8 +64,6 @@ for (const expected of [
   "/v1/integrations/hubspot/marketing-emails/pre-publish-guardrail",
   "/v1/integrations/hubspot/bulk/import-assets",
   "/v1/integrations/hubspot/salesforce/outcomes/import",
-  "/api/enterprise/hubspot/staffing-workflow-templates",
-  "/api/enterprise/hubspot/randstad-readiness",
   "/v1/integrations/hubspot/lists/search",
   "/v1/integrations/hubspot/lists/memberships",
   "/v1/integrations/hubspot/lists/memberships/update",
@@ -99,7 +106,7 @@ for (const expected of [
   "Reviewed asset types",
   "Metadata-only asset types",
 ]) {
-  if (!homeSource.includes(expected)) {
+  if (!homeSources.includes(expected)) {
     throw new Error(`HubSpot home page missing campaign review control: ${expected}`);
   }
 }
@@ -111,8 +118,7 @@ for (const expected of [
   "/v1/integrations/hubspot/lists/create-review-segments",
   "/v1/integrations/hubspot/webhooks/configure",
   "/api/enterprise/hubspot/setup-status",
-  "/api/enterprise/hubspot/setup-wizard",
-  "/api/enterprise/hubspot/approval-chain-templates",
+  "/api/enterprise/hubspot/settings-bootstrap",
   "Setup status",
   "Guided HubSpot setup",
   "Approval chain templates",
@@ -156,48 +162,28 @@ for (const expected of ["sync_hubspot", "task_id", "taskIdFromSync"]) {
   }
 }
 
-const syncedWorkflowDefinition = JSON.parse(fs.readFileSync(path.join(root, "src/app/workflow-actions/texttraits-analyze-and-sync-hsmeta.json"), "utf8"));
-const syncedInputNames = new Set(syncedWorkflowDefinition.config.inputFields.map((field) => field.typeDefinition.name));
-if (!syncedInputNames.has("analysis_association_type_ids")) {
-  throw new Error("Synced workflow action missing analysis association type ID input.");
-}
-const syncedOutputNames = new Set(syncedWorkflowDefinition.config.outputFields.map((field) => field.name));
-for (const expected of ["texttraits_score", "texttraits_gate", "texttraits_sync_status", "texttraits_sync_actions"]) {
-  if (!syncedOutputNames.has(expected)) {
-    throw new Error(`Synced workflow action missing output field: ${expected}`);
+const workflowUids = new Set();
+for (const [relativePath, expectedContract] of Object.entries(analysisContract.workflowActions || {})) {
+  const definition = JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8"));
+  if (!definition.uid || workflowUids.has(definition.uid)) {
+    throw new Error(`Workflow action must have a unique uid: ${relativePath}`);
   }
-}
-
-const assetCopyWorkflowDefinition = JSON.parse(fs.readFileSync(path.join(root, "src/app/workflow-actions/texttraits-analyze-asset-copy-hsmeta.json"), "utf8"));
-if (!assetCopyWorkflowDefinition.config.actionUrl.includes("/v1/integrations/hubspot/workflow-actions/analyze-asset-copy")) {
-  throw new Error("Asset copy workflow action should call the asset copy workflow endpoint.");
-}
-const assetCopyInputNames = new Set(assetCopyWorkflowDefinition.config.inputFields.map((field) => field.typeDefinition.name));
-for (const expected of ["asset_type", "asset_id", "asset_name", "asset_copy", "campaign_id", "analysis_mode"]) {
-  if (!assetCopyInputNames.has(expected)) {
-    throw new Error(`Asset copy workflow action missing input field: ${expected}`);
+  workflowUids.add(definition.uid);
+  const config = definition.config || {};
+  const actionPath = new URL(config.actionUrl).pathname;
+  if (actionPath !== expectedContract.endpoint) {
+    throw new Error(`${relativePath} endpoint mismatch: expected ${expectedContract.endpoint}, received ${actionPath}`);
   }
-}
-const assetCopyOutputNames = new Set(assetCopyWorkflowDefinition.config.outputFields.map((field) => field.name));
-for (const expected of ["texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_asset_type", "texttraits_asset_id", "texttraits_asset_name", "texttraits_request_id", "texttraits_content_hash"]) {
-  if (!assetCopyOutputNames.has(expected)) {
-    throw new Error(`Asset copy workflow action missing output field: ${expected}`);
+  const inputNames = (config.inputFields || []).map((field) => field?.typeDefinition?.name).filter(Boolean);
+  const outputNames = (config.outputFields || []).map((field) => field?.name).filter(Boolean);
+  if (new Set(inputNames).size !== inputNames.length || new Set(outputNames).size !== outputNames.length) {
+    throw new Error(`${relativePath} contains duplicate input or output field names.`);
   }
-}
-
-const campaignWorkflowDefinition = JSON.parse(fs.readFileSync(path.join(root, "src/app/workflow-actions/texttraits-review-campaign-assets-hsmeta.json"), "utf8"));
-if (!campaignWorkflowDefinition.config.actionUrl.includes("/v1/integrations/hubspot/workflow-actions/review-campaign-assets")) {
-  throw new Error("Campaign workflow action should call the campaign asset review workflow endpoint.");
-}
-const campaignOutputNames = new Set(campaignWorkflowDefinition.config.outputFields.map((field) => field.name));
-for (const expected of ["texttraits_campaign_health", "texttraits_gate", "texttraits_route", "texttraits_analyzed_count", "texttraits_blocked_count", "texttraits_copy_coverage"]) {
-  if (!campaignOutputNames.has(expected)) {
-    throw new Error(`Campaign workflow action missing output field: ${expected}`);
+  for (const expected of expectedContract.requiredInputs || []) {
+    if (!inputNames.includes(expected)) throw new Error(`${relativePath} missing required input: ${expected}`);
   }
-}
-for (const expected of ["texttraits_coverage_score", "texttraits_coverage_label"]) {
-  if (!campaignOutputNames.has(expected)) {
-    throw new Error(`Campaign workflow action missing coverage output field: ${expected}`);
+  for (const expected of expectedContract.requiredOutputs || []) {
+    if (!outputNames.includes(expected)) throw new Error(`${relativePath} missing required output: ${expected}`);
   }
 }
 

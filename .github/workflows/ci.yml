@@ -39,6 +39,7 @@ jobs:
           python tests/browser_smoke_test.py
           python tests/accessibility_smoke_test.py
           python tests/production_smoke_test.py
+          python tests/hubspot_unit_test.py
           python tests/security_regression_test.py
           python tests/security_attack_harness.py
           python tests/config_regression_test.py

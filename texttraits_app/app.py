@@ -70,6 +70,7 @@ from storage import (
     reset_password,
     save_workspace,
     save_hubspot_email_analysis,
+    save_hubspot_email_analyses,
     save_hubspot_outcome_event,
     save_hubspot_policy_config,
     save_hubspot_review_event,
@@ -90,6 +91,9 @@ from storage import (
     token_storage_status,
 )
 from hubspot_client import HubSpotApiClient, HubSpotClientError, HubSpotNotConnectedError, crm_write_scope
+from hubspot_analysis import HUBSPOT_EMAIL_RULES_ENGINE_ID, HubSpotAnalysisDecision, HubSpotEmailDraft
+from hubspot_routes import HubSpotAnalysisRouteDependencies, create_hubspot_analysis_blueprint
+from hubspot_sync import HubSpotSyncOperation, run_hubspot_sync_operations
 
 load_env_file()
 
@@ -3928,13 +3932,20 @@ def evaluate():
         return jsonify({"error": str(error)}), 503
 
 
-def hubspot_analysis_result(payload: dict, workflow: str) -> tuple[dict[str, Any], int]:
+def hubspot_analysis_result(
+    payload: dict,
+    workflow: str,
+    include_internal_record: bool = False,
+    persist: bool = True,
+    audit: bool = True,
+) -> tuple[dict[str, Any], int]:
     if len(json.dumps(payload, default=str).encode("utf-8")) > HUBSPOT_MAX_INGRESS_BYTES:
         return {"error": f"HubSpot ingress payloads must stay under {HUBSPOT_MAX_INGRESS_BYTES} bytes."}, 413
     input_fields = payload.get("inputFields") if isinstance(payload.get("inputFields"), dict) else payload
-    subject = str(input_fields.get("subject") or input_fields.get("email_subject") or input_fields.get("hs_email_subject") or "").strip()
-    body = str(input_fields.get("body") or input_fields.get("email_body") or input_fields.get("hs_email_body") or input_fields.get("text") or "").strip()
-    text = f"{subject}\n\n{body}".strip()
+    draft = HubSpotEmailDraft.from_payload(payload)
+    subject = draft.subject
+    body = draft.body
+    text = draft.text
     context = hubspot_context_from_payload(payload, input_fields)
     context["workflow"] = workflow
     if context.get("_validation_error"):
@@ -3942,15 +3953,8 @@ def hubspot_analysis_result(payload: dict, workflow: str) -> tuple[dict[str, Any
     policy = hubspot_policy_for_request(payload, context)
     if not text:
         return {"error": "Enter an email subject or body to analyze."}, 400
-    if len(text.split()) > MAX_TEXT_WORDS:
+    if draft.word_count > MAX_TEXT_WORDS:
         return {"error": f"Please keep samples under {MAX_TEXT_WORDS} words for this workspace."}, 413
-    try:
-        predictions = predictor.predict(text)
-    except RuntimeError as error:
-        return {"error": str(error)}, 503
-
-    confidences = prediction_confidences(predictions)
-    average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
     email_quality = build_hubspot_email_quality(subject, body, text, policy, context)
     decision = email_quality["decision"]
     score = email_quality["score"]
@@ -3975,36 +3979,38 @@ def hubspot_analysis_result(payload: dict, workflow: str) -> tuple[dict[str, Any
             }, 409
     else:
         request_id = f"{workflow}-{secrets.token_urlsafe(12)}"
-    log_event(
-        current_user_id(),
-        workflow,
-        {
-            "words": len(text.split()),
-            "score": score,
-            "gate": gate,
-            "workspace_id": str(payload.get("workspace_id", ""))[:120],
-        },
-    )
-    save_hubspot_email_analysis(
-        {
-            **context,
-            "request_id": request_id,
-            "workflow": workflow,
-            "idempotency_key": idempotency_key,
-            "content_hash": content_hash,
-            "score": score,
-            "gate": gate,
-            "route": route,
-            "send_ready": gate == "ready",
-            "word_count": len(text.split()),
-            "average_model_confidence": round(average_confidence, 4),
-            "score_source": email_quality["score_source"],
-            "findings": email_quality["findings"],
-            "checks": email_quality["checks"],
-            "policy": policy,
-            "context": context,
-        }
-    )
+    if audit:
+        log_event(
+            current_user_id(),
+            workflow,
+            {
+                "words": draft.word_count,
+                "score": score,
+                "gate": gate,
+                "workspace_id": str(payload.get("workspace_id", ""))[:120],
+            },
+        )
+    analysis_record = {
+        **context,
+        "request_id": request_id,
+        "workflow": workflow,
+        "idempotency_key": idempotency_key,
+        "content_hash": content_hash,
+        "score": score,
+        "gate": gate,
+        "route": route,
+        "send_ready": gate == "ready",
+        "word_count": draft.word_count,
+        "analysis_engine": HUBSPOT_EMAIL_RULES_ENGINE_ID,
+        "score_source": email_quality["score_source"],
+        "findings": email_quality["findings"],
+        "checks": email_quality["checks"],
+        "policy": policy,
+        "context": context,
+        "created_at": utc_now(),
+    }
+    if persist:
+        save_hubspot_email_analysis(analysis_record)
     public_quality = public_hubspot_email_quality(email_quality)
     public_policy = public_hubspot_policy(policy)
     public_context = public_hubspot_context(context)
@@ -4015,41 +4021,41 @@ def hubspot_analysis_result(payload: dict, workflow: str) -> tuple[dict[str, Any
         "score": score,
         "gate": gate,
         "route": route,
-        "word_count": len(text.split()),
-        "average_model_confidence": round(average_confidence, 4),
+        "word_count": draft.word_count,
+        "analysis_engine": HUBSPOT_EMAIL_RULES_ENGINE_ID,
         "decision": decision,
         "email_quality": public_quality,
         "policy": public_policy,
         "context": public_context,
-        "demo": bool(getattr(predictor, "is_demo", False)),
+        "model_inference_used": False,
     }
-    if ENABLE_DEV_TOOLS:
-        analysis_payload["predictions"] = predictions
     delivery_context = context.get("delivery_context") if isinstance(context.get("delivery_context"), dict) else {}
     asset_output_fields = {
         "texttraits_asset_type": delivery_context.get("asset_type"),
         "texttraits_asset_id": delivery_context.get("asset_id"),
         "texttraits_asset_name": delivery_context.get("asset_name"),
     }
-    return {
+    analysis_decision = HubSpotAnalysisDecision(
+        request_id=request_id,
+        content_hash=content_hash,
+        idempotency_key=idempotency_key,
+        score=score,
+        gate=gate,
+        route=route,
+        next_step=decision["next_step"],
+        owner_queue=decision["owner_queue"],
+        blocker_level=decision["blocker_level"],
+        blocker_reason=blocker_reason,
+        policy_version=str(policy.get("version") or ""),
+    )
+    response_payload = {
         "workflow": workflow,
-        "outputFields": {
-            "texttraits_request_id": request_id,
-            "texttraits_content_hash": content_hash,
-            "texttraits_idempotency_key": idempotency_key,
-            "texttraits_score": score,
-            "texttraits_gate": gate,
-            "texttraits_route": route,
-            "texttraits_send_ready": gate == "ready",
-            "texttraits_next_step": decision["next_step"],
-            "texttraits_owner_queue": decision["owner_queue"],
-            "texttraits_blocker_level": decision["blocker_level"],
-            "texttraits_blocker_reason": blocker_reason,
-            "texttraits_policy_version": policy.get("version"),
-            **{key: value for key, value in asset_output_fields.items() if value},
-        },
+        "outputFields": analysis_decision.output_fields(asset_output_fields),
         "analysis": analysis_payload,
-    }, 200
+    }
+    if include_internal_record:
+        response_payload["_analysis_record"] = analysis_record
+    return response_payload, 200
 
 
 def hubspot_analysis_response(payload: dict, workflow: str):
@@ -4057,40 +4063,16 @@ def hubspot_analysis_response(payload: dict, workflow: str):
     return jsonify(result), status_code
 
 
-@app.post("/v1/integrations/hubspot/crm-card/analyze-email")
-@rate_limited(60)
-def hubspot_crm_card_analyze_email():
-    return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_crm_card")
-
-
-@app.post("/v1/integrations/hubspot/workflow-actions/analyze-email")
-@rate_limited(60)
-def hubspot_workflow_action_analyze_email():
-    return hubspot_analysis_response(request.get_json(silent=True) or {}, "hubspot_workflow_action")
-
-
-@app.post("/v1/integrations/hubspot/workflow-actions/analyze-asset-copy")
-@rate_limited(60)
-def hubspot_workflow_action_analyze_asset_copy():
-    payload = request.get_json(silent=True) or {}
-    normalized = normalize_hubspot_asset_payload(payload, "asset_copy_workflow_gate")
-    return hubspot_analysis_response(normalized, "hubspot_asset_copy_workflow_action")
-
-
-@app.post("/v1/integrations/hubspot/marketing-emails/analyze")
-@rate_limited(60)
-def hubspot_marketing_email_analyze():
-    payload = request.get_json(silent=True) or {}
-    normalized = normalize_hubspot_marketing_email_payload(payload, "marketing_email_preflight")
-    return hubspot_analysis_response(normalized, "hubspot_marketing_email_preflight")
-
-
-@app.post("/v1/integrations/hubspot/assets/analyze")
-@rate_limited(60)
-def hubspot_asset_analyze():
-    payload = request.get_json(silent=True) or {}
-    normalized = normalize_hubspot_asset_payload(payload, "asset_copy_preflight")
-    return hubspot_analysis_response(normalized, "hubspot_asset_copy_preflight")
+app.register_blueprint(
+    create_hubspot_analysis_blueprint(
+        HubSpotAnalysisRouteDependencies(
+            analysis_response=hubspot_analysis_response,
+            normalize_asset_payload=normalize_hubspot_asset_payload,
+            normalize_marketing_email_payload=normalize_hubspot_marketing_email_payload,
+            rate_limited=rate_limited,
+        )
+    )
+)
 
 
 @app.post("/v1/integrations/hubspot/assets/fetch-and-analyze")
@@ -4138,13 +4120,34 @@ def hubspot_batch_analysis_payload(payload: dict[str, Any], workflow: str, sourc
     max_items = max(1, min(HUBSPOT_MAX_BATCH_EMAILS, 100))
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    analysis_records: dict[str, dict[str, Any]] = {}
     gate_counts: dict[str, int] = {}
     scores: list[int] = []
     for index, item in enumerate(raw_items[:max_items]):
         prepared = with_campaign_context(item, payload, source_system, analysis_mode, index)
         normalized = normalize_hubspot_marketing_email_payload(prepared, analysis_mode)
-        result, status_code = hubspot_analysis_result(normalized, workflow)
+        result, status_code = hubspot_analysis_result(
+            normalized,
+            workflow,
+            include_internal_record=True,
+            persist=False,
+            audit=False,
+        )
         if status_code == 200:
+            analysis_record = result.pop("_analysis_record", {})
+            request_id = str(analysis_record.get("request_id") or "")
+            existing_record = analysis_records.get(request_id)
+            if existing_record and existing_record.get("content_hash") != analysis_record.get("content_hash"):
+                errors.append(
+                    {
+                        "index": index,
+                        "status": 409,
+                        "error": "This HubSpot idempotency key was repeated for different email content in the same batch.",
+                        "template_id": first_text_value(item.get("id"), item.get("emailId"), item.get("template_id"), item.get("templateId"), max_length=160),
+                    }
+                )
+                continue
+            analysis_records[request_id] = analysis_record
             gate = str(result.get("outputFields", {}).get("texttraits_gate") or "unknown")
             score = int(result.get("outputFields", {}).get("texttraits_score") or 0)
             gate_counts[gate] = gate_counts.get(gate, 0) + 1
@@ -4161,6 +4164,7 @@ def hubspot_batch_analysis_payload(payload: dict[str, Any], workflow: str, sourc
             )
     if not results:
         return {"error": "No valid HubSpot email assets could be analyzed.", "errors": errors[:10]}, 400
+    save_hubspot_email_analyses(list(analysis_records.values()))
     summary = {
         "workflow": workflow,
         "source_system": source_system,
@@ -4174,6 +4178,18 @@ def hubspot_batch_analysis_payload(payload: dict[str, Any], workflow: str, sourc
         "campaign_id": hubspot_campaign_context(payload).get("campaign_id", ""),
         "campaign_name": hubspot_campaign_context(payload).get("campaign_name", ""),
     }
+    log_event(
+        current_user_id(),
+        workflow,
+        {
+            "batch": True,
+            "received": len(raw_items),
+            "analyzed": len(results),
+            "errors": len(errors),
+            "gate_counts": gate_counts,
+            "workspace_id": str(payload.get("workspace_id", ""))[:120],
+        },
+    )
     return {"summary": summary, "analyses": results, "errors": errors[:10]}, 200
 
 
@@ -5147,31 +5163,36 @@ def hubspot_analyze_and_sync():
         return hubspot_error_response(connection_error)
 
     analysis_payload = hubspot_analyze_sync_payload(payload)
-    result, status_code = hubspot_analysis_result(analysis_payload, "hubspot_analyze_and_sync")
+    result, status_code = hubspot_analysis_result(analysis_payload, "hubspot_analyze_and_sync", include_internal_record=True)
     if status_code != 200:
         return jsonify(result), status_code
 
     output_fields = result.get("outputFields") if isinstance(result.get("outputFields"), dict) else {}
     request_id = str(output_fields.get("texttraits_request_id") or "")
-    analysis = get_hubspot_email_analysis(request_id) or {}
+    analysis = result.pop("_analysis_record", {})
     sync_actions: list[dict[str, Any]] = []
     sync_errors: list[dict[str, Any]] = []
     sync_skipped: list[dict[str, str]] = []
+    sync_operations: list[HubSpotSyncOperation] = []
     object_type, object_id = hubspot_analysis_object_target(payload, analysis)
     extra_properties = payload.get("properties") if isinstance(payload.get("properties"), dict) else {}
 
     if hubspot_payload_flag(payload, "writeback_properties", True):
         if object_type and object_id:
-            try:
+            def sync_property_writeback(
+                object_type=object_type,
+                object_id=object_id,
+                properties=hubspot_writeback_properties(analysis, extra=extra_properties),
+            ):
                 response = client.update_crm_object_properties(
                     object_type,
                     object_id,
-                    hubspot_writeback_properties(analysis, extra=extra_properties),
+                    properties,
                     idempotency_key=hubspot_idempotency_key(payload, "analyze-sync-writeback", request_id, object_type, object_id),
                 )
-                sync_actions.append({"action": "crm_property_writeback", "object_type": object_type, "object_id": object_id, "hubspot": scrub_payload(response.get("body", {}))})
-            except HubSpotClientError as sync_error:
-                sync_errors.append(hubspot_sync_error("crm_property_writeback", sync_error))
+                return {"action": "crm_property_writeback", "object_type": object_type, "object_id": object_id, "hubspot": scrub_payload(response.get("body", {}))}
+
+            sync_operations.append(HubSpotSyncOperation("crm_property_writeback", sync_property_writeback))
         else:
             sync_skipped.append({"action": "crm_property_writeback", "reason": "object_type and object_id were not supplied by HubSpot context."})
 
@@ -5212,15 +5233,19 @@ def hubspot_analyze_and_sync():
         if owner_id:
             task_properties["hubspot_owner_id"] = owner_id
         associations = payload.get("associations") if isinstance(payload.get("associations"), list) else None
-        try:
+        def sync_review_task(
+            task_properties=task_properties,
+            associations=associations,
+            owner_source=owner_source,
+        ):
             response = client.create_task(
                 task_properties,
                 associations=associations,
                 idempotency_key=hubspot_idempotency_key(payload, "analyze-sync-task", request_id),
             )
-            sync_actions.append({"action": "review_task_created", "owner_source": owner_source, "hubspot": scrub_payload(response.get("body", {}))})
-        except HubSpotClientError as sync_error:
-            sync_errors.append(hubspot_sync_error("review_task_created", sync_error))
+            return {"action": "review_task_created", "owner_source": owner_source, "hubspot": scrub_payload(response.get("body", {}))}
+
+        sync_operations.append(HubSpotSyncOperation("review_task_created", sync_review_task))
 
     analysis_object_type = first_text_value(
         payload.get("analysis_object_type"),
@@ -5239,30 +5264,33 @@ def hubspot_analyze_and_sync():
                 }
             )
             associations, missing_associations = hubspot_analysis_record_associations(payload, analysis)
-            try:
+            if missing_associations and not associations:
+                sync_skipped.append(
+                    {
+                        "action": "analysis_object_associations",
+                        "reason": "Real HubSpot association type IDs are required before TextTraits can associate the analysis record.",
+                    }
+                )
+
+            def sync_analysis_object_record(
+                analysis_object_type=analysis_object_type,
+                properties=properties,
+                associations=associations,
+            ):
                 response = client.create_custom_object_record(
                     analysis_object_type,
                     properties,
                     associations=associations,
                     idempotency_key=hubspot_idempotency_key(payload, "analyze-sync-analysis-object", request_id),
                 )
-                sync_actions.append(
-                    {
-                        "action": "analysis_object_record_created",
-                        "object_type": analysis_object_type,
-                        "association_count": len(associations),
-                        "hubspot": scrub_payload(response.get("body", {})),
-                    }
-                )
-                if missing_associations and not associations:
-                    sync_skipped.append(
-                        {
-                            "action": "analysis_object_associations",
-                            "reason": "Real HubSpot association type IDs are required before TextTraits can associate the analysis record.",
-                        }
-                    )
-            except HubSpotClientError as sync_error:
-                sync_errors.append(hubspot_sync_error("analysis_object_record_created", sync_error))
+                return {
+                    "action": "analysis_object_record_created",
+                    "object_type": analysis_object_type,
+                    "association_count": len(associations),
+                    "hubspot": scrub_payload(response.get("body", {})),
+                }
+
+            sync_operations.append(HubSpotSyncOperation("analysis_object_record_created", sync_analysis_object_record))
         else:
             sync_skipped.append({"action": "analysis_object_record_created", "reason": "analysis_object_type or TEXTTRAITS_HUBSPOT_ANALYSIS_OBJECT_TYPE is required."})
 
@@ -5271,25 +5299,31 @@ def hubspot_analyze_and_sync():
     timeline_object_id = first_text_value(payload.get("timeline_object_id"), payload.get("objectId"), object_id, max_length=160)
     if hubspot_payload_flag(payload, "create_timeline_event", True):
         if app_id and event_template_id and timeline_object_id:
-            try:
+            timeline_payload = {
+                "eventTemplateId": event_template_id,
+                "objectId": timeline_object_id,
+                "tokens": {
+                    "texttraits_score": str(analysis.get("score") or ""),
+                    "texttraits_gate": str(analysis.get("gate") or ""),
+                    "texttraits_route": str(analysis.get("route") or ""),
+                    "texttraits_request_id": request_id,
+                    "texttraits_blocker_reason": str(output_fields.get("texttraits_blocker_reason") or ""),
+                },
+            }
+
+            def sync_timeline_event(
+                app_id=app_id,
+                timeline_payload=timeline_payload,
+                timeline_object_id=timeline_object_id,
+            ):
                 response = client.create_timeline_event(
                     app_id,
-                    {
-                        "eventTemplateId": event_template_id,
-                        "objectId": timeline_object_id,
-                        "tokens": {
-                            "texttraits_score": str(analysis.get("score") or ""),
-                            "texttraits_gate": str(analysis.get("gate") or ""),
-                            "texttraits_route": str(analysis.get("route") or ""),
-                            "texttraits_request_id": request_id,
-                            "texttraits_blocker_reason": str(output_fields.get("texttraits_blocker_reason") or ""),
-                        },
-                    },
+                    timeline_payload,
                     idempotency_key=hubspot_idempotency_key(payload, "analyze-sync-timeline", request_id, timeline_object_id),
                 )
-                sync_actions.append({"action": "timeline_event_created", "hubspot": scrub_payload(response.get("body", {}))})
-            except HubSpotClientError as sync_error:
-                sync_errors.append(hubspot_sync_error("timeline_event_created", sync_error))
+                return {"action": "timeline_event_created", "hubspot": scrub_payload(response.get("body", {}))}
+
+            sync_operations.append(HubSpotSyncOperation("timeline_event_created", sync_timeline_event))
         else:
             sync_skipped.append({"action": "timeline_event_created", "reason": "app_id, eventTemplateId, and objectId are required for HubSpot timeline events."})
 
@@ -5298,19 +5332,26 @@ def hubspot_analyze_and_sync():
         asset_id = first_text_value(payload.get("asset_id"), payload.get("assetId"), payload.get("email_id"), payload.get("emailId"), analysis.get("template_id"), max_length=160)
         asset_type = first_text_value(payload.get("asset_type"), payload.get("assetType"), "MARKETING_EMAIL", max_length=80)
         if campaign_id and asset_id:
-            try:
+            def sync_campaign_asset(
+                campaign_id=campaign_id,
+                asset_type=asset_type,
+                asset_id=asset_id,
+            ):
                 response = client.associate_campaign_asset(
                     campaign_id,
                     asset_type,
                     asset_id,
                     idempotency_key=hubspot_idempotency_key(payload, "analyze-sync-campaign-asset", campaign_id, asset_type, asset_id),
                 )
-                sync_actions.append({"action": "campaign_asset_associated", "campaign_id": campaign_id, "asset_type": asset_type, "asset_id": asset_id, "hubspot": scrub_payload(response.get("body", {}))})
-            except HubSpotClientError as sync_error:
-                sync_errors.append(hubspot_sync_error("campaign_asset_associated", sync_error))
+                return {"action": "campaign_asset_associated", "campaign_id": campaign_id, "asset_type": asset_type, "asset_id": asset_id, "hubspot": scrub_payload(response.get("body", {}))}
+
+            sync_operations.append(HubSpotSyncOperation("campaign_asset_associated", sync_campaign_asset))
         else:
             sync_skipped.append({"action": "campaign_asset_associated", "reason": "campaign_id and asset_id are required."})
 
+    parallel_actions, parallel_errors = run_hubspot_sync_operations(sync_operations, hubspot_sync_error)
+    sync_actions.extend(parallel_actions)
+    sync_errors.extend(parallel_errors)
     status = hubspot_sync_status(sync_actions, sync_errors)
     output_fields["texttraits_sync_status"] = status
     output_fields["texttraits_sync_actions"] = ", ".join(action.get("action", "") for action in sync_actions)[:500]
@@ -6796,9 +6837,13 @@ def hubspot_setup_group(label: str, surface_ids: list[str], surfaces_by_id: dict
     }
 
 
-def hubspot_setup_status_report(portal_id: str = "") -> dict[str, Any]:
-    connections = list_hubspot_portal_connections(limit=100)
-    token_status = token_storage_status()
+def hubspot_setup_status_report(
+    portal_id: str = "",
+    connections: list[dict[str, Any]] | None = None,
+    token_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    connections = connections if connections is not None else list_hubspot_portal_connections(limit=100)
+    token_status = token_status if token_status is not None else token_storage_status()
     selected_connection = next((connection for connection in connections if str(connection.get("portal_id") or "") == str(portal_id or "")), None) if portal_id else connections[0] if connections else None
     selected_portal_id = str(portal_id or (selected_connection.get("portal_id") if selected_connection else ""))
     surfaces = [
@@ -6959,7 +7004,7 @@ HUBSPOT_ANALYSIS_EXPORT_COLUMNS = (
     "route",
     "send_ready",
     "word_count",
-    "average_model_confidence",
+    "analysis_engine",
     "score_source",
     "policy_version",
     "reviewer",
@@ -7222,8 +7267,8 @@ def api_enterprise_hubspot_setup_wizard():
     return jsonify({"steps": [dict(step) for step in HUBSPOT_SETUP_WIZARD_STEPS], "setup_status": setup_status})
 
 
-def hubspot_randstad_readiness_report() -> dict[str, Any]:
-    dashboard = hubspot_email_dashboard(limit=500)
+def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -> dict[str, Any]:
+    dashboard = dashboard if dashboard is not None else hubspot_email_dashboard(limit=500)
     surface_ids = {surface["id"] for surface in HUBSPOT_INTEGRATION_SURFACES}
     categories = [
         {
@@ -7308,34 +7353,84 @@ def api_enterprise_hubspot_randstad_readiness():
     return jsonify({"readiness": report})
 
 
+@app.get("/api/enterprise/hubspot/home-bootstrap")
+@rate_limited(60)
+def api_enterprise_hubspot_home_bootstrap():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    limit = clamp_int(request.args.get("limit"), 1, 1000, 500)
+    dashboard = hubspot_email_dashboard(limit=limit)
+    readiness = hubspot_randstad_readiness_report(dashboard)
+    payload = {
+        "dashboard": dashboard,
+        "templates": [dict(template) for template in HUBSPOT_STAFFING_WORKFLOW_TEMPLATES],
+        "readiness": readiness,
+        "generated_at": utc_now(),
+    }
+    log_event(
+        user_id,
+        "hubspot_home_bootstrap_viewed",
+        {"total": dashboard["total_analyses"], "template_count": len(payload["templates"])},
+    )
+    return jsonify(payload)
+
+
+def hubspot_surfaces_report(
+    connections: list[dict[str, Any]] | None = None,
+    token_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    connections = connections if connections is not None else list_hubspot_portal_connections(limit=100)
+    token_status = token_status if token_status is not None else token_storage_status()
+    return {
+        "surfaces": [
+            {
+                **surface,
+                **hubspot_surface_readiness(surface, connections, token_status),
+                "mapping": list(surface.get("mapping", ())),
+                "auth": "HubSpot ingress signature or shared API key for server-to-server use.",
+                "status_label": HUBSPOT_SURFACE_STATUS_LABELS.get(str(surface.get("status") or ""), str(surface.get("status") or "Unknown")),
+            }
+            for surface in HUBSPOT_INTEGRATION_SURFACES
+        ],
+        "connections": connections,
+        "token_storage": token_status,
+        "max_batch_emails": max(1, min(HUBSPOT_MAX_BATCH_EMAILS, 100)),
+        "note": "Backend surfaces are ready to receive mapped HubSpot payloads. Live in-HubSpot placement still depends on the installed app configuration and granted scopes.",
+    }
+
+
 @app.get("/api/enterprise/hubspot/surfaces")
 @rate_limited(60)
 def api_enterprise_hubspot_surfaces():
     user_id, error = require_enterprise_admin()
     if error:
         return error
+    report = hubspot_surfaces_report()
+    log_event(user_id, "hubspot_surfaces_viewed", {"count": len(report["surfaces"])})
+    return jsonify(report)
+
+
+@app.get("/api/enterprise/hubspot/settings-bootstrap")
+@rate_limited(60)
+def api_enterprise_hubspot_settings_bootstrap():
+    user_id, error = require_enterprise_admin()
+    if error:
+        return error
+    portal_id = first_text_value(request.args.get("portal_id"), request.args.get("portalId"), max_length=160)
     connections = list_hubspot_portal_connections(limit=100)
     token_status = token_storage_status()
-    surfaces = [
-        {
-            **surface,
-            **hubspot_surface_readiness(surface, connections, token_status),
-            "mapping": list(surface.get("mapping", ())),
-            "auth": "HubSpot ingress signature or shared API key for server-to-server use.",
-            "status_label": HUBSPOT_SURFACE_STATUS_LABELS.get(str(surface.get("status") or ""), str(surface.get("status") or "Unknown")),
-        }
-        for surface in HUBSPOT_INTEGRATION_SURFACES
-    ]
-    log_event(user_id, "hubspot_surfaces_viewed", {"count": len(surfaces)})
-    return jsonify(
-        {
-            "surfaces": surfaces,
-            "connections": connections,
-            "token_storage": token_status,
-            "max_batch_emails": max(1, min(HUBSPOT_MAX_BATCH_EMAILS, 100)),
-            "note": "Backend surfaces are ready to receive mapped HubSpot payloads. Live in-HubSpot placement still depends on the installed app configuration and granted scopes.",
-        }
-    )
+    surface_report = hubspot_surfaces_report(connections, token_status)
+    setup_status = hubspot_setup_status_report(portal_id, connections, token_status)
+    payload = {
+        **surface_report,
+        "setup_status": setup_status,
+        "setup_steps": list(HUBSPOT_SETUP_WIZARD_STEPS),
+        "approval_chains": list(HUBSPOT_APPROVAL_CHAIN_TEMPLATES),
+        "generated_at": utc_now(),
+    }
+    log_event(user_id, "hubspot_settings_bootstrap_viewed", {"portal_id": setup_status.get("portal_id"), "surface_count": len(surface_report["surfaces"])})
+    return jsonify(payload)
 
 
 @app.get("/api/enterprise/hubspot/marketplace-readiness")
@@ -7863,7 +7958,18 @@ def api_integration_oauth_start(provider: str):
     state = encoded_state(user_id, entry.name, nonce)
     session[f"oauth_nonce_{provider_slug(entry.name)}"] = nonce
     redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
-    authorize_url = build_authorization_url(entry, redirect_uri, state)
+    payload = request.get_json(silent=True) or {}
+    scope_mode = str(payload.get("scope_mode") or "all").strip().lower()
+    requested_optional_scopes = payload.get("optional_scopes")
+    if requested_optional_scopes is not None and not isinstance(requested_optional_scopes, list):
+        return jsonify({"error": "optional_scopes must be a list of approved provider scopes."}), 400
+    if scope_mode == "minimum":
+        requested_optional_scopes = []
+    elif scope_mode not in {"all", "selected"}:
+        return jsonify({"error": "scope_mode must be minimum, selected, or all."}), 400
+    elif scope_mode == "selected" and requested_optional_scopes is None:
+        return jsonify({"error": "selected scope mode requires optional_scopes."}), 400
+    authorize_url = build_authorization_url(entry, redirect_uri, state, requested_optional_scopes)
     return jsonify({"authorize_url": authorize_url, "provider": entry.public_dict()})
 
 

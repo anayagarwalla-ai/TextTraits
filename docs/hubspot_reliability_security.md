@@ -9,13 +9,13 @@ For HubSpot email-fit analyses, TextTraits stores:
 - Campaign, journey, template, contact, company, deal, owner, portal, object, and locale IDs when supplied
 - Tenant-scoped keyed content digest
 - Score, gate, route, send-ready state
-- Word count and average model confidence
+- Word count and versioned analysis-engine identifier
 - Findings, checks, policy, and non-secret context metadata
 - Timestamp
 
 TextTraits does not store the raw subject or body in the HubSpot analysis history tables.
 Content digests use an HMAC with `TEXTTRAITS_CONTENT_HASH_SECRET` or the app secret, so exports can still join outcomes without exposing a plain SHA-256 of customer email content.
-Findings and checks are also normalized into queryable governance tables so dashboards can aggregate by failed rule, severity, owner queue, and status without parsing JSON blobs.
+Findings and checks are also normalized into queryable governance tables. Audience type, region, business unit, job family, skill family, and analysis engine are indexed columns so dashboards can aggregate operational dimensions without parsing JSON blobs.
 
 ## Ingress Authentication
 
@@ -39,7 +39,7 @@ HubSpot source-system values are constrained to HubSpot identifiers on the card/
 
 ## Public Card Response
 
-The CRM card, workflow action, synced analyze-and-writeback action, marketing-email preflight, campaign preflight, and bulk preflight responses return the decision, checks, findings, route, policy version, sync status, and safe context IDs needed by HubSpot UI or automation surfaces. They do not expose full configured risk/vague phrase lists or model prediction internals unless developer tools are explicitly enabled.
+The CRM card, workflow action, synced analyze-and-writeback action, marketing-email preflight, campaign preflight, and bulk preflight responses return the decision, checks, findings, route, policy version, analysis-engine version, sync status, and safe context IDs needed by HubSpot UI or automation surfaces. HubSpot Email Fit does not invoke or expose the separate demographic/personality association model.
 
 Idempotency keys are stable by workspace and workflow. Reusing the same key for different content returns `409 Conflict` instead of silently creating a second analysis or overwriting a prior one.
 

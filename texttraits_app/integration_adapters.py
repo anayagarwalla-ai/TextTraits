@@ -18,6 +18,7 @@ class IntegrationProvider:
     auth: str
     scopes: tuple[str, ...]
     setup_steps: tuple[str, ...]
+    optional_scopes: tuple[str, ...] = ()
     client_id_env: str = ""
     client_secret_env: str = ""
     auth_url: str = ""
@@ -57,6 +58,8 @@ PROVIDERS: tuple[IntegrationProvider, ...] = (
         auth="OAuth 2.0",
         scopes=(
             "oauth",
+        ),
+        optional_scopes=(
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
             "crm.objects.companies.read",
@@ -177,12 +180,20 @@ def configured_count() -> int:
     return sum(1 for provider in PROVIDERS if provider.configured())
 
 
-def build_authorization_url(provider: IntegrationProvider, redirect_uri: str, state: str) -> str:
+def build_authorization_url(
+    provider: IntegrationProvider,
+    redirect_uri: str,
+    state: str,
+    requested_optional_scopes: tuple[str, ...] | list[str] | None = None,
+) -> str:
     if not provider.auth_url or not provider.configured():
         raise ValueError("Provider is not configured for OAuth.")
     require_https(provider.auth_url)
     require_https(redirect_uri)
-    scopes = " ".join(provider.scopes)
+    optional_allowlist = set(provider.optional_scopes)
+    requested = provider.optional_scopes if requested_optional_scopes is None else tuple(requested_optional_scopes)
+    approved_optional = tuple(scope for scope in requested if scope in optional_allowlist)
+    scopes = " ".join(dict.fromkeys((*provider.scopes, *approved_optional)))
     query = {
         "client_id": os.getenv(provider.client_id_env, ""),
         "redirect_uri": redirect_uri,

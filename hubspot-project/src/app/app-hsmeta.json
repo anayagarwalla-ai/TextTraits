@@ -19,7 +19,9 @@
         "http://localhost:5001/api/integrations/hubspot/oauth/callback"
       ],
       "requiredScopes": [
-        "oauth",
+        "oauth"
+      ],
+      "optionalScopes": [
         "crm.objects.contacts.read",
         "crm.objects.contacts.write",
         "crm.objects.companies.read",
@@ -29,9 +31,7 @@
         "crm.objects.custom.read",
         "crm.objects.custom.write",
         "crm.lists.read",
-        "crm.lists.write"
-      ],
-      "optionalScopes": [
+        "crm.lists.write",
         "tickets",
         "crm.objects.owners.read",
         "marketing-email",

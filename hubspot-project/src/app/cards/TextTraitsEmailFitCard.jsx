@@ -11,24 +11,12 @@ import {
   TextArea,
   hubspot,
 } from "@hubspot/ui-extensions";
-
-const API_BASE = "https://texttraits.onrender.com";
+import {API_BASE, hubspotApi} from "../lib/api";
+import {objectTypeFromContext, portalIdFromContext, recordIdFromContext} from "../lib/context";
 
 hubspot.extend(({context, actions}) => (
   <TextTraitsEmailFitCard context={context} actions={actions} />
 ));
-
-function portalIdFromContext(context) {
-  return String(context?.portal?.id || context?.portalId || "");
-}
-
-function recordIdFromContext(context) {
-  return String(context?.crm?.objectId || context?.objectId || context?.recordId || "");
-}
-
-function objectTypeFromContext(context) {
-  return String(context?.crm?.objectType || context?.objectType || context?.objectTypeId || "");
-}
 
 function gateLabel(gate) {
   if (gate === "ready") return "Ready";
@@ -100,12 +88,12 @@ function TextTraitsEmailFitCard({context, actions}) {
       setLoading(true);
       setError("");
       try {
-        const response = await hubspot.fetch(`${API_BASE}/v1/integrations/hubspot/app-card/latest`, {
+        const {payload} = await hubspotApi("/v1/integrations/hubspot/app-card/latest", {
           method: "POST",
           body: contextPayload,
           timeout: 15000,
+          errorMessage: "TextTraits latest review could not load.",
         });
-        const payload = await response.json();
         if (!cancelled) {
           setLatest(payload.latest || null);
           setReviewStates(payload.review_states || []);
@@ -126,7 +114,7 @@ function TextTraitsEmailFitCard({context, actions}) {
     setSubmitting(true);
     setError("");
     try {
-      const response = await hubspot.fetch(`${API_BASE}/v1/integrations/hubspot/analyze-and-sync`, {
+      const {payload} = await hubspotApi("/v1/integrations/hubspot/analyze-and-sync", {
         method: "POST",
         body: {
           ...contextPayload,
@@ -140,11 +128,12 @@ function TextTraitsEmailFitCard({context, actions}) {
           writeback_properties: true,
           record_review_state: true,
           create_review_task: true,
+          create_analysis_record: false,
+          create_timeline_event: false,
         },
         timeout: 15000,
+        errorMessage: "Analysis failed.",
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Analysis failed.");
       setResult(payload);
       setLatest(payload.analysis || null);
       setReviewStates([]);
@@ -164,7 +153,7 @@ function TextTraitsEmailFitCard({context, actions}) {
     setSubmitting(true);
     setError("");
     try {
-      const response = await hubspot.fetch(`${API_BASE}/v1/integrations/hubspot/review-action`, {
+      const {payload} = await hubspotApi("/v1/integrations/hubspot/review-action", {
         method: "POST",
         body: {
           ...contextPayload,
@@ -181,9 +170,8 @@ function TextTraitsEmailFitCard({context, actions}) {
           },
         },
         timeout: 15000,
+        errorMessage: "Review action failed.",
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Review action failed.");
       const message = action === "approve_review" ? "Marked approved." : action === "reject_review" ? "Marked rejected." : action === "resolve_review" ? "Marked resolved." : "Sent to review.";
       actions?.addAlert?.({type: "success", message});
       setReviewStates(payload.event ? [{...payload.event, status: payload.event.payload?.review_status || payload.event.status}] : reviewStates);
@@ -223,6 +211,7 @@ function TextTraitsEmailFitCard({context, actions}) {
   const blockerLevel = valueFrom(finding?.blocker_level, output.texttraits_blocker_level, latestReviewState?.payload?.blocker_level);
   const blockerReason = valueFrom(output.texttraits_blocker_reason, finding?.title, finding?.label);
   const policyVersion = valueFrom(visible?.policy?.version, output.texttraits_policy_version);
+  const analysisEngine = valueFrom(visible?.analysis_engine, output.texttraits_analysis_engine);
   const syncStatus = valueFrom(output.texttraits_sync_status, result?.sync?.status);
 
   return (
@@ -244,6 +233,7 @@ function TextTraitsEmailFitCard({context, actions}) {
             <FieldRow label="Review status" value={latestReviewState?.status || (gate === "ready" ? "ready" : "")} />
             <FieldRow label="Sync status" value={syncStatus} />
             <FieldRow label="Policy version" value={policyVersion} />
+            <FieldRow label="Analysis engine" value={analysisEngine} />
             <FieldRow label="Request ID" value={requestId} />
             <FieldRow label="Content hash" value={contentHash} />
           </Flex>

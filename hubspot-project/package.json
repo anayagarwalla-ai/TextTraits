@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate": "node scripts/validate-project.mjs",
+    "validate": "node scripts/validate-project.mjs && npm run build-check",
+    "build-check": "esbuild src/app/cards/TextTraitsEmailFitCard.jsx src/app/home/TextTraitsHome.jsx src/app/settings/TextTraitsSettings.jsx --bundle --platform=browser --format=esm --external:@hubspot/ui-extensions --outdir=.build-check",
     "upload": "hs project upload",
     "dev": "hs project dev"
   },
@@ -11,5 +12,7 @@
     "@hubspot/ui-extensions": "^0.10.0",
     "react": "^18.2.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "esbuild": "^0.25.5"
+  }
 }

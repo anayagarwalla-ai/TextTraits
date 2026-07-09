@@ -152,6 +152,10 @@
         "type": "string"
       },
       {
+        "name": "texttraits_analysis_engine",
+        "type": "string"
+      },
+      {
         "name": "texttraits_asset_type",
         "type": "string"
       },
@@ -203,6 +207,7 @@
           "texttraits_blocker_level": "TextTraits blocker level",
           "texttraits_blocker_reason": "TextTraits blocker reason",
           "texttraits_policy_version": "TextTraits policy version",
+          "texttraits_analysis_engine": "TextTraits analysis engine",
           "texttraits_asset_type": "TextTraits asset type",
           "texttraits_asset_id": "TextTraits asset ID",
           "texttraits_asset_name": "TextTraits asset name",

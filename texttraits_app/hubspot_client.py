@@ -4,12 +4,15 @@ import json
 import logging
 import os
 import re
+import socket
+import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+import certifi
+import urllib3
 
 from storage import (
     get_hubspot_portal_connection,
@@ -35,6 +38,15 @@ CRM_READ_SCOPES = {
     "deals": "crm.objects.deals.read",
     "tickets": "tickets",
 }
+_REFRESH_LOCKS: dict[str, threading.Lock] = {}
+_REFRESH_LOCKS_GUARD = threading.Lock()
+_HTTP_POOL = urllib3.PoolManager(
+    num_pools=20,
+    maxsize=20,
+    block=True,
+    cert_reqs="CERT_REQUIRED",
+    ca_certs=certifi.where(),
+)
 
 
 class HubSpotClientError(RuntimeError):
@@ -66,43 +78,57 @@ def _parse_expires_at(value: str) -> datetime | None:
 
 
 def _json_request(url: str, method: str, body: dict[str, Any] | None = None, headers: dict[str, str] | None = None, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> tuple[int, dict[str, Any]]:
-    data = None
+    data: bytes | None = None
     request_headers = dict(headers or {})
     if body is not None:
         data = json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
         request_headers.setdefault("Content-Type", "application/json")
-    request = urllib.request.Request(url, data=data, headers=request_headers, method=method.upper())
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
-            raw = response.read().decode("utf-8")
-            return int(response.status), json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", errors="replace")
+        response = _HTTP_POOL.request(
+            method.upper(),
+            url,
+            body=data,
+            headers=request_headers,
+            timeout=urllib3.Timeout(total=timeout),
+            retries=False,
+        )
+        raw = response.data.decode("utf-8", errors="replace")
         try:
             payload = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
             payload = {"raw": raw[:1000]}
-        return int(error.code), payload
+        return int(response.status), payload
+    except (urllib3.exceptions.HTTPError, TimeoutError, socket.timeout) as error:
+        return 599, {"error": "HubSpot network request failed.", "reason": str(getattr(error, "reason", error))[:240]}
 
 
 def _form_request(url: str, payload: dict[str, Any], timeout: int = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
     data = urllib.parse.urlencode(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", errors="replace")
+        response = _HTTP_POOL.request(
+            "POST",
+            url,
+            body=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=urllib3.Timeout(total=timeout),
+            retries=False,
+        )
+        raw = response.data.decode("utf-8", errors="replace")
         try:
             details = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
             details = {"raw": raw[:1000]}
-        raise HubSpotClientError("HubSpot OAuth token refresh failed.", status_code=502, payload=details) from error
+        if 200 <= int(response.status) < 300:
+            return details
+        raise HubSpotClientError("HubSpot OAuth token refresh failed.", status_code=502, payload=details)
+    except HubSpotClientError:
+        raise
+    except (urllib3.exceptions.HTTPError, TimeoutError, socket.timeout) as error:
+        raise HubSpotClientError(
+            "HubSpot OAuth token refresh could not reach HubSpot.",
+            status_code=502,
+            payload={"reason": str(getattr(error, "reason", error))[:240]},
+        ) from error
 
 
 def _append_query(path: str, params: dict[str, Any] | None) -> str:
@@ -157,13 +183,24 @@ def _audit_hubspot_api_event(portal_id: str, event_type: str, payload: dict[str,
         logging.exception("hubspot_api_audit_failed")
 
 
+def _refresh_lock(portal_id: str) -> threading.Lock:
+    with _REFRESH_LOCKS_GUARD:
+        return _REFRESH_LOCKS.setdefault(portal_id, threading.Lock())
+
+
 class HubSpotApiClient:
     def __init__(self, portal_id: str) -> None:
         self.portal_id = str(portal_id or "").strip()
         if not self.portal_id:
             raise HubSpotNotConnectedError("HubSpot portal_id is required.", status_code=400)
+        self._connection_cache: dict[str, Any] | None = None
 
-    def _connection(self, include_tokens: bool = False) -> dict[str, Any]:
+    def _connection(self, include_tokens: bool = False, refresh: bool = False) -> dict[str, Any]:
+        cached = self._connection_cache
+        if cached is not None and not refresh:
+            tokens_available = bool(cached.get("access_token") or cached.get("refresh_token"))
+            if not include_tokens or tokens_available:
+                return cached
         connection = get_hubspot_portal_connection(self.portal_id, include_tokens=include_tokens)
         if not connection or connection.get("status") == "disconnected":
             raise HubSpotNotConnectedError(
@@ -177,10 +214,11 @@ class HubSpotApiClient:
                 status_code=409,
                 payload={"portal_id": self.portal_id, "token_storage": token_storage_status()},
             )
+        self._connection_cache = connection
         return connection
 
-    def require_scopes(self, required_scopes: tuple[str, ...] = ()) -> None:
-        connection = self._connection(include_tokens=False)
+    @staticmethod
+    def _validate_scopes(connection: dict[str, Any], required_scopes: tuple[str, ...]) -> None:
         if not hubspot_connection_has_scopes(connection, required_scopes):
             raise HubSpotScopeError(
                 "The installed HubSpot app is missing scopes required for this action.",
@@ -188,54 +226,64 @@ class HubSpotApiClient:
                 payload={"required_scopes": list(required_scopes), "granted_scopes": connection.get("scopes", [])},
             )
 
+    def require_scopes(self, required_scopes: tuple[str, ...] = ()) -> None:
+        connection = self._connection(include_tokens=False)
+        self._validate_scopes(connection, required_scopes)
+
     def ensure_connected(self, required_scopes: tuple[str, ...] = ()) -> dict[str, Any]:
-        self.require_scopes(required_scopes)
-        return self._connection(include_tokens=True)
+        connection = self._connection(include_tokens=True)
+        self._validate_scopes(connection, required_scopes)
+        return connection
 
     def _access_token(self, required_scopes: tuple[str, ...] = ()) -> str:
-        self.require_scopes(required_scopes)
         connection = self._connection(include_tokens=True)
+        self._validate_scopes(connection, required_scopes)
         expires_at = _parse_expires_at(str(connection.get("expires_at") or ""))
         if expires_at and expires_at <= _utc_now() + timedelta(seconds=60) and connection.get("refresh_token"):
-            connection = self.refresh_access_token()
+            connection = self.refresh_access_token(force=False)
         token = str(connection.get("access_token") or "")
         if not token:
-            connection = self.refresh_access_token()
+            connection = self.refresh_access_token(force=False)
             token = str(connection.get("access_token") or "")
         if not token:
             raise HubSpotNotConnectedError("HubSpot access token is unavailable for this portal.", status_code=409)
         return token
 
-    def refresh_access_token(self) -> dict[str, Any]:
-        connection = self._connection(include_tokens=True)
-        refresh_token = str(connection.get("refresh_token") or "")
-        if not refresh_token:
-            raise HubSpotNotConnectedError("HubSpot refresh token is unavailable for this portal.", status_code=409)
-        client_id = os.getenv("HUBSPOT_CLIENT_ID", "").strip()
-        client_secret = os.getenv("HUBSPOT_CLIENT_SECRET", "").strip()
-        if not client_id or not client_secret:
-            raise HubSpotClientError("Configure HUBSPOT_CLIENT_ID and HUBSPOT_CLIENT_SECRET before refreshing HubSpot tokens.", status_code=503)
-        payload = _form_request(
-            HUBSPOT_OAUTH_TOKEN_URL,
-            {
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": client_id,
-                "client_secret": client_secret,
-            },
-        )
-        if not payload.get("refresh_token"):
-            payload["refresh_token"] = refresh_token
-        updated = update_hubspot_portal_access_token(self.portal_id, payload) | {
-            "access_token": payload.get("access_token", ""),
-            "refresh_token": payload.get("refresh_token", refresh_token),
-        }
-        _audit_hubspot_api_event(
-            self.portal_id,
-            "hubspot_oauth_token_refreshed",
-            {"expires_at": updated.get("expires_at"), "scopes": updated.get("scopes", [])},
-        )
-        return updated
+    def refresh_access_token(self, force: bool = True) -> dict[str, Any]:
+        with _refresh_lock(self.portal_id):
+            connection = self._connection(include_tokens=True, refresh=True)
+            expires_at = _parse_expires_at(str(connection.get("expires_at") or ""))
+            if not force and connection.get("access_token") and expires_at and expires_at > _utc_now() + timedelta(seconds=60):
+                return connection
+            refresh_token = str(connection.get("refresh_token") or "")
+            if not refresh_token:
+                raise HubSpotNotConnectedError("HubSpot refresh token is unavailable for this portal.", status_code=409)
+            client_id = os.getenv("HUBSPOT_CLIENT_ID", "").strip()
+            client_secret = os.getenv("HUBSPOT_CLIENT_SECRET", "").strip()
+            if not client_id or not client_secret:
+                raise HubSpotClientError("Configure HUBSPOT_CLIENT_ID and HUBSPOT_CLIENT_SECRET before refreshing HubSpot tokens.", status_code=503)
+            payload = _form_request(
+                HUBSPOT_OAUTH_TOKEN_URL,
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+            )
+            if not payload.get("refresh_token"):
+                payload["refresh_token"] = refresh_token
+            updated = update_hubspot_portal_access_token(self.portal_id, payload) | {
+                "access_token": payload.get("access_token", ""),
+                "refresh_token": payload.get("refresh_token", refresh_token),
+            }
+            self._connection_cache = updated
+            _audit_hubspot_api_event(
+                self.portal_id,
+                "hubspot_oauth_token_refreshed",
+                {"expires_at": updated.get("expires_at"), "scopes": updated.get("scopes", [])},
+            )
+            return updated
 
     def request(
         self,
@@ -270,10 +318,10 @@ class HubSpotApiClient:
                         "attempt": attempt + 1,
                     },
                 )
-                token = str(self.refresh_access_token().get("access_token") or "")
+                token = str(self.refresh_access_token(force=True).get("access_token") or "")
                 headers["Authorization"] = f"Bearer {token}"
                 continue
-            if status_code in {429, 500, 502, 503, 504} and attempt < 2:
+            if status_code in {429, 500, 502, 503, 504, 599} and attempt < 2:
                 retry_after = payload.get("retryAfter") or payload.get("retry_after") or ""
                 try:
                     delay = min(3.0, max(0.25, float(retry_after)))

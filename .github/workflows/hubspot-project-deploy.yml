@@ -24,7 +24,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Validate HubSpot project scaffold
+      - name: Install HubSpot project dependencies
+        run: npm ci --prefix hubspot-project
+
+      - name: Validate HubSpot metadata and compile extensions
         run: npm run validate --prefix hubspot-project
 
   deploy:

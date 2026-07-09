@@ -18,7 +18,7 @@ Risk terms also apply explicit scoring penalties during the score calculation. M
 
 Generic subject lines such as `Checking in`, `Follow up`, and `Quick question` receive a subject-specific finding because they do not name the concrete topic or decision. Specificity scoring also drops more sharply when a draft contains multiple configured vague phrases, so weak copy is lowered by the underlying checklist rather than by a hidden display cap.
 
-Model confidence is shown as supporting evidence only. It is not averaged into the score.
+HubSpot Email Fit does not run the separate TextTraits demographic/personality association model. That model was trained for a different task and is not an email-quality measure. HubSpot responses identify the versioned rules engine in `analysis_engine` and `texttraits_analysis_engine`, making the actual scoring source explicit and auditable.
 
 ## Evidence
 

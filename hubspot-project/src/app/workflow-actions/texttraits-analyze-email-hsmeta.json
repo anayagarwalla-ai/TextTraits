@@ -105,6 +105,10 @@
         "type": "string"
       },
       {
+        "name": "texttraits_analysis_engine",
+        "type": "string"
+      },
+      {
         "name": "texttraits_request_id",
         "type": "string"
       },
@@ -142,6 +146,7 @@
           "texttraits_blocker_level": "TextTraits blocker level",
           "texttraits_blocker_reason": "TextTraits blocker reason",
           "texttraits_policy_version": "TextTraits policy version",
+          "texttraits_analysis_engine": "TextTraits analysis engine",
           "texttraits_request_id": "TextTraits request ID",
           "texttraits_content_hash": "TextTraits content hash"
         }
