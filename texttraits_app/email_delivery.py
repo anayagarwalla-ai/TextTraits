@@ -9,6 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
+from runtime_config import env_int
 from typing import Any
 
 import certifi
@@ -63,7 +64,7 @@ def send_account_email(to_email: str, subject: str, text_body: str, html_body: s
 
 def send_smtp(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> None:
     host = os.getenv("TEXTTRAITS_SMTP_HOST", "").strip()
-    port = int(os.getenv("TEXTTRAITS_SMTP_PORT", "587"))
+    port = env_int("TEXTTRAITS_SMTP_PORT", 587, minimum=1, maximum=65535)
     username = os.getenv("TEXTTRAITS_SMTP_USERNAME", "").strip()
     password = os.getenv("TEXTTRAITS_SMTP_PASSWORD", "")
     use_tls = os.getenv("TEXTTRAITS_SMTP_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}

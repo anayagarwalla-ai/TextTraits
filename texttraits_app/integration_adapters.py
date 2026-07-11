@@ -76,6 +76,8 @@ PROVIDERS: tuple[IntegrationProvider, ...] = (
             "marketing.campaigns.write",
             "marketing.campaigns.revenue.read",
             "marketing-email",
+            "forms",
+            "content",
             "timeline",
             "automation",
         ),

@@ -13,6 +13,7 @@ from typing import Any
 
 import certifi
 import urllib3
+from runtime_config import env_int
 
 from storage import (
     get_hubspot_portal_connection,
@@ -25,7 +26,7 @@ from storage import (
 
 HUBSPOT_API_BASE_URL = os.getenv("HUBSPOT_API_BASE_URL", "https://api.hubapi.com").rstrip("/")
 HUBSPOT_OAUTH_TOKEN_URL = os.getenv("HUBSPOT_OAUTH_TOKEN_URL", "https://api.hubapi.com/oauth/2026-03/token")
-DEFAULT_TIMEOUT_SECONDS = int(os.getenv("TEXTTRAITS_HUBSPOT_API_TIMEOUT_SECONDS", "20"))
+DEFAULT_TIMEOUT_SECONDS = env_int("TEXTTRAITS_HUBSPOT_API_TIMEOUT_SECONDS", 20, minimum=1, maximum=120)
 CRM_WRITE_SCOPES = {
     "contacts": "crm.objects.contacts.write",
     "companies": "crm.objects.companies.write",
@@ -172,6 +173,10 @@ def _audit_path_template(path: str) -> str:
 def _api_version_from_path(path: str) -> str:
     match = re.search(r"/(\d{4}-\d{2})(?:/|$)", path)
     return match.group(1) if match else "unversioned"
+
+
+def _request_is_replay_safe(method: str, idempotency_key: str) -> bool:
+    return method.upper() in {"GET", "HEAD", "OPTIONS", "PUT", "DELETE"} or bool(idempotency_key)
 
 
 def _audit_hubspot_api_event(portal_id: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -321,7 +326,7 @@ class HubSpotApiClient:
                 token = str(self.refresh_access_token(force=True).get("access_token") or "")
                 headers["Authorization"] = f"Bearer {token}"
                 continue
-            if status_code in {429, 500, 502, 503, 504, 599} and attempt < 2:
+            if status_code in {429, 500, 502, 503, 504, 599} and attempt < 2 and _request_is_replay_safe(method, idempotency_key):
                 retry_after = payload.get("retryAfter") or payload.get("retry_after") or ""
                 try:
                     delay = min(3.0, max(0.25, float(retry_after)))
@@ -357,7 +362,13 @@ class HubSpotApiClient:
                     },
                 )
                 return {"status_code": status_code, "body": payload}
-            logging.warning("hubspot_api_error status=%s payload=%s", status_code, payload)
+            logging.warning(
+                "hubspot_api_error status=%s method=%s path=%s error_keys=%s",
+                status_code,
+                method.upper(),
+                path_template,
+                sorted(str(key)[:80] for key in payload.keys())[:20] if isinstance(payload, dict) else [],
+            )
             _audit_hubspot_api_event(
                 self.portal_id,
                 "hubspot_api_request_failed",

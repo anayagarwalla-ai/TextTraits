@@ -38,6 +38,11 @@ const scopes = [
   ...appConfig.config.auth.requiredScopes,
   ...appConfig.config.auth.optionalScopes,
 ];
+for (const fetchUrl of appConfig.config?.permittedUrls?.fetch || []) {
+  if (new URL(fetchUrl).protocol !== "https:") {
+    throw new Error(`HubSpot production fetch allowlist must use HTTPS: ${fetchUrl}`);
+  }
+}
 for (const requiredScope of ["oauth", "marketing-email", "marketing.campaigns.read", "marketing.campaigns.write", "crm.lists.read", "crm.lists.write"]) {
   if (!scopes.includes(requiredScope)) {
     throw new Error(`Missing expected HubSpot scope: ${requiredScope}`);
@@ -53,7 +58,7 @@ const homeSource = fs.readFileSync(path.join(root, "src/app/home/TextTraitsHome.
 const homePanelSource = fs.readFileSync(path.join(root, "src/app/components/HomePanels.jsx"), "utf8");
 const homeSources = `${homeSource}\n${homePanelSource}`;
 for (const expected of [
-  "/api/enterprise/hubspot/home-bootstrap",
+  "/v1/integrations/hubspot/app-home/bootstrap",
   "/v1/integrations/hubspot/campaigns/review",
   "/v1/integrations/hubspot/campaigns/list",
   "/v1/integrations/hubspot/campaigns/create",
@@ -76,7 +81,7 @@ for (const expected of [
   "Create HubSpot campaign",
   "Update marketing email draft",
   "Run pre-publish guardrail",
-  "Enterprise staffing context",
+  "Enterprise context and workflow templates",
   "Staffing workflow templates",
   "Campaign dashboard rollups",
   "Bulk asset import",
@@ -117,10 +122,9 @@ for (const expected of [
   "/v1/integrations/hubspot/analysis-schema/provision",
   "/v1/integrations/hubspot/lists/create-review-segments",
   "/v1/integrations/hubspot/webhooks/configure",
-  "/api/enterprise/hubspot/setup-status",
-  "/api/enterprise/hubspot/settings-bootstrap",
+  "/v1/integrations/hubspot/settings/bootstrap",
   "Setup status",
-  "Guided HubSpot setup",
+  "Guided setup checklist",
   "Approval chain templates",
   "Campaign sync",
   "Workflow actions",
@@ -128,7 +132,7 @@ for (const expected of [
   "Admin attention",
   "Refresh setup status",
   "Required scopes",
-  "Selected portal",
+  "HubSpot portal",
   "Portal has no stored tokens",
   "/v1/integrations/hubspot/owners/list",
   "/v1/integrations/hubspot/review-routing/config",
@@ -163,12 +167,34 @@ for (const expected of ["sync_hubspot", "task_id", "taskIdFromSync"]) {
 }
 
 const workflowUids = new Set();
+const componentUids = new Set();
+for (const [relativePath, expectedContract] of Object.entries(analysisContract.components || {})) {
+  const definition = JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8"));
+  if (!definition.uid || componentUids.has(definition.uid)) {
+    throw new Error(`HubSpot component must have a unique uid: ${relativePath}`);
+  }
+  componentUids.add(definition.uid);
+  if (definition.type !== expectedContract.type) {
+    throw new Error(`${relativePath} type mismatch: expected ${expectedContract.type}, received ${definition.type}`);
+  }
+  if (definition.config?.entrypoint !== expectedContract.entrypoint) {
+    throw new Error(`${relativePath} entrypoint mismatch: expected ${expectedContract.entrypoint}`);
+  }
+  const entrypoint = path.join(root, "src", expectedContract.entrypoint.replace(/^\/app\//, "app/"));
+  if (!fs.existsSync(entrypoint)) {
+    throw new Error(`${relativePath} references missing entrypoint: ${expectedContract.entrypoint}`);
+  }
+}
+
 for (const [relativePath, expectedContract] of Object.entries(analysisContract.workflowActions || {})) {
   const definition = JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8"));
   if (!definition.uid || workflowUids.has(definition.uid)) {
     throw new Error(`Workflow action must have a unique uid: ${relativePath}`);
   }
   workflowUids.add(definition.uid);
+  if (componentUids.has(definition.uid)) {
+    throw new Error(`HubSpot uid is reused by a component and workflow action: ${definition.uid}`);
+  }
   const config = definition.config || {};
   const actionPath = new URL(config.actionUrl).pathname;
   if (actionPath !== expectedContract.endpoint) {

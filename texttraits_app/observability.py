@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
+from runtime_config import env_int
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,8 @@ def configure_logging(log_path: Path) -> None:
 
     file_handler = RotatingFileHandler(
         log_path,
-        maxBytes=int(os.getenv("TEXTTRAITS_LOG_MAX_BYTES", "10485760")),
-        backupCount=int(os.getenv("TEXTTRAITS_LOG_BACKUPS", "5")),
+        maxBytes=env_int("TEXTTRAITS_LOG_MAX_BYTES", 10485760, minimum=1024, maximum=1073741824),
+        backupCount=env_int("TEXTTRAITS_LOG_BACKUPS", 5, minimum=1, maximum=100),
     )
     console_handler = logging.StreamHandler()
     if os.getenv("TEXTTRAITS_LOG_JSON", "false").strip().lower() in {"1", "true", "yes", "on"}:

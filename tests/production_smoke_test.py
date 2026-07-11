@@ -33,6 +33,34 @@ def assert_true(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def install_test_hubspot_portal(portal_id: str = "246356639") -> None:
+    with storage_module.connect() as conn:
+        storage_module.execute(
+            conn,
+            """
+            INSERT INTO hubspot_portal_tokens (
+              portal_id, hub_domain, account_name, access_token_encrypted, refresh_token_encrypted,
+              scopes, token_type, expires_at, status, installed_by, connected_at, updated_at, disconnected_at
+            )
+            VALUES (?, ?, ?, '', '', ?, 'bearer', '', 'connected', ?, ?, ?, '')
+            ON CONFLICT(portal_id) DO UPDATE SET
+              scopes = excluded.scopes,
+              status = excluded.status,
+              updated_at = excluded.updated_at,
+              disconnected_at = ''
+            """,
+            (
+                portal_id,
+                "qa.example.com",
+                "QA Portal",
+                json.dumps(["crm.objects.contacts.write", "crm.objects.custom.read", "crm.objects.custom.write"]),
+                "qa-approver@example.com",
+                storage_module.utc_now(),
+                storage_module.utc_now(),
+            ),
+        )
+
+
 def csrf_headers(client) -> dict[str, str]:
     token = client.get("/api/session").get_json()["csrf_token"]
     return {"X-CSRF-Token": token}
@@ -174,6 +202,8 @@ def main() -> int:
     assert_true(hubspot_provider["configured"] is False, "HubSpot should report unconfigured without credentials")
     oauth_start = client.post("/api/integrations/hubspot/oauth/start", headers=csrf_headers(client))
     assert_true(oauth_start.status_code == 409, "OAuth start should require configured provider credentials")
+    malformed_marketplace_state = client.get("/api/integrations/hubspot/oauth/callback?code=sample-code&state=tampered-state")
+    assert_true(malformed_marketplace_state.status_code == 400, "a supplied but invalid HubSpot OAuth state must never fall through to stateless install")
 
     old_exchange = app_module.exchange_oauth_code
     app_module.exchange_oauth_code = lambda entry, redirect_uri, code: {
@@ -184,7 +214,7 @@ def main() -> int:
         "scope": "crm.objects.contacts.read",
     }
     try:
-        marketplace_callback = client.get("/api/integrations/hubspot/oauth/callback?code=sample-code&state=hubspot-install-state")
+        marketplace_callback = client.get("/api/integrations/hubspot/oauth/callback?code=sample-code")
     finally:
         app_module.exchange_oauth_code = old_exchange
     assert_true(marketplace_callback.status_code == 200, marketplace_callback.get_data(as_text=True))
@@ -538,27 +568,7 @@ def main() -> int:
         return 200, {"id": "synced", "properties": (body or {}).get("properties", {})}
 
     try:
-        with storage_module.connect() as conn:
-            storage_module.execute(
-                conn,
-                """
-                INSERT INTO hubspot_portal_tokens (
-                  portal_id, hub_domain, account_name, access_token_encrypted, refresh_token_encrypted,
-                  scopes, token_type, expires_at, status, installed_by, connected_at, updated_at, disconnected_at
-                )
-                VALUES (?, ?, ?, '', '', ?, 'bearer', '', 'connected', ?, ?, ?, '')
-                ON CONFLICT(portal_id) DO UPDATE SET scopes = excluded.scopes, status = excluded.status, updated_at = excluded.updated_at
-                """,
-                (
-                    "246356639",
-                    "qa.example.com",
-                    "QA Portal",
-                    json.dumps(["crm.objects.contacts.write", "crm.objects.custom.read", "crm.objects.custom.write"]),
-                    "qa-approver@example.com",
-                    storage_module.utc_now(),
-                    storage_module.utc_now(),
-                ),
-            )
+        install_test_hubspot_portal()
         hubspot_client_module.HubSpotApiClient._access_token = fake_access_token
         hubspot_client_module._json_request = fake_json_request_for_approval_sync
         hubspot_client_module.log_event = fake_log_event
@@ -937,6 +947,12 @@ def main() -> int:
     assert_true(home_bootstrap.status_code == 200, "HubSpot home bootstrap should load in one request")
     assert_true("dashboard" in home_bootstrap_payload and "readiness" in home_bootstrap_payload, "HubSpot home bootstrap should combine dashboard and readiness data")
     assert_true(home_bootstrap_payload["templates"], "HubSpot home bootstrap should include staffing workflow templates")
+    install_test_hubspot_portal()
+    extension_home = client.post("/v1/integrations/hubspot/app-home/bootstrap", json={"portal_id": "246356639"})
+    extension_home_payload = extension_home.get_json()
+    assert_true(extension_home.status_code == 200, extension_home.get_data(as_text=True))
+    assert_true(extension_home_payload["portal_id"] == "246356639", "HubSpot extension home bootstrap should be portal scoped")
+    assert_true(all(item.get("portal_id") == "246356639" for item in extension_home_payload["dashboard"]["recent_blocked_drafts"]), "Extension dashboard should not expose another portal's blocked drafts")
     staffing_templates = client.get("/api/enterprise/hubspot/staffing-workflow-templates")
     assert_true(staffing_templates.status_code == 200, staffing_templates.get_data(as_text=True))
     template_ids = {item["id"] for item in staffing_templates.get_json()["templates"]}
@@ -954,8 +970,16 @@ def main() -> int:
     assert_true(settings_bootstrap.status_code == 200, "HubSpot settings bootstrap should load in one request")
     assert_true(settings_bootstrap_payload["surfaces"] and settings_bootstrap_payload["setup_steps"], "HubSpot settings bootstrap should include surfaces and setup steps")
     assert_true("connections" in settings_bootstrap_payload and "token_storage" in settings_bootstrap_payload, "HubSpot settings bootstrap should include connection readiness")
+    extension_settings = client.post("/v1/integrations/hubspot/settings/bootstrap", json={"portal_id": "246356639"})
+    extension_settings_payload = extension_settings.get_json()
+    assert_true(extension_settings.status_code == 200, extension_settings.get_data(as_text=True))
+    assert_true(len(extension_settings_payload["connections"]) == 1 and extension_settings_payload["connections"][0]["portal_id"] == "246356639", "Extension settings should return only the selected portal connection")
+    missing_extension_portal = client.post("/v1/integrations/hubspot/settings/bootstrap", json={"portal_id": "not-installed"})
+    assert_true(missing_extension_portal.status_code == 409, "Extension bootstrap should reject an unconnected portal")
+    storage_module.disconnect_hubspot_portal("246356639", actor="qa-extension-bootstrap-cleanup")
     randstad_readiness = client.get("/api/enterprise/hubspot/randstad-readiness")
-    assert_true(randstad_readiness.status_code == 200 and randstad_readiness.get_json()["readiness"]["overall_usefulness_score"] >= 8, "Randstad-style readiness report should rate the installed integration")
+    assert_true(randstad_readiness.status_code == 200 and randstad_readiness.get_json()["readiness"]["implemented_surface_count"] > 0, "Randstad-style readiness report should expose implemented-surface evidence")
+    assert_true("overall_usefulness_score" not in randstad_readiness.get_json()["readiness"], "Readiness report should not expose a synthetic usefulness score")
     surfaces = client.get("/api/enterprise/hubspot/surfaces")
     assert_true(surfaces.status_code == 200, surfaces.get_data(as_text=True))
     surfaces_payload = surfaces.get_json()
@@ -1111,6 +1135,27 @@ def main() -> int:
     rescore_payload = webhook_rescore.get_json()
     assert_true(rescore_payload["rescores"][0]["status"] == "analyzed", "Copy-bearing HubSpot webhooks should trigger automatic re-scoring")
     assert_true(rescore_payload["rescores"][0]["gate"] in {"blocked", "needs_review", "ready"}, "Webhook re-score should return a branchable gate")
+    webhook_replay = client.post(
+        "/v1/integrations/hubspot/webhooks/receive",
+        json=[
+            {
+                "portalId": 246356639,
+                "eventType": "marketingEmail.propertyChange",
+                "eventId": "email-copy-1",
+                "objectId": "email-123",
+                "occurredAt": 1770000001000,
+                "marketingEmail": {
+                    "id": "email-123",
+                    "subject": "Guaranteed savings",
+                    "html": "<p>Hi Brian, this will guarantee 100% savings by Friday. {{unsubscribe_link}}</p>",
+                    "campaignId": "campaign-q3",
+                },
+            }
+        ],
+    )
+    assert_true(webhook_replay.status_code == 200, webhook_replay.get_data(as_text=True))
+    assert_true(webhook_replay.get_json()["duplicate_events"] == 1, "Webhook replay should be acknowledged as a duplicate")
+    assert_true(webhook_replay.get_json()["rescores"][0]["status"] == "duplicate_skipped", "Webhook replay must not trigger a second analysis")
 
     webhook_metadata_only = client.post(
         "/v1/integrations/hubspot/webhooks/receive",
@@ -1153,8 +1198,8 @@ def main() -> int:
     score_validation = client.get("/api/enterprise/hubspot/score-validation?workspace_id=hubspot_246356639")
     assert_true(score_validation.status_code == 200, score_validation.get_data(as_text=True))
     validation_payload = score_validation.get_json()["validation"]
-    assert_true(validation_payload["cases_total"] == 3, "score validation should cover clear, vague, and risky cases")
-    assert_true(validation_payload["cases_passed"] >= 2, "score validation should pass core routing cases")
+    assert_true(validation_payload["cases_total"] >= 8, "score validation should cover clear, vague, risky, short, long, templated, localized, and malformed drafts")
+    assert_true(validation_payload["passed"] is True, "all deterministic score regression cases should pass")
     vague_case = next(item for item in validation_payload["cases"] if item["id"] == "vague_review_or_block")
     assert_true(vague_case["actual_gate"] != "ready", "vague validation email should not be send-ready")
 
@@ -1184,6 +1229,23 @@ def main() -> int:
     )
     assert_true("marketing-email" in marketplace_payload["optional_scopes"], "Marketplace readiness should report optional HubSpot marketing scopes")
     assert_true(marketplace_payload["setup_guide_url"].endswith("/hubspot/setup-guide"), "Marketplace readiness should expose the setup guide URL")
+
+    previous_production_auth = app_module.PRODUCTION
+    previous_ingress_auth_secret = os.environ.pop("TEXTTRAITS_HUBSPOT_INGRESS_SECRET", None)
+    previous_platform_auth_secret = os.environ.pop("HUBSPOT_CLIENT_SECRET", None)
+    app_module.PRODUCTION = True
+    try:
+        production_unsigned = client.post(
+            "/v1/integrations/hubspot/crm-card/analyze-email",
+            json={"inputFields": {"subject": "Unsigned production request", "body": "Please reply by Friday."}},
+        )
+        assert_true(production_unsigned.status_code == 503, "Production HubSpot ingress should fail closed when no signature secret is configured")
+    finally:
+        app_module.PRODUCTION = previous_production_auth
+        if previous_ingress_auth_secret is not None:
+            os.environ["TEXTTRAITS_HUBSPOT_INGRESS_SECRET"] = previous_ingress_auth_secret
+        if previous_platform_auth_secret is not None:
+            os.environ["HUBSPOT_CLIENT_SECRET"] = previous_platform_auth_secret
 
     signed_secret = "qa-hubspot-ingress-secret"
     previous_secret = os.environ.get("TEXTTRAITS_HUBSPOT_INGRESS_SECRET")

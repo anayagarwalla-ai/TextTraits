@@ -13,7 +13,6 @@ import secrets
 import time
 import urllib.request
 from html import escape as html_escape, unescape as html_unescape
-from collections import defaultdict, deque
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
@@ -39,6 +38,8 @@ from integration_adapters import (
 )
 from observability import configure_logging, init_error_reporting
 from predictor import DEFAULT_MODEL_PATH, TextTraitsPredictor
+from runtime_config import env_int
+from rate_limit import SlidingWindowRateLimiter
 from storage import (
     authenticate_user,
     check_database,
@@ -64,6 +65,7 @@ from storage import (
     list_hubspot_policy_versions,
     list_hubspot_review_events,
     list_hubspot_review_states,
+    list_hubspot_review_states_for_requests,
     log_event,
     needs_email_verification,
     recent_events,
@@ -72,10 +74,12 @@ from storage import (
     save_hubspot_email_analysis,
     save_hubspot_email_analyses,
     save_hubspot_outcome_event,
+    save_hubspot_outcome_events,
     save_hubspot_policy_config,
     save_hubspot_review_event,
     contains_sensitive_key,
     scrub_payload,
+    scrub_hubspot_event_payload,
     utc_now,
     upsert_integration,
     upsert_oauth_user,
@@ -92,8 +96,14 @@ from storage import (
 )
 from hubspot_client import HubSpotApiClient, HubSpotClientError, HubSpotNotConnectedError, crm_write_scope
 from hubspot_analysis import HUBSPOT_EMAIL_RULES_ENGINE_ID, HubSpotAnalysisDecision, HubSpotEmailDraft
-from hubspot_routes import HubSpotAnalysisRouteDependencies, create_hubspot_analysis_blueprint
+from hubspot_routes import (
+    HubSpotAnalysisRouteDependencies,
+    HubSpotExtensionRouteDependencies,
+    create_hubspot_analysis_blueprint,
+    create_hubspot_extension_blueprint,
+)
 from hubspot_sync import HubSpotSyncOperation, run_hubspot_sync_operations
+from hubspot_performance import hubspot_latency_budget_ms, hubspot_latency_class
 
 load_env_file()
 
@@ -130,15 +140,16 @@ def env_flag(name: str, default: bool = False) -> bool:
 ENABLE_DEV_TOOLS = env_flag("ENABLE_DEV_TOOLS", False)
 PRODUCTION = os.getenv("TEXTTRAITS_ENV", "").strip().lower() == "production"
 ALLOW_DEMO_MODE = env_flag("TEXTTRAITS_ALLOW_DEMO", False)
-MAX_TEXT_WORDS = int(os.getenv("TEXTTRAITS_MAX_TEXT_WORDS", "1800"))
-MAX_CONTENT_LENGTH = int(os.getenv("TEXTTRAITS_MAX_CONTENT_LENGTH", "1000000"))
-MAX_WORKSPACE_BYTES = int(os.getenv("TEXTTRAITS_MAX_WORKSPACE_BYTES", "500000"))
-MAX_EVENT_BYTES = int(os.getenv("TEXTTRAITS_MAX_EVENT_BYTES", "12000"))
-HUBSPOT_MAX_INGRESS_BYTES = int(os.getenv("TEXTTRAITS_HUBSPOT_MAX_INGRESS_BYTES", "200000"))
-HUBSPOT_SIGNATURE_MAX_AGE_SECONDS = int(os.getenv("TEXTTRAITS_HUBSPOT_SIGNATURE_MAX_AGE_SECONDS", "300"))
-HUBSPOT_MAX_OUTCOME_EVENTS = int(os.getenv("TEXTTRAITS_HUBSPOT_MAX_OUTCOME_EVENTS", "100"))
-HUBSPOT_MAX_BATCH_EMAILS = int(os.getenv("TEXTTRAITS_HUBSPOT_MAX_BATCH_EMAILS", "50"))
-RATE_LIMIT_PER_MINUTE = int(os.getenv("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", "80"))
+MAX_TEXT_WORDS = env_int("TEXTTRAITS_MAX_TEXT_WORDS", 1800, minimum=1, maximum=100000)
+MAX_CONTENT_LENGTH = env_int("TEXTTRAITS_MAX_CONTENT_LENGTH", 1000000, minimum=1024, maximum=100000000)
+MAX_WORKSPACE_BYTES = env_int("TEXTTRAITS_MAX_WORKSPACE_BYTES", 500000, minimum=1024, maximum=100000000)
+MAX_EVENT_BYTES = env_int("TEXTTRAITS_MAX_EVENT_BYTES", 12000, minimum=512, maximum=1000000)
+HUBSPOT_MAX_INGRESS_BYTES = env_int("TEXTTRAITS_HUBSPOT_MAX_INGRESS_BYTES", 200000, minimum=1024, maximum=10000000)
+HUBSPOT_SIGNATURE_MAX_AGE_SECONDS = env_int("TEXTTRAITS_HUBSPOT_SIGNATURE_MAX_AGE_SECONDS", 300, minimum=30, maximum=3600)
+HUBSPOT_MAX_OUTCOME_EVENTS = env_int("TEXTTRAITS_HUBSPOT_MAX_OUTCOME_EVENTS", 100, minimum=1, maximum=1000)
+HUBSPOT_MAX_BATCH_EMAILS = env_int("TEXTTRAITS_HUBSPOT_MAX_BATCH_EMAILS", 50, minimum=1, maximum=100)
+RATE_LIMIT_PER_MINUTE = env_int("TEXTTRAITS_RATE_LIMIT_PER_MINUTE", 80, minimum=1, maximum=10000)
+RATE_LIMIT_MAX_KEYS = env_int("TEXTTRAITS_RATE_LIMIT_MAX_KEYS", 10000, minimum=100, maximum=1000000)
 APP_SECRET = os.getenv("TEXTTRAITS_SECRET_KEY", "dev-texttraits-change-me")
 PUBLIC_BASE_URL = os.getenv("TEXTTRAITS_PUBLIC_BASE_URL", "http://127.0.0.1:5000")
 ALLOW_DEV_ACCOUNT_LINKS = env_flag("TEXTTRAITS_DEV_ACCOUNT_LINKS", False)
@@ -200,6 +211,12 @@ HUBSPOT_PUBLIC_INGRESS_PATHS = {
     "/v1/integrations/hubspot/review-action",
     "/v1/integrations/hubspot/outcomes",
     "/v1/integrations/hubspot/template-test",
+    "/v1/integrations/hubspot/app-home/bootstrap",
+    "/v1/integrations/hubspot/settings/bootstrap",
+}
+HUBSPOT_LIST_PAYLOAD_PATHS = {
+    "/v1/integrations/hubspot/webhooks/receive",
+    "/v1/integrations/hubspot/app-uninstalled",
 }
 ALLOWED_WORKSPACE_KEYS = {
     "mode",
@@ -240,22 +257,35 @@ WORD_RE = re.compile(r"\b[\w'-]+\b")
 SENTENCE_RE = re.compile(r"[.!?]+")
 SAFE_HUBSPOT_ID_RE = re.compile(r"[^a-zA-Z0-9_.:-]+")
 EMAIL_PLACEHOLDER_RE = re.compile(r"({{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])")
-EMAIL_GREETING_RE = re.compile(r"\b(?:hi|hello|dear)\s+([A-Z][a-z]{1,30}|{{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])")
+EMAIL_GREETING_RE = re.compile(
+    r"\b(?:hi|hello|dear|hola|bonjour|salut|hallo|guten tag)\s+([\wÀ-ÖØ-öø-ÿ'-]{2,30}|{{\s*[^}]+\s*}}|%\w+%|\[\[\s*[\w.]+\s*\]\])",
+    re.IGNORECASE,
+)
 EMAIL_DATE_RE = re.compile(
     r"\b(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|this week|"
+    r"hoy|mañana|lunes|martes|miércoles|jueves|viernes|próxima semana|esta semana|"
+    r"aujourd'hui|demain|lundi|mardi|mercredi|jeudi|vendredi|semaine prochaine|cette semaine|"
+    r"heute|morgen|montag|dienstag|mittwoch|donnerstag|freitag|nächste woche|diese woche|"
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|"
     r"sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
     re.IGNORECASE,
 )
-EMAIL_TIME_RE = re.compile(r"\b\d{1,2}(?::\d{2})?\s?(?:am|pm|a\.m\.|p\.m\.)\b", re.IGNORECASE)
+EMAIL_TIME_RE = re.compile(
+    r"\b(?:\d{1,2}:\d{2}\s?(?:am|pm|a\.m\.|p\.m\.|h)?|\d{1,2}\s?(?:am|pm|a\.m\.|p\.m\.|h))\b",
+    re.IGNORECASE,
+)
 EMAIL_NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?%?\b")
-EMAIL_PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{2,}\b")
+EMAIL_PROPER_NOUN_RE = re.compile(r"\b[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]{2,}\b")
 EMAIL_CTA_PATTERNS = {
-    "reply": re.compile(r"\b(reply|respond|let me know|tell me)\b", re.IGNORECASE),
-    "confirm": re.compile(r"\b(confirm|approve|review|check|verify)\b", re.IGNORECASE),
-    "schedule": re.compile(r"\b(schedule|book|meet|call|demo|visit)\b", re.IGNORECASE),
-    "send": re.compile(r"\b(send|share|forward|attach|provide)\b", re.IGNORECASE),
-    "choose": re.compile(r"\b(choose|select|pick|decide)\b", re.IGNORECASE),
+    "reply": re.compile(r"\b(reply|respond|let me know|tell me|responder|responde|responda|avísame|avisa|répondre|répondez|antworten|antworten sie)\b", re.IGNORECASE),
+    "confirm": re.compile(r"\b(confirm|approve|review|check|verify|confirmar|confirma|confirme|aprobar|aprueba|apruebe|revisar|revisa|revise|confirmer|confirmez|approuver|approuvez|vérifier|vérifiez|bestätigen|bestätige|genehmigen|genehmige|prüfen|prüfe)\b", re.IGNORECASE),
+    "schedule": re.compile(r"\b(schedule|book|meet|call|demo|visit|programar|programa|programe|reservar|reserva|reserve|reunión|llamada|planifier|planifiez|réserver|réservez|réunion|appel|termin|buchen|buche|treffen|anruf)\b", re.IGNORECASE),
+    "send": re.compile(r"\b(send|share|forward|attach|provide|enviar|envía|envia|envíe|compartir|comparte|comparta|adjuntar|adjunta|adjunte|envoyer|envoyez|partager|partagez|joindre|joignez|senden|sende|teilen|teile|anhängen|hänge an)\b", re.IGNORECASE),
+    "choose": re.compile(r"\b(choose|select|pick|decide|elegir|elige|elija|seleccionar|selecciona|seleccione|decidir|decide|decida|choisir|choisissez|sélectionner|sélectionnez|décider|décidez|wählen|wähle|auswählen|wähle aus|entscheiden|entscheide)\b", re.IGNORECASE),
+}
+EMAIL_NON_SPECIFIC_CAPITALIZED_WORDS = {
+    "please", "we", "you", "your", "this", "that", "our", "the", "a", "an", "if", "when", "today", "tomorrow",
+    "por", "favor", "usted", "su", "esto", "esta", "nous", "vous", "votre", "ce", "cette", "bitte", "sie", "ihr", "dies",
 }
 EMAIL_VAGUE_PHRASES = (
     "just checking",
@@ -1310,7 +1340,26 @@ app.config["SESSION_COOKIE_SECURE"] = env_flag("TEXTTRAITS_SECURE_COOKIES", Fals
 ERROR_REPORTING_STATUS = init_error_reporting(app)
 init_db()
 
-rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+request_rate_limiter = SlidingWindowRateLimiter(window_seconds=60, max_keys=RATE_LIMIT_MAX_KEYS)
+
+
+def request_rate_limit_identity() -> str:
+    user_id = current_user_id()
+    if user_id:
+        return f"user:{user_id}"
+    auth = getattr(g, "hubspot_ingress_auth", {})
+    if auth.get("mode") in {"hubspot_v3", "hubspot_v2", "hmac_sha256", "api_key"}:
+        payload = request.get_json(silent=True)
+        portal_id = first_text_value(
+            request.args.get("portalId"),
+            request.args.get("portal_id"),
+            payload.get("portal_id") if isinstance(payload, dict) else "",
+            payload.get("portalId") if isinstance(payload, dict) else "",
+            max_length=160,
+        )
+        if portal_id:
+            return f"hubspot_portal:{portal_id}"
+    return f"ip:{request.remote_addr or 'local'}"
 
 
 def rate_limited(limit: int | None = None) -> Callable:
@@ -1319,15 +1368,10 @@ def rate_limited(limit: int | None = None) -> Callable:
     def decorator(fn: Callable) -> Callable:
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            identity = f"user:{current_user_id()}" if current_user_id() else f"ip:{request.remote_addr or 'local'}"
-            key = f"{identity}:{request.endpoint or fn.__name__}"
-            now = time.time()
-            bucket = rate_buckets[key]
-            while bucket and now - bucket[0] > 60:
-                bucket.popleft()
-            if len(bucket) >= max_calls:
-                return jsonify({"error": "Too many requests. Please wait a moment and try again."}), 429
-            bucket.append(now)
+            key = f"{request_rate_limit_identity()}:{request.endpoint or fn.__name__}"
+            allowed, retry_after = request_rate_limiter.allow(key, max_calls)
+            if not allowed:
+                return jsonify({"error": "Too many requests. Please wait a moment and try again."}), 429, {"Retry-After": str(retry_after)}
             return fn(*args, **kwargs)
 
         return wrapper
@@ -1537,6 +1581,20 @@ def add_security_headers(response):
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     if app.config["SESSION_COOKIE_SECURE"]:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.path.startswith(("/v1/integrations/hubspot/", "/api/enterprise/hubspot/")):
+        duration_ms = max(0.0, (time.perf_counter() - getattr(g, "request_started_at", time.perf_counter())) * 1000)
+        budget_ms = hubspot_latency_budget_ms(request.path)
+        response.headers["Server-Timing"] = f'texttraits;dur={duration_ms:.2f};desc="HubSpot {hubspot_latency_class(request.path)}"'
+        response.headers["X-TextTraits-Latency-Budget-Ms"] = str(budget_ms)
+        response.headers.setdefault("Cache-Control", "no-store")
+        if duration_ms > budget_ms:
+            logging.warning(
+                "hubspot_latency_budget_exceeded endpoint=%s class=%s duration_ms=%.2f budget_ms=%s",
+                request.endpoint or "unknown",
+                hubspot_latency_class(request.path),
+                duration_ms,
+                budget_ms,
+            )
     return response
 
 
@@ -1561,7 +1619,7 @@ def hubspot_ingress_secret() -> str:
 
 
 def hubspot_ingress_auth_required() -> bool:
-    return env_flag("TEXTTRAITS_REQUIRE_HUBSPOT_INGRESS_AUTH", False)
+    return PRODUCTION or env_flag("TEXTTRAITS_REQUIRE_HUBSPOT_INGRESS_AUTH", False)
 
 
 def hubspot_signature_timestamp_required() -> bool:
@@ -1732,11 +1790,18 @@ def hubspot_ingress_auth_error() -> tuple | None:
 @app.before_request
 def protect_unsafe_requests():
     g.csp_nonce = secrets.token_urlsafe(16)
+    g.request_started_at = time.perf_counter()
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return None
     if hubspot_public_ingress_path():
         if request.content_length and request.content_length > HUBSPOT_MAX_INGRESS_BYTES:
             return jsonify({"error": f"HubSpot ingress payloads must stay under {HUBSPOT_MAX_INGRESS_BYTES} bytes."}), 413
+        if request.method == "POST" and request.get_data(cache=True):
+            payload = request.get_json(silent=True)
+            allowed_types = (dict, list) if request.path in HUBSPOT_LIST_PAYLOAD_PATHS else (dict,)
+            if not isinstance(payload, allowed_types):
+                expected = "a JSON object or array" if request.path in HUBSPOT_LIST_PAYLOAD_PATHS else "a JSON object"
+                return jsonify({"error": f"HubSpot ingress payload must be {expected}."}), 400
         return hubspot_ingress_auth_error()
     if not request_origin_allowed():
         return jsonify({"error": "Request origin did not match this TextTraits deployment."}), 403
@@ -2317,7 +2382,7 @@ def public_hubspot_context(context: dict[str, Any]) -> dict[str, Any]:
     for object_key in ("headers", "consent_context", "delivery_context"):
         value = context.get(object_key)
         if isinstance(value, dict) and value:
-            safe_context[object_key] = scrub_payload(value)
+            safe_context[object_key] = scrub_hubspot_event_payload(value) if object_key == "delivery_context" else scrub_payload(value)
     ingress_auth = context.get("ingress_auth") if isinstance(context.get("ingress_auth"), dict) else {}
     safe_context["ingress_auth"] = {
         "mode": str(ingress_auth.get("mode") or "unknown"),
@@ -2342,8 +2407,15 @@ def email_sentence_count(text: str) -> int:
 
 
 def email_phrase_hits(text: str, phrases: tuple[str, ...]) -> list[str]:
-    lowered = f" {text.lower()} "
-    return [phrase for phrase in phrases if phrase in lowered]
+    hits: list[str] = []
+    for phrase in phrases:
+        clean_phrase = str(phrase or "").strip()
+        if not clean_phrase:
+            continue
+        pattern = r"\s+".join(re.escape(part) for part in clean_phrase.split())
+        if re.search(rf"(?<!\w){pattern}(?!\w)", text or "", re.IGNORECASE):
+            hits.append(clean_phrase)
+    return hits
 
 
 def email_cta_hits(text: str) -> list[str]:
@@ -2357,7 +2429,7 @@ def email_specific_anchors(text: str) -> list[str]:
     anchors.extend(match.group(0) for match in EMAIL_NUMBER_RE.finditer(text or ""))
     for match in EMAIL_PROPER_NOUN_RE.finditer(text or ""):
         token = match.group(0)
-        if token.lower() not in {"hi", "hello", "dear", "thanks", "thank", "best"}:
+        if token.lower() not in {"hi", "hello", "dear", "thanks", "thank", "best", *EMAIL_NON_SPECIFIC_CAPITALIZED_WORDS}:
             anchors.append(token)
     deduped: list[str] = []
     for anchor in anchors:
@@ -2374,7 +2446,7 @@ def email_personalization_hits(subject: str, body: str, context: dict[str, Any] 
         hits.append("named greeting")
     if EMAIL_PLACEHOLDER_RE.search(text):
         hits.append("personalization token")
-    if re.search(r"\b(your|you|your team|for your)\b", text, re.IGNORECASE):
+    if re.search(r"\b(your|you|your team|for your|usted|tu|tú|su equipo|para usted|vous|votre|pour vous|sie|ihr|für sie)\b", text, re.IGNORECASE):
         hits.append("recipient-focused wording")
     context = context or {}
     for label, value in (("contact context", context.get("contact_name")), ("company context", context.get("company_name"))):
@@ -2805,6 +2877,7 @@ def hubspot_score_validation_report(policy: dict[str, Any], context: dict[str, A
     policy = normalized_hubspot_email_policy(policy)
     ready_threshold = int(policy.get("ready_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["ready_score_threshold"]))
     review_threshold = int(policy.get("review_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["review_score_threshold"]))
+    incomplete_gates = ["blocked"] if policy.get("block_if_no_cta") or policy.get("block_high_severity_findings") else ["needs_review", "blocked"]
     cases = [
         {
             "id": "clear_send_ready",
@@ -2829,7 +2902,7 @@ def hubspot_score_validation_report(policy: dict[str, Any], context: dict[str, A
             ),
             "expected_gates": ["needs_review", "blocked"],
             "expected_min_score": 0,
-            "expected_max_score": max(review_threshold, 55),
+            "expected_max_score": max(0, ready_threshold - 1),
             "expected_findings": ["specificity_low"],
         },
         {
@@ -2844,6 +2917,70 @@ def hubspot_score_validation_report(policy: dict[str, Any], context: dict[str, A
             "expected_min_score": 0,
             "expected_max_score": max(49, int(policy.get("block_score_threshold", DEFAULT_HUBSPOT_EMAIL_POLICY["block_score_threshold"]))),
             "expected_findings": ["risk_terms_detected"],
+            "expected_route": "Compliance review",
+        },
+        {
+            "id": "short_incomplete_draft",
+            "name": "Short incomplete draft",
+            "subject": "Update",
+            "body": "Hi Maya, thanks.",
+            "expected_gates": incomplete_gates,
+            "expected_min_score": 0,
+            "expected_max_score": max(0, ready_threshold - 1),
+            "expected_findings": ["body_too_short", "next_step_missing"],
+        },
+        {
+            "id": "long_crm_draft",
+            "name": "Overlong CRM draft",
+            "subject": "Implementation review and next steps",
+            "body": (
+                "Hi Maya, I am sending the implementation review for Project Atlas. "
+                + " ".join(
+                    f"Section {index} documents the completed migration work, open dependency, and owner decision."
+                    for index in range(1, 40)
+                )
+                + " Please review the document and reply by Friday with approval or the remaining owner changes."
+            ),
+            "expected_gates": ["needs_review", "blocked"],
+            "expected_min_score": 0,
+            "expected_max_score": 99,
+            "expected_findings": ["body_too_long"],
+        },
+        {
+            "id": "templated_personalized_draft",
+            "name": "Personalized workflow template",
+            "subject": "{{ contact.firstname }}: renewal checklist",
+            "body": (
+                "Hi {{ contact.firstname }}, please review the renewal checklist for {{ company.name }} "
+                "and reply by Friday with approval so the account team can schedule the July 12 handoff."
+            ),
+            "expected_gates": ["ready"],
+            "expected_min_score": ready_threshold,
+            "expected_max_score": 100,
+            "expected_findings": [],
+        },
+        {
+            "id": "localized_spanish_draft",
+            "name": "Localized Spanish draft",
+            "subject": "Confirmacion de la reunion del martes",
+            "body": (
+                "Hola Maria, confirma antes del viernes si la reunion del martes a las 10 h funciona para tu equipo. "
+                "Si confirmas, enviaremos la agenda del Proyecto Atlas para que puedas revisarla antes de la reunion."
+            ),
+            "expected_gates": ["ready", "needs_review"],
+            "expected_min_score": review_threshold,
+            "expected_max_score": 100,
+            "expected_findings": [],
+        },
+        {
+            "id": "malformed_empty_draft",
+            "name": "Malformed empty draft",
+            "subject": "",
+            "body": "",
+            "expected_gates": incomplete_gates,
+            "expected_min_score": 0,
+            "expected_max_score": max(0, ready_threshold - 1),
+            "expected_findings": ["subject_missing", "body_missing", "next_step_missing"],
         },
     ]
     results = []
@@ -2853,7 +2990,7 @@ def hubspot_score_validation_report(policy: dict[str, Any], context: dict[str, A
             case["body"],
             f"{case['subject']}\n\n{case['body']}",
             policy,
-            context or {},
+            {**(context or {}), **case.get("context", {})},
         )
         finding_ids = {str(item.get("id", "")) for item in quality["findings"]}
         actual_gate = str(quality["decision"]["gate"])
@@ -2861,6 +2998,7 @@ def hubspot_score_validation_report(policy: dict[str, Any], context: dict[str, A
         gate_ok = actual_gate in case["expected_gates"]
         score_ok = int(case["expected_min_score"]) <= actual_score <= int(case["expected_max_score"])
         findings_ok = all(expected in finding_ids for expected in case["expected_findings"])
+        route_ok = not case.get("expected_route") or quality["decision"]["route"] == case["expected_route"]
         results.append(
             {
                 "id": case["id"],
@@ -2871,8 +3009,9 @@ def hubspot_score_validation_report(policy: dict[str, Any], context: dict[str, A
                 "expected_gates": case["expected_gates"],
                 "expected_score_range": [case["expected_min_score"], case["expected_max_score"]],
                 "expected_findings": case["expected_findings"],
+                "expected_route": case.get("expected_route"),
                 "detected_findings": sorted(finding_ids),
-                "passed": bool(gate_ok and score_ok and findings_ok),
+                "passed": bool(gate_ok and score_ok and findings_ok and route_ok),
                 "score_factors": quality["score_factors"],
             }
         )
@@ -3990,6 +4129,7 @@ def hubspot_analysis_result(
                 "workspace_id": str(payload.get("workspace_id", ""))[:120],
             },
         )
+    public_context = public_hubspot_context(context)
     analysis_record = {
         **context,
         "request_id": request_id,
@@ -4006,14 +4146,13 @@ def hubspot_analysis_result(
         "findings": email_quality["findings"],
         "checks": email_quality["checks"],
         "policy": policy,
-        "context": context,
+        "context": public_context,
         "created_at": utc_now(),
     }
     if persist:
         save_hubspot_email_analysis(analysis_record)
     public_quality = public_hubspot_email_quality(email_quality)
     public_policy = public_hubspot_policy(policy)
-    public_context = public_hubspot_context(context)
     analysis_payload = {
         "request_id": request_id,
         "content_hash": content_hash,
@@ -4253,6 +4392,7 @@ def hubspot_bulk_import_assets():
     errors: list[dict[str, Any]] = []
     gate_counts: dict[str, int] = {}
     asset_map: dict[str, dict[str, Any]] = {}
+    analysis_records: dict[str, dict[str, Any]] = {}
     for index, item in enumerate(raw_items[:max_items]):
         asset_type = normalized_hubspot_asset_type(first_text_value(item.get("asset_type"), item.get("assetType"), payload.get("asset_type"), "HUBSPOT_ASSET", max_length=120))
         asset_id = first_text_value(item.get("asset_id"), item.get("assetId"), item.get("id"), item.get("template_id"), max_length=160)
@@ -4268,9 +4408,23 @@ def hubspot_bulk_import_assets():
             }
         )
         normalized = normalize_hubspot_asset_payload(prepared, analysis_mode)
-        result, status_code = hubspot_analysis_result(normalized, "hubspot_bulk_asset_import")
+        result, status_code = hubspot_analysis_result(
+            normalized,
+            "hubspot_bulk_asset_import",
+            include_internal_record=True,
+            persist=False,
+            audit=False,
+        )
         asset_map.setdefault(asset_type, {"label": HUBSPOT_CAMPAIGN_ASSET_TYPE_LABELS.get(asset_type, asset_type), "assets": [], "status": "loaded"})
         if status_code == 200:
+            analysis_record = result.pop("_analysis_record", {})
+            request_id = str(analysis_record.get("request_id") or "")
+            existing_record = analysis_records.get(request_id)
+            if existing_record and existing_record.get("content_hash") != analysis_record.get("content_hash"):
+                errors.append({"index": index, "asset_type": asset_type, "asset_id": asset_id, "status": 409, "error": "This import idempotency key was repeated for different asset copy."})
+                asset_map[asset_type]["assets"].append({"id": asset_id, "name": prepared.get("asset_name") or asset_id, "asset_type": asset_type, "status": "idempotency_conflict"})
+                continue
+            analysis_records[request_id] = analysis_record
             gate = str(result.get("outputFields", {}).get("texttraits_gate") or "unknown")
             gate_counts[gate] = gate_counts.get(gate, 0) + 1
             asset_map[asset_type]["assets"].append(
@@ -4298,9 +4452,11 @@ def hubspot_bulk_import_assets():
         "gate_counts": gate_counts,
         "coverage": hubspot_campaign_copy_coverage(asset_map),
     }
-    log_event(current_user_id(), "hubspot_bulk_asset_import", {"import_id": import_id, "received": len(raw_items), "analyzed": len(results), "errors": len(errors)})
     if not results:
+        log_event(current_user_id(), "hubspot_bulk_asset_import", {"import_id": import_id, "received": len(raw_items), "analyzed": 0, "errors": len(errors)})
         return jsonify({"error": "No valid imported campaign assets could be analyzed.", "summary": summary, "errors": errors[:10]}), 400
+    save_hubspot_email_analyses(list(analysis_records.values()))
+    log_event(current_user_id(), "hubspot_bulk_asset_import", {"import_id": import_id, "received": len(raw_items), "analyzed": len(results), "errors": len(errors)})
     return jsonify({"ok": not errors, "summary": summary, "analyses": results, "errors": errors[:10]}), 207 if errors else 200
 
 
@@ -4404,6 +4560,35 @@ def hubspot_analysis_for_action(payload: dict[str, Any]) -> tuple[dict[str, Any]
     analysis = get_hubspot_email_analysis(request_id)
     if not analysis:
         return None, (jsonify({"error": "No TextTraits analysis was found for that request_id.", "request_id": request_id}), 404)
+    requested_portal = first_text_value(
+        payload.get("portal_id"),
+        payload.get("portalId"),
+        payload.get("tenant_id"),
+        request.args.get("portalId"),
+        request.args.get("portal_id"),
+        nested_value(payload, ("portal", "id")),
+        max_length=160,
+    )
+    analysis_portal = first_text_value(
+        analysis.get("portal_id"),
+        analysis.get("tenant_id"),
+        max_length=160,
+    )
+    if analysis_portal and not requested_portal:
+        return None, (
+            jsonify({"error": "HubSpot portal_id is required to access this portal-scoped TextTraits analysis.", "request_id": request_id}),
+            400,
+        )
+    if requested_portal and analysis_portal and requested_portal != analysis_portal:
+        return None, (
+            jsonify(
+                {
+                    "error": "That TextTraits analysis belongs to a different HubSpot portal.",
+                    "request_id": request_id,
+                }
+            ),
+            403,
+        )
     return analysis, None
 
 
@@ -6108,7 +6293,9 @@ def hubspot_timeline_event_create():
     app_id = first_text_value(payload.get("app_id"), os.getenv("TEXTTRAITS_HUBSPOT_APP_ID"), max_length=160)
     request_id = first_text_value(payload.get("request_id"), payload.get("texttraits_request_id"), max_length=160)
     if request_id and "tokens" not in event_payload:
-        analysis = get_hubspot_email_analysis(request_id) or {}
+        analysis, analysis_error = hubspot_analysis_for_action(payload)
+        if analysis_error:
+            return analysis_error
         finding = hubspot_best_finding(analysis)
         event_payload["tokens"] = {
             "texttraits_score": str(analysis.get("score") or ""),
@@ -6603,7 +6790,7 @@ def hubspot_webhook_receive():
         return jsonify({"error": "HubSpot webhook signature validation is required in production."}), 401
     raw_payload = request.get_json(silent=True)
     raw_events = raw_payload if isinstance(raw_payload, list) else raw_payload.get("events") if isinstance(raw_payload, dict) and isinstance(raw_payload.get("events"), list) else [raw_payload] if isinstance(raw_payload, dict) else []
-    saved = []
+    saved: list[dict[str, Any]] = []
     rescores: list[dict[str, Any]] = []
     errors: list[str] = []
     for raw_event in raw_events[:HUBSPOT_MAX_OUTCOME_EVENTS]:
@@ -6626,9 +6813,14 @@ def hubspot_webhook_receive():
             "occurred_at": str(raw_event.get("occurredAt") or raw_event.get("occurred_at") or utc_now()),
         }
         try:
-            saved.append(save_hubspot_outcome_event(record))
+            saved_event = save_hubspot_outcome_event(record)
+            saved.append(saved_event)
         except ValueError as error:
             errors.append(str(error))
+            continue
+        if saved_event.get("duplicate"):
+            rescores.append({"event_id": event_id, "status": "duplicate_skipped"})
+            continue
         rescore_payload, rescore_status = hubspot_webhook_rescore_payload(raw_event, portal_id, event_type, event_id)
         if rescore_payload:
             analysis_result, analysis_status = hubspot_analysis_result(rescore_payload, "hubspot_webhook_rescore")
@@ -6648,7 +6840,7 @@ def hubspot_webhook_receive():
             rescores.append({"event_id": event_id, **rescore_status})
     if not saved:
         return jsonify({"error": "No valid HubSpot webhook events were supplied.", "errors": errors[:5]}), 400
-    return jsonify({"ok": True, "events": saved, "rescores": rescores, "errors": errors[:5], "ingress_auth": auth, "dropped_events": max(0, len(raw_events) - HUBSPOT_MAX_OUTCOME_EVENTS)})
+    return jsonify({"ok": True, "events": saved, "rescores": rescores, "errors": errors[:5], "duplicate_events": sum(1 for item in saved if item.get("duplicate")), "ingress_auth": auth, "dropped_events": max(0, len(raw_events) - HUBSPOT_MAX_OUTCOME_EVENTS)})
 
 
 def hubspot_uninstall_portal_id(payload: Any) -> str:
@@ -6729,7 +6921,7 @@ def hubspot_app_uninstalled():
 
 
 def hubspot_analysis_filters_from_request() -> dict[str, str]:
-    allowed = ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id", "portal_id", "object_type", "object_id")
+    allowed = ("workspace_id", "tenant_id", "source_system", "gate", "route", "campaign_id", "template_id", "contact_id", "company_id", "deal_id", "portal_id", "object_type", "object_id", "rule_pack", "policy_version", "audience_type", "region", "business_unit", "job_family", "skill_family")
     return {key: request.args.get(key, "").strip() for key in allowed if request.args.get(key, "").strip()}
 
 
@@ -6860,7 +7052,10 @@ def hubspot_setup_status_report(
     tenant_filters = {"tenant_id": selected_portal_id} if selected_portal_id else {}
     latest_analysis = list_hubspot_email_analyses(limit=1, filters=analysis_filters)
     latest_outcome = list_hubspot_outcome_events(limit=1, filters=tenant_filters)
-    latest_review_state = list_hubspot_review_states(limit=1)
+    latest_review_state = list_hubspot_review_states_for_requests(
+        [item["request_id"] for item in latest_analysis],
+        limit=1,
+    )
     last_sync_at = latest_hubspot_timestamp(selected_connection or {}, latest_analysis, latest_outcome, latest_review_state)
     groups = [
         hubspot_setup_group("Campaign sync", ["campaign_create_update", "campaign_picker", "campaign_asset_association", "live_campaign_review", "stats_sync", "bulk_asset_import"], surfaces_by_id, selected_portal_id, last_sync_at),
@@ -6886,7 +7081,11 @@ def hubspot_setup_status_report(
             if missing:
                 message += f" Missing scopes: {missing}."
             attention.append({"severity": "medium", "area": group["label"], "message": message, "missing_required_scopes": group["missing_required_scopes"]})
-    dashboard = hubspot_email_dashboard(limit=200)
+    dashboard = hubspot_email_dashboard(
+        limit=200,
+        analysis_filters=analysis_filters,
+        outcome_filters=tenant_filters,
+    )
     return {
         "portal_id": selected_portal_id,
         "connection": selected_connection,
@@ -6943,7 +7142,13 @@ def hubspot_analysis_top_blocker(row: dict[str, Any]) -> str:
 
 
 def hubspot_enriched_analysis_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    review_states = {state.get("request_id"): state for state in list_hubspot_review_states(limit=1000)}
+    review_states = {
+        state.get("request_id"): state
+        for state in list_hubspot_review_states_for_requests(
+            [str(row.get("request_id") or "") for row in rows],
+            limit=max(1, len(rows)),
+        )
+    }
     enriched: list[dict[str, Any]] = []
     for row in rows:
         state = review_states.get(row.get("request_id")) or {}
@@ -6998,6 +7203,7 @@ HUBSPOT_ANALYSIS_EXPORT_COLUMNS = (
     "object_type",
     "object_id",
     "locale",
+    "rule_pack",
     "content_hash",
     "score",
     "gate",
@@ -7039,6 +7245,9 @@ def hubspot_review_action():
     payload = request.get_json(silent=True) or {}
     if len(json.dumps(payload, default=str).encode("utf-8")) > MAX_EVENT_BYTES:
         return jsonify({"error": f"Review action payloads must stay under {MAX_EVENT_BYTES} bytes."}), 413
+    analysis, analysis_error = hubspot_analysis_for_action(payload)
+    if analysis_error:
+        return analysis_error
     try:
         event = save_hubspot_review_event(
             str(payload.get("request_id") or payload.get("texttraits_request_id") or ""),
@@ -7049,9 +7258,8 @@ def hubspot_review_action():
         )
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
-    analysis = get_hubspot_email_analysis(event["request_id"]) or {}
-    sync = {"status": "local_only", "actions": [], "skipped": [{"action": "hubspot_review_sync", "reason": "No TextTraits analysis was found for that request_id."}], "errors": []}
-    if analysis and hubspot_payload_flag(payload, "sync_hubspot", bool(hubspot_portal_from_payload(payload) or analysis.get("portal_id"))):
+    sync = {"status": "local_only", "actions": [], "skipped": [], "errors": []}
+    if hubspot_payload_flag(payload, "sync_hubspot", bool(hubspot_portal_from_payload(payload) or analysis.get("portal_id"))):
         sync = hubspot_sync_review_action_to_portal(payload, event, analysis)
     log_event(current_user_id(), "hubspot_review_action", {"request_id": event["request_id"], "action": event["action"], "sync_status": sync.get("status")})
     return jsonify({"ok": True, "event": event, "sync": sync})
@@ -7064,29 +7272,56 @@ def hubspot_outcomes_ingest():
     if len(json.dumps(payload, default=str).encode("utf-8")) > HUBSPOT_MAX_INGRESS_BYTES:
         return jsonify({"error": f"HubSpot outcome payloads must stay under {HUBSPOT_MAX_INGRESS_BYTES} bytes."}), 413
     raw_events = payload.get("events") if isinstance(payload.get("events"), list) else [payload]
-    saved = []
+    records: list[dict[str, Any]] = []
     errors: list[str] = []
     for raw_event in raw_events[:HUBSPOT_MAX_OUTCOME_EVENTS]:
         if not isinstance(raw_event, dict):
             continue
-        record = {
-            "request_id": raw_event.get("request_id") or raw_event.get("texttraits_request_id") or payload.get("request_id"),
-            "content_hash": raw_event.get("content_hash") or raw_event.get("texttraits_content_hash") or payload.get("content_hash"),
-            "workspace_id": raw_event.get("workspace_id") or payload.get("workspace_id"),
-            "tenant_id": raw_event.get("tenant_id") or payload.get("tenant_id"),
+        request_id = first_text_value(
+            raw_event.get("request_id"),
+            raw_event.get("texttraits_request_id"),
+            payload.get("request_id"),
+            max_length=160,
+        )
+        analysis = get_hubspot_email_analysis(request_id) if request_id else None
+        claimed_tenant = first_text_value(
+            raw_event.get("tenant_id"),
+            raw_event.get("portal_id"),
+            payload.get("tenant_id"),
+            payload.get("portal_id"),
+            request.args.get("portalId"),
+            request.args.get("portal_id"),
+            max_length=160,
+        )
+        analysis_tenant = first_text_value(
+            (analysis or {}).get("tenant_id"),
+            (analysis or {}).get("portal_id"),
+            max_length=160,
+        )
+        if analysis_tenant and not claimed_tenant:
+            errors.append("Outcome event must identify the tenant that owns its request_id.")
+            continue
+        if claimed_tenant and analysis_tenant and claimed_tenant != analysis_tenant:
+            errors.append("Outcome event request_id belongs to a different tenant.")
+            continue
+        records.append({
+            "request_id": request_id,
+            "content_hash": raw_event.get("content_hash") or raw_event.get("texttraits_content_hash") or payload.get("content_hash") or (analysis or {}).get("content_hash"),
+            "workspace_id": raw_event.get("workspace_id") or payload.get("workspace_id") or (analysis or {}).get("workspace_id"),
+            "tenant_id": claimed_tenant or analysis_tenant,
             "source_system": raw_event.get("source_system") or payload.get("source_system") or "hubspot",
             "event_type": raw_event.get("event_type") or raw_event.get("type"),
             "event_id": raw_event.get("event_id") or raw_event.get("id"),
             "payload": raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else raw_event,
             "occurred_at": raw_event.get("occurred_at") or raw_event.get("timestamp") or payload.get("occurred_at"),
-        }
-        try:
-            saved.append(save_hubspot_outcome_event(record))
-        except ValueError as error:
-            errors.append(str(error))
-    if not saved:
+        })
+    if not records:
         return jsonify({"error": "No valid outcome events were supplied.", "errors": errors[:5]}), 400
-    return jsonify({"ok": True, "events": saved, "errors": errors[:5], "dropped_events": max(0, len(raw_events) - HUBSPOT_MAX_OUTCOME_EVENTS)})
+    try:
+        saved = save_hubspot_outcome_events(records)
+    except ValueError as error:
+        return jsonify({"error": "Outcome batch was rejected without writing partial data.", "errors": [str(error)]}), 400
+    return jsonify({"ok": True, "events": saved, "errors": errors[:5], "duplicate_events": sum(1 for item in saved if item.get("duplicate")), "dropped_events": max(0, len(raw_events) - HUBSPOT_MAX_OUTCOME_EVENTS)})
 
 
 @app.post("/v1/integrations/hubspot/salesforce/outcomes/import")
@@ -7096,7 +7331,7 @@ def hubspot_salesforce_outcomes_import():
     if len(json.dumps(payload, default=str).encode("utf-8")) > HUBSPOT_MAX_INGRESS_BYTES:
         return jsonify({"error": f"Salesforce outcome import payloads must stay under {HUBSPOT_MAX_INGRESS_BYTES} bytes."}), 413
     raw_events = payload.get("events") if isinstance(payload.get("events"), list) else payload.get("rows") if isinstance(payload.get("rows"), list) else [payload]
-    saved = []
+    records: list[dict[str, Any]] = []
     errors: list[str] = []
     workspace_id = first_text_value(payload.get("workspace_id"), payload.get("workspaceId"), "hubspot_salesforce_import", max_length=160)
     tenant_id = first_text_value(payload.get("tenant_id"), payload.get("tenantId"), payload.get("portal_id"), payload.get("portalId"), max_length=160)
@@ -7129,10 +7364,8 @@ def hubspot_salesforce_outcomes_import():
             "job_family": first_text_value(raw_event.get("job_family"), raw_event.get("jobFamily"), max_length=160),
             "raw": scrub_payload(raw_event),
         }
-        try:
-            saved.append(
-                save_hubspot_outcome_event(
-                    {
+        records.append(
+            {
                         "request_id": request_id,
                         "content_hash": content_hash,
                         "workspace_id": workspace_id,
@@ -7142,14 +7375,15 @@ def hubspot_salesforce_outcomes_import():
                         "event_id": first_text_value(raw_event.get("event_id"), raw_event.get("id"), opportunity_id, lead_id, contact_id, f"salesforce:{index}", max_length=160),
                         "payload": mapped_payload,
                         "occurred_at": raw_event.get("occurred_at") or raw_event.get("timestamp") or utc_now(),
-                    }
-                )
-            )
-        except ValueError as error:
-            errors.append(str(error))
-    if not saved:
+            }
+        )
+    if not records:
         return jsonify({"error": "No valid Salesforce outcome rows were supplied.", "errors": errors[:5]}), 400
-    return jsonify({"ok": True, "events": saved, "errors": errors[:5], "dropped_events": max(0, len(raw_events) - HUBSPOT_MAX_OUTCOME_EVENTS)})
+    try:
+        saved = save_hubspot_outcome_events(records)
+    except ValueError as error:
+        return jsonify({"error": "Salesforce outcome batch was rejected without writing partial data.", "errors": [str(error)]}), 400
+    return jsonify({"ok": True, "events": saved, "errors": errors[:5], "duplicate_events": sum(1 for item in saved if item.get("duplicate")), "dropped_events": max(0, len(raw_events) - HUBSPOT_MAX_OUTCOME_EVENTS)})
 
 
 @app.get("/api/enterprise/hubspot/analyses")
@@ -7273,7 +7507,6 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
     categories = [
         {
             "category": "Campaigns and multi-asset review",
-            "score": 8.4,
             "usefulness": "High",
             "hubspot_areas": ("Campaigns", "Marketing email", "Forms", "Landing pages", "Blog posts", "Social", "SMS", "Ads", "CTAs"),
             "implemented": "Campaign create/list/update, asset association, live campaign review, coverage scoring, and mapped-copy fallback.",
@@ -7281,7 +7514,6 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
         },
         {
             "category": "Marketing email pre-publish governance",
-            "score": 8.8,
             "usefulness": "High",
             "hubspot_areas": ("Marketing Emails", "Workflows", "Campaigns"),
             "implemented": "Direct draft fetch/update, analyze-and-sync, pre-publish guardrail, workflow actions, review tasks, and writeback.",
@@ -7289,7 +7521,6 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
         },
         {
             "category": "Staffing/recruiting workflow fit",
-            "score": 8.1,
             "usefulness": "High",
             "hubspot_areas": ("Contacts", "Companies", "Deals", "Tickets", "Lists", "Owners", "Workflows"),
             "implemented": "Candidate/client/job-order object specialization, workflow templates, ATS/job-board context, regional policy packs, and approval chains.",
@@ -7297,7 +7528,6 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
         },
         {
             "category": "Governance dashboards and auditability",
-            "score": 8.6,
             "usefulness": "High",
             "hubspot_areas": ("Reports", "Custom objects", "CRM properties", "Exports"),
             "implemented": "Normalized checks/findings, review states, outcome events, blocked-by-region, risky claim type, review SLA, send-ready by business unit, and enriched audit exports.",
@@ -7305,7 +7535,6 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
         },
         {
             "category": "Outcome analytics and revenue/placement attribution",
-            "score": 7.4,
             "usefulness": "Medium-high",
             "hubspot_areas": ("Marketing email stats", "Campaigns", "Salesforce mapping", "Outcome events"),
             "implemented": "HubSpot stats sync, outcome ingestion, Salesforce outcome mapping, and segment rollups by audience, region, skill family, and job family.",
@@ -7313,7 +7542,6 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
         },
         {
             "category": "Setup/admin readiness",
-            "score": 8.0,
             "usefulness": "High",
             "hubspot_areas": ("Connected apps", "OAuth scopes", "Webhooks", "Owners", "Lists", "Custom objects"),
             "implemented": "Setup status, setup wizard data, owner routing, field/schema/segment/webhook provisioning, token storage checks, and surfaces registry.",
@@ -7322,8 +7550,7 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
     ]
     return {
         "generated_at": analyzedTimeForServer(),
-        "overall_usefulness_score": 8.3,
-        "overall_connection_score": 7.9,
+        "measurement": "Runtime counts and implemented-surface inventory; no synthetic readiness score is assigned.",
         "dashboard_snapshot": {
             "total_analyses": dashboard.get("total_analyses", 0),
             "gate_counts": dashboard.get("gate_counts", {}),
@@ -7331,6 +7558,13 @@ def hubspot_randstad_readiness_report(dashboard: dict[str, Any] | None = None) -
             "send_ready_by_business_unit": dashboard.get("send_ready_by_business_unit", [])[:5],
         },
         "implemented_surface_count": len(surface_ids),
+        "evidence_summary": {
+            "implemented_surfaces": len(surface_ids),
+            "total_analyses": int(dashboard.get("total_analyses", 0)),
+            "ready_analyses": int(dashboard.get("gate_counts", {}).get("ready", 0)),
+            "needs_review_analyses": int(dashboard.get("gate_counts", {}).get("needs_review", 0)),
+            "blocked_analyses": int(dashboard.get("gate_counts", {}).get("blocked", 0)),
+        },
         "categories": categories,
         "remaining_non_fake_work": [
             "Configure customer-specific HubSpot field mappings and ATS property names.",
@@ -7349,7 +7583,7 @@ def api_enterprise_hubspot_randstad_readiness():
     if error:
         return error
     report = hubspot_randstad_readiness_report()
-    log_event(user_id, "hubspot_randstad_readiness_viewed", {"overall": report["overall_usefulness_score"]})
+    log_event(user_id, "hubspot_randstad_readiness_viewed", report["evidence_summary"])
     return jsonify({"readiness": report})
 
 
@@ -7398,6 +7632,101 @@ def hubspot_surfaces_report(
         "max_batch_emails": max(1, min(HUBSPOT_MAX_BATCH_EMAILS, 100)),
         "note": "Backend surfaces are ready to receive mapped HubSpot payloads. Live in-HubSpot placement still depends on the installed app configuration and granted scopes.",
     }
+
+
+def hubspot_extension_connection(payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None, tuple | None]:
+    portal_id = first_text_value(
+        payload.get("portal_id"),
+        payload.get("portalId"),
+        nested_value(payload, ("portal", "id")),
+        max_length=160,
+    )
+    if not portal_id:
+        return "", None, (jsonify({"error": "HubSpot portal_id is required for this extension request."}), 400)
+    connection = get_hubspot_portal_connection(portal_id, include_tokens=False)
+    if not connection or connection.get("status") == "disconnected":
+        return portal_id, None, (
+            jsonify(
+                {
+                    "error": "This HubSpot portal is not connected to TextTraits.",
+                    "portal_id": portal_id,
+                    "setup_required": "Install or reconnect the TextTraits app for this portal.",
+                }
+            ),
+            409,
+        )
+    return portal_id, connection, None
+
+
+def hubspot_extension_home_response(payload: dict[str, Any]):
+    portal_id, _connection, error = hubspot_extension_connection(payload)
+    if error:
+        return error
+    limit = clamp_int(payload.get("limit"), 1, 1000, 500)
+    dashboard = hubspot_email_dashboard(
+        limit=limit,
+        analysis_filters={"portal_id": portal_id},
+        outcome_filters={"tenant_id": portal_id},
+    )
+    readiness = hubspot_randstad_readiness_report(dashboard)
+    log_event(
+        None,
+        "hubspot_extension_home_bootstrap",
+        {
+            "portal_id": portal_id,
+            "ingress_auth": getattr(g, "hubspot_ingress_auth", {}).get("mode", "unknown"),
+            "total": dashboard["total_analyses"],
+        },
+    )
+    return jsonify(
+        {
+            "portal_id": portal_id,
+            "dashboard": dashboard,
+            "templates": [dict(template) for template in HUBSPOT_STAFFING_WORKFLOW_TEMPLATES],
+            "readiness": readiness,
+            "generated_at": utc_now(),
+        }
+    )
+
+
+def hubspot_extension_settings_response(payload: dict[str, Any]):
+    portal_id, connection, error = hubspot_extension_connection(payload)
+    if error:
+        return error
+    token_status = token_storage_status()
+    connections = [connection] if connection else []
+    surface_report = hubspot_surfaces_report(connections, token_status)
+    setup_status = hubspot_setup_status_report(portal_id, connections, token_status)
+    log_event(
+        None,
+        "hubspot_extension_settings_bootstrap",
+        {
+            "portal_id": portal_id,
+            "ingress_auth": getattr(g, "hubspot_ingress_auth", {}).get("mode", "unknown"),
+            "surface_count": len(surface_report["surfaces"]),
+        },
+    )
+    return jsonify(
+        {
+            **surface_report,
+            "portal_id": portal_id,
+            "setup_status": setup_status,
+            "setup_steps": list(HUBSPOT_SETUP_WIZARD_STEPS),
+            "approval_chains": list(HUBSPOT_APPROVAL_CHAIN_TEMPLATES),
+            "generated_at": utc_now(),
+        }
+    )
+
+
+app.register_blueprint(
+    create_hubspot_extension_blueprint(
+        HubSpotExtensionRouteDependencies(
+            home_response=hubspot_extension_home_response,
+            settings_response=hubspot_extension_settings_response,
+            rate_limited=rate_limited,
+        )
+    )
+)
 
 
 @app.get("/api/enterprise/hubspot/surfaces")
@@ -7521,7 +7850,7 @@ def api_enterprise_hubspot_retention_get():
     user_id, error = require_enterprise_admin()
     if error:
         return error
-    days = clamp_int(request.args.get("days"), 1, 3650, int(os.getenv("TEXTTRAITS_HUBSPOT_RETENTION_DAYS", "90")))
+    days = clamp_int(request.args.get("days"), 1, 3650, env_int("TEXTTRAITS_HUBSPOT_RETENTION_DAYS", 90, minimum=1, maximum=3650))
     summary = hubspot_retention_summary(days=days, dry_run=True)
     log_event(user_id, "hubspot_retention_previewed", {"days": days, "total_records": summary["total_records"]})
     return jsonify({"retention": summary})
@@ -7534,7 +7863,7 @@ def api_enterprise_hubspot_retention_post():
     if error:
         return error
     payload = request.get_json(silent=True) or {}
-    days = clamp_int(payload.get("days"), 1, 3650, int(os.getenv("TEXTTRAITS_HUBSPOT_RETENTION_DAYS", "90")))
+    days = clamp_int(payload.get("days"), 1, 3650, env_int("TEXTTRAITS_HUBSPOT_RETENTION_DAYS", 90, minimum=1, maximum=3650))
     dry_run = payload.get("dry_run", True) is not False
     if not dry_run and str(payload.get("confirm") or "") != "purge_hubspot_records":
         return jsonify({"error": "Set confirm to purge_hubspot_records to run a non-dry-run retention purge."}), 400
@@ -7988,6 +8317,9 @@ def api_integration_oauth_callback(provider: str):
     except Exception:
         decoded = None
 
+    if decoded is None and state:
+        return jsonify({"error": "OAuth state is invalid."}), 400
+
     if decoded is None and provider_slug(entry.name) == "hubspot":
         redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
         try:
@@ -8014,6 +8346,7 @@ def api_integration_oauth_callback(provider: str):
     expected_nonce = session.get(f"oauth_nonce_{provider_slug(entry.name)}")
     if decoded.get("user_id") != user_id or decoded.get("provider") != entry.name or decoded.get("nonce") != expected_nonce:
         return jsonify({"error": "OAuth state did not match this session."}), 400
+    session.pop(f"oauth_nonce_{provider_slug(entry.name)}", None)
 
     redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
     try:
@@ -8110,5 +8443,5 @@ def terms():
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
+    port = env_int("PORT", 5000, minimum=1, maximum=65535)
     app.run(host=os.getenv("HOST", "127.0.0.1"), port=port, debug=ENABLE_DEV_TOOLS)

@@ -1,12 +1,14 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {
   Alert,
+  Accordion,
   Box,
   Button,
   Divider,
   Flex,
   Input,
   LoadingSpinner,
+  StatusTag,
   Text,
   TextArea,
   hubspot,
@@ -23,6 +25,13 @@ function gateLabel(gate) {
   if (gate === "blocked") return "Blocked";
   if (gate === "needs_review") return "Needs review";
   return gate || "Not analyzed";
+}
+
+function gateVariant(gate) {
+  if (gate === "ready") return "success";
+  if (gate === "blocked") return "danger";
+  if (gate === "needs_review") return "warning";
+  return "default";
 }
 
 function valueFrom(...values) {
@@ -223,28 +232,35 @@ function TextTraitsEmailFitCard({context, actions}) {
       {error ? <Alert title="TextTraits needs attention" variant="error">{error}</Alert> : null}
       {visible ? (
         <Box>
-          <Text format={{fontWeight: "bold"}}>{score} out of 100</Text>
-          <Text>{gateLabel(gate)} · {route || "No route yet"}</Text>
+          <Flex align="center" justify="between" gap="sm" wrap>
+            <Text format={{fontWeight: "bold"}}>Email-quality score: {score} out of 100</Text>
+            <StatusTag variant={gateVariant(gate)}>{gateLabel(gate)}</StatusTag>
+          </Flex>
+          <Text format={{fontWeight: "bold"}}>Route: {route || "No route yet"}</Text>
           <Flex direction="column" gap="xs">
             <FieldRow label="Blocker" value={blockerReason || "No blocker detected"} />
             <FieldRow label="Next step" value={nextStep} />
             <FieldRow label="Owner or queue" value={ownerQueue} />
             <FieldRow label="Blocker level" value={blockerLevel} />
             <FieldRow label="Review status" value={latestReviewState?.status || (gate === "ready" ? "ready" : "")} />
-            <FieldRow label="Sync status" value={syncStatus} />
-            <FieldRow label="Policy version" value={policyVersion} />
-            <FieldRow label="Analysis engine" value={analysisEngine} />
-            <FieldRow label="Request ID" value={requestId} />
-            <FieldRow label="Content hash" value={contentHash} />
           </Flex>
           {findings.length > 1 ? (
             <Box>
               <Text format={{fontWeight: "bold"}}>Additional findings</Text>
               {findings.slice(1, 3).map((item) => (
-                <Text key={item.id || item.title}>{item.title || item.label}: {item.next_step || item.status}</Text>
+                <Text key={item.id || item.title}>{item.title || item.label}: {item.next_step || gateLabel(item.status)}</Text>
               ))}
             </Box>
           ) : null}
+          <Accordion title="Audit details" size="sm">
+            <Flex direction="column" gap="xs">
+              <FieldRow label="Sync status" value={syncStatus} />
+              <FieldRow label="Policy version" value={policyVersion} />
+              <FieldRow label="Analysis engine" value={analysisEngine} />
+              <FieldRow label="Request ID" value={requestId} />
+              <FieldRow label="Content hash" value={contentHash} />
+            </Flex>
+          </Accordion>
         </Box>
       ) : (
         <Text>No TextTraits review has been recorded for this record yet.</Text>
@@ -256,18 +272,16 @@ function TextTraitsEmailFitCard({context, actions}) {
         <Button variant="primary" onClick={analyzeDraft} disabled={submitting || (!subject && !body)}>
           {submitting ? "Working..." : "Analyze draft"}
         </Button>
-        <Button onClick={() => reviewAction("send_to_marketing_review")} disabled={submitting || !visible}>
-          Send to review
-        </Button>
-        <Button onClick={() => reviewAction("approve_review")} disabled={submitting || !visible}>
-          Approve
-        </Button>
-        <Button onClick={() => reviewAction("reject_review")} disabled={submitting || !visible}>
-          Reject
-        </Button>
-        <Button onClick={() => reviewAction("resolve_review")} disabled={submitting || !visible}>
-          Mark resolved
-        </Button>
+        {visible ? (
+          <Accordion title="Review actions" size="sm">
+            <Flex direction="column" gap="sm">
+              <Button onClick={() => reviewAction("send_to_marketing_review")} disabled={submitting || gate === "ready"}>Send to review</Button>
+              <Button onClick={() => reviewAction("approve_review")} disabled={submitting || gate === "ready"}>Approve</Button>
+              <Button variant="destructive" onClick={() => reviewAction("reject_review")} disabled={submitting || gate === "ready"}>Reject</Button>
+              <Button onClick={() => reviewAction("resolve_review")} disabled={submitting}>Mark resolved</Button>
+            </Flex>
+          </Accordion>
+        ) : null}
         <Button onClick={openCampaignAnalysis} disabled={submitting || !visible}>
           Open campaign analysis
         </Button>

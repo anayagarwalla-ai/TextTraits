@@ -15,7 +15,7 @@ For HubSpot email-fit analyses, TextTraits stores:
 
 TextTraits does not store the raw subject or body in the HubSpot analysis history tables.
 Content digests use an HMAC with `TEXTTRAITS_CONTENT_HASH_SECRET` or the app secret, so exports can still join outcomes without exposing a plain SHA-256 of customer email content.
-Findings and checks are also normalized into queryable governance tables. Audience type, region, business unit, job family, skill family, and analysis engine are indexed columns so dashboards can aggregate operational dimensions without parsing JSON blobs.
+Findings and checks are also normalized into queryable governance tables. Audience type, region, business unit, job family, skill family, rule pack, policy version, and analysis engine are indexed columns so dashboards can aggregate operational dimensions without parsing JSON blobs.
 
 ## Ingress Authentication
 
@@ -35,6 +35,7 @@ When a HubSpot signature is present, `HUBSPOT_CLIENT_SECRET` must be configured 
 Set `TEXTTRAITS_REQUIRE_HUBSPOT_SIGNATURE_TIMESTAMP=true` in non-production environments when you want staging to enforce the same replay-window behavior as production.
 
 HubSpot portal IDs are bound to `workspace_id` values such as `hubspot_246356639`. If a request supplies both a portal ID and a mismatched workspace, TextTraits rejects it.
+Review mutations and outcome joins for portal-scoped analyses require the owning portal ID. Signed UI-extension requests can use HubSpot's automatically appended `portalId` query parameter; a missing or different portal is rejected.
 HubSpot source-system values are constrained to HubSpot identifiers on the card/template analysis endpoints to reduce source spoofing.
 
 ## Public Card Response
@@ -67,6 +68,7 @@ The HubSpot settings extension can fetch owners through `/v1/integrations/hubspo
 ## Outcomes
 
 Outcome events can be ingested with `POST /v1/integrations/hubspot/outcomes` and joined by `request_id` or `content_hash`.
+Each outcome receives a deterministic tenant/source/type/event replay key backed by a unique database index. A duplicate is acknowledged with `duplicate: true`; duplicate HubSpot webhooks do not trigger a second analysis. Multi-row outcome and Salesforce imports validate first and commit in one transaction. Copy-bearing webhook fields such as subject, body, HTML, text, and mapped asset copy are recursively redacted before the outcome payload is stored.
 Supported event types are intentionally open-ended so send systems can report events such as delivered, bounced, complained, opened, clicked, suppressed, unsubscribed, replied, or converted.
 HubSpot webhook ingest stores incoming events with tenant/workspace context and can automatically re-score a changed draft when the webhook payload includes reviewable subject/body/html copy. If a HubSpot webhook only supplies metadata, TextTraits returns `copy_unavailable` for that event and leaves the original analysis untouched rather than guessing from metadata.
 HubSpot stats sync fetches marketing-email and campaign snapshots through OAuth, stores them as outcome events, and joins them to matching TextTraits analyses by request ID, content hash, or campaign/template context. This keeps performance joins queryable without storing raw draft text.
@@ -82,6 +84,13 @@ HubSpot OAuth install is supported. Live campaign, marketing-email, task, list, 
 - Use `POST /api/enterprise/hubspot/connections/<portal_id>/disconnect` to mark a portal disconnected and prevent live API use.
 
 Without encrypted storage, TextTraits can still accept signed HubSpot analysis payloads, but live HubSpot API actions fail closed with a connection/scopes error.
+TextTraits-initiated OAuth uses a signed, session-bound nonce and consumes it after a successful match. HubSpot's direct marketplace install URL may omit `state`, as documented by HubSpot; if a callback supplies a state value, TextTraits requires it to be valid and never falls through to the stateless install path.
+
+## Latency And Retry Budgets
+
+HubSpot responses include `Server-Timing` and `X-TextTraits-Latency-Budget-Ms`. Defaults are 750 ms for analysis, 2 seconds for workflow actions, 2.5 seconds for extension bootstrap, 5 seconds for analyze-and-sync, 10 seconds for campaign review, and 15 seconds for batch analysis. Override them with the `TEXTTRAITS_HUBSPOT_BUDGET_*_MS` variables only after measuring the target environment.
+
+The HubSpot API client pools HTTPS connections and retries transient failures only for replay-safe methods or writes carrying an idempotency key. Non-idempotent POST requests are attempted once. The local rate limiter is thread-safe, bounded by `TEXTTRAITS_RATE_LIMIT_MAX_KEYS`, and uses the signed HubSpot portal ID when available. It remains process-local; use one application instance for strict global limits or add shared infrastructure during a funded scale phase.
 
 ## HubSpot API Audit Logs
 
@@ -113,7 +122,7 @@ Every policy save writes the current policy and appends an immutable history row
 
 These endpoints are admin-only.
 
-The readiness endpoint reports deployment blockers without exposing secret values. The score-validation endpoint runs the active policy against built-in clear, vague, and risky email QA cases. The retention endpoint previews old HubSpot analysis records by default; destructive purges require an explicit confirmation payload.
+The readiness endpoint reports deployment blockers without exposing secret values. The score-validation endpoint runs the active policy against built-in strong, vague, risky, short, long, templated, localized, and malformed email QA cases. The retention endpoint previews old HubSpot analysis records by default; destructive purges require an explicit confirmation payload.
 
 ## HubSpot Developer Project
 
@@ -197,6 +206,15 @@ Before an enterprise rollout:
 - Upload the HubSpot project from `hubspot-project/`.
 - From the HubSpot settings page, run property provisioning, analysis-schema provisioning, and webhook setup for the connected portal.
 - Run `python3 tests/production_smoke_test.py` and `python3 tests/security_regression_test.py`.
+
+## Troubleshooting
+
+- OAuth install or refresh: check HubSpot Development > Monitoring > Logs, confirm the exact redirect URL, then verify `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET`, encrypted token storage, and the portal connection status. Do not log or paste tokens.
+- Missing scope: inspect the selected portal's granted and missing scopes in TextTraits settings. Reconnect with only the optional capability scopes the customer approved.
+- Extension fetch failure: confirm the deployed HTTPS origin is in `permittedUrls.fetch`, the v3 signature timestamp is within the replay window, and Render has the matching HubSpot client secret.
+- Webhook does not rescore: inspect the returned status. `copy_unavailable` means HubSpot sent metadata without reviewable copy; `duplicate_skipped` means the event was already processed.
+- Database failure: run `python scripts/migrate.py`, verify Postgres TLS/connectivity, and check `/health` without exposing the database URL.
+- API timeout or retry: use `Server-Timing`, the latency-budget header, and scrubbed HubSpot API audit events. A non-idempotent POST is intentionally not retried.
 
 ## HubSpot Uninstall Behavior
 

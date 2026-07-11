@@ -7,12 +7,14 @@ import secrets
 import hashlib
 import hmac
 import re
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from werkzeug.security import check_password_hash, generate_password_hash
+from runtime_config import env_int
 
 try:
     from cryptography.fernet import Fernet, InvalidToken
@@ -32,7 +34,7 @@ except ImportError:  # pragma: no cover - optional production dependency
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "artifacts" / "texttraits_workspace.sqlite3"
-SCHEMA_VERSION = "2026_07_09_hubspot_efficiency_schema"
+SCHEMA_VERSION = "2026_07_11_hubspot_replay_safety"
 
 
 def db_path() -> Path:
@@ -92,6 +94,19 @@ SENSITIVE_VALUE_RE = re.compile(
 )
 BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 SAFE_EVENT_TYPE_RE = re.compile(r"[^a-zA-Z0-9_.:-]+")
+RAW_EMAIL_COPY_KEYS = {
+    "subject",
+    "body",
+    "html",
+    "text",
+    "copy",
+    "asset_copy",
+    "email_body",
+    "email_subject",
+    "hs_email_body",
+    "hs_email_subject",
+    "message",
+}
 
 
 def token_digest(token: str) -> str:
@@ -153,6 +168,23 @@ def scrub_payload(value: Any, depth: int = 0) -> Any:
     return value
 
 
+def scrub_hubspot_event_payload(value: Any, depth: int = 0) -> Any:
+    if depth > 4:
+        return "[truncated]"
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, child in value.items():
+            clean_key = str(key)
+            if clean_key.lower() in RAW_EMAIL_COPY_KEYS:
+                cleaned[clean_key] = "[email copy not retained]"
+            else:
+                cleaned[clean_key] = scrub_hubspot_event_payload(child, depth + 1)
+        return scrub_payload(cleaned)
+    if isinstance(value, list):
+        return [scrub_hubspot_event_payload(item, depth + 1) for item in value[:50]]
+    return scrub_payload(value)
+
+
 def connect():
     if uses_postgres():
         if psycopg is None:
@@ -160,10 +192,18 @@ def connect():
         return psycopg.connect(database_url(), row_factory=dict_row)
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, factory=ClosingSQLiteConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+class ClosingSQLiteConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 def check_database() -> dict[str, Any]:
@@ -270,6 +310,8 @@ def init_db() -> None:
                   object_type TEXT NOT NULL DEFAULT '',
                   object_id TEXT NOT NULL DEFAULT '',
                   locale TEXT NOT NULL DEFAULT '',
+                  rule_pack TEXT NOT NULL DEFAULT '',
+                  policy_version TEXT NOT NULL DEFAULT '',
                   audience_type TEXT NOT NULL DEFAULT '',
                   region TEXT NOT NULL DEFAULT '',
                   business_unit TEXT NOT NULL DEFAULT '',
@@ -282,7 +324,6 @@ def init_db() -> None:
                   route TEXT NOT NULL,
                   send_ready INTEGER NOT NULL DEFAULT 0,
                   word_count INTEGER NOT NULL DEFAULT 0,
-                  average_model_confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
                   score_source TEXT NOT NULL DEFAULT '',
                   findings TEXT NOT NULL DEFAULT '[]',
                   checks TEXT NOT NULL DEFAULT '[]',
@@ -392,6 +433,7 @@ def init_db() -> None:
                   source_system TEXT NOT NULL DEFAULT '',
                   event_type TEXT NOT NULL,
                   event_id TEXT NOT NULL DEFAULT '',
+                  event_key TEXT NOT NULL DEFAULT '',
                   audience_type TEXT NOT NULL DEFAULT '',
                   region TEXT NOT NULL DEFAULT '',
                   business_unit TEXT NOT NULL DEFAULT '',
@@ -524,6 +566,8 @@ def init_db() -> None:
               object_type TEXT NOT NULL DEFAULT '',
               object_id TEXT NOT NULL DEFAULT '',
               locale TEXT NOT NULL DEFAULT '',
+              rule_pack TEXT NOT NULL DEFAULT '',
+              policy_version TEXT NOT NULL DEFAULT '',
               audience_type TEXT NOT NULL DEFAULT '',
               region TEXT NOT NULL DEFAULT '',
               business_unit TEXT NOT NULL DEFAULT '',
@@ -536,7 +580,6 @@ def init_db() -> None:
               route TEXT NOT NULL,
               send_ready INTEGER NOT NULL DEFAULT 0,
               word_count INTEGER NOT NULL DEFAULT 0,
-              average_model_confidence REAL NOT NULL DEFAULT 0,
               score_source TEXT NOT NULL DEFAULT '',
               findings TEXT NOT NULL DEFAULT '[]',
               checks TEXT NOT NULL DEFAULT '[]',
@@ -625,6 +668,7 @@ def init_db() -> None:
               source_system TEXT NOT NULL DEFAULT '',
               event_type TEXT NOT NULL,
               event_id TEXT NOT NULL DEFAULT '',
+              event_key TEXT NOT NULL DEFAULT '',
               audience_type TEXT NOT NULL DEFAULT '',
               region TEXT NOT NULL DEFAULT '',
               business_unit TEXT NOT NULL DEFAULT '',
@@ -682,15 +726,18 @@ def init_db() -> None:
         ensure_column(conn, "users", "reset_token", "TEXT")
         ensure_column(conn, "users", "reset_expires_at", "TEXT")
         ensure_column(conn, "users", "session_version", "INTEGER DEFAULT 0")
-        for column in ("audience_type", "region", "business_unit", "job_family", "skill_family", "analysis_engine"):
+        for column in ("rule_pack", "policy_version", "audience_type", "region", "business_unit", "job_family", "skill_family", "analysis_engine"):
             ensure_column(conn, "hubspot_email_analyses", column, "TEXT NOT NULL DEFAULT ''")
         for column in ("audience_type", "region", "business_unit", "job_family", "skill_family"):
             ensure_column(conn, "hubspot_email_outcome_events", column, "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "hubspot_email_outcome_events", "event_key", "TEXT NOT NULL DEFAULT ''")
         execute(conn, "CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_campaign_gate ON hubspot_email_analyses (campaign_id, gate)")
         execute(conn, "CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_template_gate ON hubspot_email_analyses (template_id, gate)")
         execute(conn, "CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_region_gate ON hubspot_email_analyses (region, gate)")
         execute(conn, "CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_business_ready ON hubspot_email_analyses (business_unit, send_ready)")
+        execute(conn, "CREATE INDEX IF NOT EXISTS idx_hubspot_email_analyses_rule_pack_gate ON hubspot_email_analyses (rule_pack, gate)")
         execute(conn, "CREATE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_dimensions ON hubspot_email_outcome_events (audience_type, region, event_type)")
+        execute(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_hubspot_email_outcomes_event_key ON hubspot_email_outcome_events (event_key) WHERE event_key <> ''")
 
 
 def ensure_schema_version(conn) -> None:
@@ -1091,7 +1138,7 @@ def save_workspace(user_id: int, data: dict[str, Any], name: str | None = None) 
     current = get_workspace(user_id)
     workspace_name = (name or current["name"] or "Personal workspace").strip()
     serialized = json.dumps(data, separators=(",", ":"), sort_keys=True)
-    max_bytes = int(os.getenv("TEXTTRAITS_MAX_WORKSPACE_BYTES", "500000"))
+    max_bytes = env_int("TEXTTRAITS_MAX_WORKSPACE_BYTES", 500000, minimum=1024, maximum=100000000)
     if len(serialized.encode("utf-8")) > max_bytes:
         raise ValueError(f"Workspace data is too large. Keep sync payloads under {max_bytes} bytes.")
     with connect() as conn:
@@ -1513,6 +1560,8 @@ def _hubspot_analysis_from_row(row) -> dict[str, Any]:
         "object_type": row["object_type"],
         "object_id": row["object_id"],
         "locale": row["locale"],
+        "rule_pack": row["rule_pack"],
+        "policy_version": row["policy_version"],
         "audience_type": row["audience_type"],
         "region": row["region"],
         "business_unit": row["business_unit"],
@@ -1525,7 +1574,6 @@ def _hubspot_analysis_from_row(row) -> dict[str, Any]:
         "route": row["route"],
         "send_ready": bool(row["send_ready"]),
         "word_count": int(row["word_count"] or 0),
-        "average_model_confidence": float(row["average_model_confidence"] or 0),
         "score_source": row["score_source"],
         "findings": _json_load(row["findings"], []),
         "checks": _json_load(row["checks"], []),
@@ -1729,6 +1777,7 @@ def list_hubspot_normalized_checks(limit: int = 100, filters: dict[str, Any] | N
 def save_hubspot_email_analysis(record: dict[str, Any], conn=None) -> dict[str, Any]:
     now = record.get("created_at") or utc_now()
     context = record.get("context") if isinstance(record.get("context"), dict) else {}
+    policy = record.get("policy") if isinstance(record.get("policy"), dict) else {}
     values = {
         "request_id": str(record.get("request_id", ""))[:160],
         "workspace_id": str(record.get("workspace_id", ""))[:160],
@@ -1747,6 +1796,8 @@ def save_hubspot_email_analysis(record: dict[str, Any], conn=None) -> dict[str, 
         "object_type": str(record.get("object_type", ""))[:120],
         "object_id": str(record.get("object_id", ""))[:160],
         "locale": str(record.get("locale", ""))[:40],
+        "rule_pack": str(record.get("rule_pack") or policy.get("rule_pack") or "")[:120],
+        "policy_version": str(record.get("policy_version") or policy.get("version") or "")[:120],
         "audience_type": str(record.get("audience_type") or context.get("audience_type") or "")[:80],
         "region": str(record.get("region") or context.get("region") or "")[:120],
         "business_unit": str(record.get("business_unit") or context.get("business_unit") or "")[:160],
@@ -1759,13 +1810,10 @@ def save_hubspot_email_analysis(record: dict[str, Any], conn=None) -> dict[str, 
         "route": str(record.get("route", ""))[:120],
         "send_ready": 1 if record.get("send_ready") else 0,
         "word_count": int(record.get("word_count") or 0),
-        # Retained as a storage-only compatibility column for databases created
-        # before HubSpot scoring was separated from the demographic model.
-        "average_model_confidence": 0.0,
         "score_source": str(record.get("score_source", ""))[:500],
         "findings": _json_dump(record.get("findings") or []),
         "checks": _json_dump(record.get("checks") or []),
-        "policy": _json_dump(record.get("policy") or {}),
+        "policy": _json_dump(policy),
         "context": _json_dump(record.get("context") or {}),
         "created_at": now,
     }
@@ -1780,12 +1828,17 @@ def save_hubspot_email_analysis(record: dict[str, Any], conn=None) -> dict[str, 
             INSERT INTO hubspot_email_analyses (
               request_id, workspace_id, tenant_id, source_system, workflow, analysis_mode,
               campaign_id, journey_id, template_id, contact_id, company_id, deal_id,
-              owner_id, portal_id, object_type, object_id, locale, audience_type, region,
+              owner_id, portal_id, object_type, object_id, locale, rule_pack, policy_version, audience_type, region,
               business_unit, job_family, skill_family, analysis_engine, content_hash, score,
-              gate, route, send_ready, word_count, average_model_confidence, score_source,
+              gate, route, send_ready, word_count, score_source,
               findings, checks, policy, context, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?
+            )
             ON CONFLICT(request_id) DO UPDATE SET
               workspace_id = excluded.workspace_id,
               tenant_id = excluded.tenant_id,
@@ -1803,6 +1856,8 @@ def save_hubspot_email_analysis(record: dict[str, Any], conn=None) -> dict[str, 
               object_type = excluded.object_type,
               object_id = excluded.object_id,
               locale = excluded.locale,
+              rule_pack = excluded.rule_pack,
+              policy_version = excluded.policy_version,
               audience_type = excluded.audience_type,
               region = excluded.region,
               business_unit = excluded.business_unit,
@@ -1815,7 +1870,6 @@ def save_hubspot_email_analysis(record: dict[str, Any], conn=None) -> dict[str, 
               route = excluded.route,
               send_ready = excluded.send_ready,
               word_count = excluded.word_count,
-              average_model_confidence = excluded.average_model_confidence,
               score_source = excluded.score_source,
               findings = excluded.findings,
               checks = excluded.checks,
@@ -1858,39 +1912,66 @@ def save_hubspot_email_analyses(records: list[dict[str, Any]]) -> list[dict[str,
         conn.close()
 
 
-def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    filters = filters or {}
+HUBSPOT_ANALYSIS_FILTER_COLUMNS = (
+    "workspace_id",
+    "tenant_id",
+    "source_system",
+    "gate",
+    "route",
+    "campaign_id",
+    "template_id",
+    "contact_id",
+    "company_id",
+    "deal_id",
+    "portal_id",
+    "object_type",
+    "object_id",
+    "rule_pack",
+    "policy_version",
+    "audience_type",
+    "region",
+    "business_unit",
+    "job_family",
+    "skill_family",
+)
+HUBSPOT_OUTCOME_FILTER_COLUMNS = (
+    "request_id",
+    "content_hash",
+    "workspace_id",
+    "tenant_id",
+    "source_system",
+    "event_type",
+    "audience_type",
+    "region",
+    "business_unit",
+    "job_family",
+    "skill_family",
+)
+
+
+def _allowlisted_filter_sql(
+    filters: dict[str, Any] | None,
+    allowed_columns: tuple[str, ...],
+    table_alias: str = "",
+) -> tuple[str, tuple[Any, ...]]:
     clauses: list[str] = []
     params: list[Any] = []
-    for key in (
-        "workspace_id",
-        "tenant_id",
-        "source_system",
-        "gate",
-        "route",
-        "campaign_id",
-        "template_id",
-        "contact_id",
-        "company_id",
-        "deal_id",
-        "portal_id",
-        "object_type",
-        "object_id",
-        "audience_type",
-        "region",
-        "business_unit",
-        "job_family",
-        "skill_family",
-    ):
-        value = str(filters.get(key, "")).strip()
+    prefix = f"{table_alias}." if table_alias else ""
+    for key in allowed_columns:
+        value = str((filters or {}).get(key, "")).strip()
         if value:
-            clauses.append(f"{key} = ?")
-            params.append(value)
+            clauses.append(f"{prefix}{key} = ?")
+            params.append(value[:160])
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where, tuple(params)
+
+
+def list_hubspot_email_analyses(limit: int = 100, filters: dict[str, Any] | None = None, conn=None) -> list[dict[str, Any]]:
+    where, params = _allowlisted_filter_sql(filters, HUBSPOT_ANALYSIS_FILTER_COLUMNS)
     safe_limit = max(1, min(int(limit or 100), 1000))
-    with connect() as conn:
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
         rows = execute(
-            conn,
+            active_conn,
             f"SELECT * FROM hubspot_email_analyses {where} ORDER BY id DESC LIMIT ?",
             (*params, safe_limit),
         ).fetchall()
@@ -1903,18 +1984,26 @@ HUBSPOT_HEALTH_DIMENSIONS = {
     "template_id": "template_id",
     "region": "region",
     "business_unit": "business_unit",
+    "rule_pack": "rule_pack",
 }
 
 
-def hubspot_analysis_health_rollup(dimension: str, limit: int = 500) -> list[dict[str, Any]]:
+def hubspot_analysis_health_rollup(
+    dimension: str,
+    limit: int = 500,
+    filters: dict[str, Any] | None = None,
+    conn=None,
+) -> list[dict[str, Any]]:
     column = HUBSPOT_HEALTH_DIMENSIONS.get(dimension)
     if not column:
         raise ValueError("Unsupported HubSpot dashboard dimension.")
     safe_limit = max(1, min(int(limit or 500), 5000))
+    where, params = _allowlisted_filter_sql(filters, HUBSPOT_ANALYSIS_FILTER_COLUMNS)
     statement = f"""
         WITH recent AS (
           SELECT {column}, score, gate
           FROM hubspot_email_analyses
+          {where}
           ORDER BY id DESC
           LIMIT ?
         )
@@ -1927,8 +2016,8 @@ def hubspot_analysis_health_rollup(dimension: str, limit: int = 500) -> list[dic
         FROM recent
         GROUP BY COALESCE(NULLIF({column}, ''), 'unmapped')
     """
-    with connect() as conn:
-        rows = execute(conn, statement, (safe_limit,)).fetchall()
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
+        rows = execute(active_conn, statement, (*params, safe_limit)).fetchall()
     return [
         {
             dimension: row["dimension_value"],
@@ -1942,15 +2031,21 @@ def hubspot_analysis_health_rollup(dimension: str, limit: int = 500) -> list[dic
     ]
 
 
-def hubspot_failed_check_rollup(limit: int = 500) -> list[dict[str, Any]]:
+def hubspot_failed_check_rollup(
+    limit: int = 500,
+    filters: dict[str, Any] | None = None,
+    conn=None,
+) -> list[dict[str, Any]]:
     safe_limit = max(1, min(int(limit or 500), 5000))
-    with connect() as conn:
+    where, params = _allowlisted_filter_sql(filters, HUBSPOT_ANALYSIS_FILTER_COLUMNS)
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
         rows = execute(
-            conn,
-            """
+            active_conn,
+            f"""
             WITH recent AS (
               SELECT request_id
               FROM hubspot_email_analyses
+              {where}
               ORDER BY id DESC
               LIMIT ?
             )
@@ -1963,9 +2058,45 @@ def hubspot_failed_check_rollup(limit: int = 500) -> list[dict[str, Any]]:
             ORDER BY failure_count DESC
             LIMIT 10
             """,
-            (safe_limit,),
+            (*params, safe_limit),
         ).fetchall()
     return [{"check": row["check_label"], "count": int(row["failure_count"] or 0)} for row in rows]
+
+
+def hubspot_analysis_summary(filters: dict[str, Any] | None = None, conn=None) -> dict[str, Any]:
+    where, params = _allowlisted_filter_sql(filters, HUBSPOT_ANALYSIS_FILTER_COLUMNS)
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
+        total_row = execute(
+            active_conn,
+            f"SELECT COUNT(*) AS total FROM hubspot_email_analyses {where}",
+            params,
+        ).fetchone()
+        gate_rows = execute(
+            active_conn,
+            f"SELECT gate, COUNT(*) AS total FROM hubspot_email_analyses {where} GROUP BY gate",
+            params,
+        ).fetchall()
+        route_rows = execute(
+            active_conn,
+            f"SELECT route, COUNT(*) AS total FROM hubspot_email_analyses {where} GROUP BY route",
+            params,
+        ).fetchall()
+    return {
+        "total": int(total_row["total"] if total_row else 0),
+        "gate_counts": {str(row["gate"] or "unknown"): int(row["total"] or 0) for row in gate_rows},
+        "route_counts": {str(row["route"] or "unknown"): int(row["total"] or 0) for row in route_rows},
+    }
+
+
+def hubspot_outcome_summary(filters: dict[str, Any] | None = None, conn=None) -> dict[str, int]:
+    where, params = _allowlisted_filter_sql(filters, HUBSPOT_OUTCOME_FILTER_COLUMNS)
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
+        rows = execute(
+            active_conn,
+            f"SELECT event_type, COUNT(*) AS total FROM hubspot_email_outcome_events {where} GROUP BY event_type",
+            params,
+        ).fetchall()
+    return {str(row["event_type"] or "unknown"): int(row["total"] or 0) for row in rows}
 
 
 def save_hubspot_review_event(request_id: str, action: str, payload: dict[str, Any] | None = None, actor_id: str = "", status: str = "recorded") -> dict[str, Any]:
@@ -2120,6 +2251,36 @@ def list_hubspot_review_states(limit: int = 100, filters: dict[str, Any] | None 
     ]
 
 
+def list_hubspot_review_states_for_requests(request_ids: list[str], limit: int = 1000, conn=None) -> list[dict[str, Any]]:
+    clean_ids = list(dict.fromkeys(str(value or "").strip()[:160] for value in request_ids if str(value or "").strip()))
+    if not clean_ids:
+        return []
+    safe_limit = max(1, min(int(limit or 1000), 5000))
+    placeholders = ", ".join("?" for _ in clean_ids)
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
+        rows = execute(
+            active_conn,
+            f"SELECT * FROM hubspot_email_review_states WHERE request_id IN ({placeholders}) ORDER BY updated_at DESC LIMIT ?",
+            (*clean_ids, safe_limit),
+        ).fetchall()
+    return [
+        {
+            "request_id": row["request_id"],
+            "status": row["status"],
+            "assigned_to": row["assigned_to"],
+            "owner_queue": row["owner_queue"],
+            "blocker_level": row["blocker_level"],
+            "sla_due_at": row["sla_due_at"],
+            "resolved_at": row["resolved_at"],
+            "notes": row["notes"],
+            "updated_by": row["updated_by"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
 def list_hubspot_review_events(request_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     safe_limit = max(1, min(int(limit or 100), 1000))
     params: tuple[Any, ...]
@@ -2235,7 +2396,7 @@ def list_hubspot_policy_versions(workspace_id: str = "", environment: str = "", 
     ]
 
 
-def save_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
+def _normalized_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
     raw_payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
     event = {
         "request_id": str(record.get("request_id", ""))[:160],
@@ -2250,7 +2411,7 @@ def save_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
         "business_unit": str(record.get("business_unit") or raw_payload.get("business_unit") or "")[:160],
         "job_family": str(record.get("job_family") or raw_payload.get("job_family") or "")[:160],
         "skill_family": str(record.get("skill_family") or raw_payload.get("skill_family") or "")[:160],
-        "payload": scrub_payload(raw_payload),
+        "payload": scrub_hubspot_event_payload(raw_payload),
         "occurred_at": str(record.get("occurred_at") or utc_now())[:80],
         "created_at": utc_now(),
     }
@@ -2258,52 +2419,67 @@ def save_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Outcome event requires an event_type.")
     if not event["request_id"] and not event["content_hash"]:
         raise ValueError("Outcome event requires a request_id or content_hash.")
-    with connect() as conn:
-        execute(
-            conn,
-            """
-            INSERT INTO hubspot_email_outcome_events (
-              request_id, content_hash, workspace_id, tenant_id, source_system,
-              event_type, event_id, audience_type, region, business_unit, job_family,
-              skill_family, payload, occurred_at, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event["request_id"],
-                event["content_hash"],
-                event["workspace_id"],
-                event["tenant_id"],
-                event["source_system"],
-                event["event_type"],
-                event["event_id"],
-                event["audience_type"],
-                event["region"],
-                event["business_unit"],
-                event["job_family"],
-                event["skill_family"],
-                _json_dump(event["payload"]),
-                event["occurred_at"],
-                event["created_at"],
-            ),
-        )
+    identity = (
+        f"{event['tenant_id']}\0{event['source_system']}\0{event['event_type']}\0id:{event['event_id']}"
+        if event["event_id"]
+        else f"{event['tenant_id']}\0{event['source_system']}\0{event['event_type']}\0hash:{event['content_hash']}\0{event['occurred_at']}"
+    )
+    event["event_key"] = "sha256:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
     return event
 
 
-def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    filters = filters or {}
-    clauses: list[str] = []
-    params: list[Any] = []
-    for key in ("request_id", "content_hash", "workspace_id", "tenant_id", "source_system", "event_type", "audience_type", "region", "business_unit", "job_family", "skill_family"):
-        value = str(filters.get(key, "")).strip()
-        if value:
-            clauses.append(f"{key} = ?")
-            params.append(value[:160])
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    safe_limit = max(1, min(int(limit or 100), 1000))
+def _insert_hubspot_outcome_event(conn, event: dict[str, Any]) -> dict[str, Any]:
+    cursor = execute(
+        conn,
+        """
+            INSERT INTO hubspot_email_outcome_events (
+              request_id, content_hash, workspace_id, tenant_id, source_system,
+              event_type, event_id, event_key, audience_type, region, business_unit, job_family,
+              skill_family, payload, occurred_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT DO NOTHING
+        """,
+        (
+            event["request_id"],
+            event["content_hash"],
+            event["workspace_id"],
+            event["tenant_id"],
+            event["source_system"],
+            event["event_type"],
+            event["event_id"],
+            event["event_key"],
+            event["audience_type"],
+            event["region"],
+            event["business_unit"],
+            event["job_family"],
+            event["skill_family"],
+            _json_dump(event["payload"]),
+            event["occurred_at"],
+            event["created_at"],
+        ),
+    )
+    return {**event, "duplicate": cursor.rowcount == 0}
+
+
+def save_hubspot_outcome_event(record: dict[str, Any]) -> dict[str, Any]:
+    event = _normalized_hubspot_outcome_event(record)
     with connect() as conn:
+        return _insert_hubspot_outcome_event(conn, event)
+
+
+def save_hubspot_outcome_events(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    events = [_normalized_hubspot_outcome_event(record) for record in records]
+    with connect() as conn:
+        return [_insert_hubspot_outcome_event(conn, event) for event in events]
+
+
+def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None = None, conn=None) -> list[dict[str, Any]]:
+    where, params = _allowlisted_filter_sql(filters, HUBSPOT_OUTCOME_FILTER_COLUMNS)
+    safe_limit = max(1, min(int(limit or 100), 1000))
+    with (nullcontext(conn) if conn is not None else connect()) as active_conn:
         rows = execute(
-            conn,
+            active_conn,
             f"SELECT * FROM hubspot_email_outcome_events {where} ORDER BY id DESC LIMIT ?",
             (*params, safe_limit),
         ).fetchall()
@@ -2316,6 +2492,7 @@ def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None
             "source_system": row["source_system"],
             "event_type": row["event_type"],
             "event_id": row["event_id"],
+            "event_key": row["event_key"],
             "audience_type": row["audience_type"],
             "region": row["region"],
             "business_unit": row["business_unit"],
@@ -2329,20 +2506,27 @@ def list_hubspot_outcome_events(limit: int = 100, filters: dict[str, Any] | None
     ]
 
 
-def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
-    analyses = list_hubspot_email_analyses(limit=limit)
-    outcomes = list_hubspot_outcome_events(limit=limit)
-    review_states = list_hubspot_review_states(limit=limit)
-    source_health = hubspot_analysis_health_rollup("source_system", limit=limit)
-    campaign_health = hubspot_analysis_health_rollup("campaign_id", limit=limit)
-    template_health = hubspot_analysis_health_rollup("template_id", limit=limit)
-    failed_check_rows = hubspot_failed_check_rollup(limit=limit)
-    total = len(analyses)
-    gates: dict[str, int] = {}
-    route_counts: dict[str, int] = {}
-    outcome_counts: dict[str, int] = {}
-    blocked_by_region: dict[str, dict[str, int]] = {}
-    send_ready_by_business_unit: dict[str, dict[str, int]] = {}
+def hubspot_email_dashboard(
+    limit: int = 500,
+    analysis_filters: dict[str, Any] | None = None,
+    outcome_filters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    with connect() as conn:
+        analyses = list_hubspot_email_analyses(limit=limit, filters=analysis_filters, conn=conn)
+        outcomes = list_hubspot_outcome_events(limit=limit, filters=outcome_filters, conn=conn)
+        review_states = list_hubspot_review_states_for_requests([item["request_id"] for item in analyses], limit=limit, conn=conn)
+        source_health = hubspot_analysis_health_rollup("source_system", limit=limit, filters=analysis_filters, conn=conn)
+        campaign_health = hubspot_analysis_health_rollup("campaign_id", limit=limit, filters=analysis_filters, conn=conn)
+        template_health = hubspot_analysis_health_rollup("template_id", limit=limit, filters=analysis_filters, conn=conn)
+        region_health = hubspot_analysis_health_rollup("region", limit=limit, filters=analysis_filters, conn=conn)
+        business_unit_health = hubspot_analysis_health_rollup("business_unit", limit=limit, filters=analysis_filters, conn=conn)
+        rule_pack_health = hubspot_analysis_health_rollup("rule_pack", limit=limit, filters=analysis_filters, conn=conn)
+        failed_check_rows = hubspot_failed_check_rollup(limit=limit, filters=analysis_filters, conn=conn)
+        analysis_summary = hubspot_analysis_summary(analysis_filters, conn=conn)
+        outcome_counts = hubspot_outcome_summary(outcome_filters, conn=conn)
+    total = analysis_summary["total"]
+    gates = analysis_summary["gate_counts"]
+    route_counts = analysis_summary["route_counts"]
     risky_claim_type: dict[str, int] = {}
     outcome_by_audience_segment: dict[str, dict[str, int]] = {}
     outcome_by_region: dict[str, dict[str, int]] = {}
@@ -2352,20 +2536,12 @@ def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
     outcomes_by_request: dict[str, list[dict[str, Any]]] = {}
     outcomes_by_hash: dict[str, list[dict[str, Any]]] = {}
 
-    def context_value(item: dict[str, Any], key: str, fallback: str = "unmapped") -> str:
-        context = item.get("context") if isinstance(item.get("context"), dict) else {}
-        delivery = context.get("delivery_context") if isinstance(context.get("delivery_context"), dict) else {}
-        value = item.get(key) or context.get(key) or delivery.get(key) or ""
-        clean = str(value or "").strip()
-        return clean[:160] if clean else fallback
-
     def increment_rollup(target: dict[str, dict[str, int]], segment: str, event_or_gate: str) -> None:
         bucket = target.setdefault(segment or "unmapped", {"total": 0})
         bucket["total"] = bucket.get("total", 0) + 1
         bucket[event_or_gate or "unknown"] = bucket.get(event_or_gate or "unknown", 0) + 1
 
     for event in outcomes:
-        outcome_counts[event["event_type"]] = outcome_counts.get(event["event_type"], 0) + 1
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         for key, target in (
             ("audience_type", outcome_by_audience_segment),
@@ -2381,15 +2557,17 @@ def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
             outcomes_by_hash.setdefault(event["content_hash"], []).append(event)
     for item in analyses:
         item_outcomes = outcomes_by_request.get(item["request_id"], []) + outcomes_by_hash.get(item["content_hash"], [])
-        item["outcomes"] = item_outcomes[:20]
-        gates[item["gate"]] = gates.get(item["gate"], 0) + 1
-        route_counts[item["route"]] = route_counts.get(item["route"], 0) + 1
+        unique_outcomes: list[dict[str, Any]] = []
+        seen_outcomes: set[tuple[str, str, str]] = set()
+        for event in item_outcomes:
+            identity = (str(event.get("event_id") or ""), str(event.get("event_type") or ""), str(event.get("occurred_at") or ""))
+            if identity in seen_outcomes:
+                continue
+            seen_outcomes.add(identity)
+            unique_outcomes.append(event)
+        item["outcomes"] = unique_outcomes[:20]
         if item["gate"] == "blocked":
             blocked.append(item)
-        region = context_value(item, "region")
-        business_unit = context_value(item, "business_unit")
-        increment_rollup(blocked_by_region, region, item["gate"])
-        increment_rollup(send_ready_by_business_unit, business_unit, "send_ready" if item.get("send_ready") else "not_ready")
         for finding in item.get("findings", []):
             if finding.get("id") == "risk_terms_detected":
                 evidence = finding.get("evidence") if isinstance(finding.get("evidence"), list) else []
@@ -2429,6 +2607,8 @@ def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
 
     return {
         "total_analyses": total,
+        "analysis_window_count": len(analyses),
+        "outcome_window_count": len(outcomes),
         "gate_counts": gates,
         "route_counts": route_counts,
         "outcome_counts": outcome_counts,
@@ -2437,14 +2617,23 @@ def hubspot_email_dashboard(limit: int = 500) -> dict[str, Any]:
         "source_health": sorted(source_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
         "campaign_health": sorted(campaign_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
         "template_health": sorted(template_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
+        "rule_pack_health": sorted(rule_pack_health, key=lambda item: (item["blocked"], item["needs_review"], item["total"]), reverse=True)[:10],
         "top_failed_checks": failed_check_rows,
-        "blocked_by_region": rollup_rows(blocked_by_region, "region"),
+        "blocked_by_region": sorted(region_health, key=lambda item: (item["blocked"], item["total"]), reverse=True)[:20],
         "risky_claim_types": [
             {"claim_type": claim_type, "count": count}
             for claim_type, count in sorted(risky_claim_type.items(), key=lambda item: item[1], reverse=True)[:20]
         ],
         "review_sla": review_sla,
-        "send_ready_by_business_unit": rollup_rows(send_ready_by_business_unit, "business_unit"),
+        "send_ready_by_business_unit": [
+            {
+                "business_unit": row["business_unit"],
+                "total": row["total"],
+                "send_ready": row["ready"],
+                "not_ready": row["total"] - row["ready"],
+            }
+            for row in sorted(business_unit_health, key=lambda item: (item["ready"], item["total"]), reverse=True)[:20]
+        ],
         "outcome_by_audience_segment": rollup_rows(outcome_by_audience_segment, "audience_type"),
         "outcome_by_region": rollup_rows(outcome_by_region, "region"),
         "outcome_by_skill_family": rollup_rows(outcome_by_skill_family, "skill_family"),

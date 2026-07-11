@@ -1,0 +1,5 @@
+{
+  "proxy": {
+    "https://texttraits.onrender.com": "http://localhost:5001"
+  }
+}

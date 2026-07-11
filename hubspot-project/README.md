@@ -21,18 +21,19 @@ The UI extension calls the deployed TextTraits backend:
 https://texttraits.onrender.com
 ```
 
-For local testing, run the Flask app on port `5001`, then update `API_BASE` in the JSX files or use HubSpot local-development proxying.
+For local testing, run Flask on port `5001` and use HubSpot's local-development proxy. Production `permittedUrls.fetch` stays HTTPS-only; do not add localhost URLs to the uploaded app manifest.
+Copy `src/app/local.json.example` to the HubSpot CLI's expected `local.json` location for this project, upload the project configuration, and run `hs project dev`. The example remaps the real production origin to local Flask without changing committed production URLs.
 
 ## Commands
 
 ```bash
-npm install
+npm ci
 npm run validate
 hs project upload
 hs project dev
 ```
 
-The settings extension reads `/api/enterprise/hubspot/surfaces` and `/api/enterprise/hubspot/connections` to show each HubSpot surface's readiness, required scopes, recommended scopes, selected-portal missing scopes, and encrypted token-storage status before admins run live setup actions. It can also load `/v1/integrations/hubspot/owners/list` and save `/v1/integrations/hubspot/review-routing/config` so TextTraits review tasks route to real HubSpot owners.
+The home and settings extensions load portal-scoped bootstrap data from signed `/v1/integrations/hubspot/app-home/bootstrap` and `/v1/integrations/hubspot/settings/bootstrap` requests. They do not depend on a separate browser login to TextTraits and never receive data for another portal. Settings can load `/v1/integrations/hubspot/owners/list` and save `/v1/integrations/hubspot/review-routing/config` so review tasks route to real HubSpot owners.
 
 When creating TextTraits Analysis custom-object records, associations require real portal-specific HubSpot association type IDs. Configure the synced workflow input `analysis_association_type_ids` or set `TEXTTRAITS_HUBSPOT_ANALYSIS_ASSOCIATION_TYPE_IDS` to JSON such as `{"contacts":123,"companies":456}`. TextTraits will not invent these IDs; without them it creates the analysis record and reports association setup as skipped.
 
@@ -47,5 +48,7 @@ Live HubSpot API calls write scrubbed audit events with method, path template, A
 - `TEXTTRAITS_TOKEN_ENCRYPTION_KEY`
 - `TEXTTRAITS_HUBSPOT_INGRESS_SECRET`
 - `TEXTTRAITS_REQUIRE_HUBSPOT_INGRESS_AUTH=true`
+- `TEXTTRAITS_CONTENT_HASH_SECRET`
+- `TEXTTRAITS_ENTERPRISE_ADMIN_EMAILS`
 
-The app requests optional HubSpot marketing/campaign/content/forms/revenue/timeline/automation/owners scopes so portals can install the CRM-only subset first, then reconnect when they want campaign creation, marketing email sync, form or CMS asset scoring, campaign revenue reporting, timeline events, workflow automation, or owner-aware review routing.
+The app requests optional HubSpot marketing/campaign/content/forms/revenue/timeline/automation/owners scopes so portals can install the CRM-only subset first, then reconnect when they want campaign creation, marketing email sync, form or CMS asset scoring, campaign revenue reporting, timeline events, workflow automation, or owner-aware review routing. `npm run validate` verifies that the manifest scope list matches the backend OAuth allowlist.

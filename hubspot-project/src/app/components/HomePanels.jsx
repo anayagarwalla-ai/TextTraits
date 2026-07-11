@@ -1,5 +1,5 @@
 import React from "react";
-import {Alert, Box, Button, Divider, Flex, Input, Text, TextArea} from "@hubspot/ui-extensions";
+import {Alert, Box, Button, Flex, Input, Text, TextArea} from "@hubspot/ui-extensions";
 
 
 function statusCounts(assets) {
@@ -7,6 +7,21 @@ function statusCounts(assets) {
     const status = asset.status || "unknown";
     return {...counts, [status]: (counts[status] || 0) + 1};
   }, {});
+}
+
+function statusLabel(value) {
+  const labels = {
+    ready: "Ready",
+    blocked: "Blocked",
+    needs_review: "Needs review",
+    analyzed: "Analyzed",
+    metadata_only: "Metadata only",
+    fetch_error: "Fetch error",
+    analysis_error: "Analysis error",
+    idempotency_conflict: "Import conflict",
+    not_reviewed: "Not reviewed",
+  };
+  return labels[value] || String(value || "Unknown").replaceAll("_", " ");
 }
 
 
@@ -34,7 +49,6 @@ export function CampaignPanel({assetOptions, assetTypes, values, onChange, onAct
   const copyCoverage = reviewState.result?.summary?.copy_coverage || {};
   return (
     <>
-      <Divider />
       <Text format={{fontWeight: "bold"}}>Review a HubSpot campaign</Text>
       <Text>Fetch campaign assets, score reviewable copy, and map unsupported assets clearly before scheduling.</Text>
       <Flex direction="column" gap="sm">
@@ -72,7 +86,7 @@ export function CampaignPanel({assetOptions, assetTypes, values, onChange, onAct
       {reviewState.error ? <Alert variant="error" title="Campaign review unavailable">{reviewState.error}</Alert> : null}
       {reviewState.result ? (
         <Box>
-          <Text format={{fontWeight: "bold"}}>Campaign health: {reviewState.result.summary?.health || "Not reviewed"}</Text>
+          <Text format={{fontWeight: "bold"}}>Campaign health: {statusLabel(reviewState.result.summary?.health || "not_reviewed")}</Text>
           <Text>Asset types: {(reviewState.result.summary?.asset_types || []).join(", ") || "Marketing emails"}</Text>
           <Text>Analyzed: {reviewState.result.summary?.analyzed || 0} · Skipped: {reviewState.result.summary?.skipped || 0}</Text>
           <Text>Ready: {reviewState.result.summary?.gate_counts?.ready || 0} · Needs review: {reviewState.result.summary?.gate_counts?.needs_review || 0} · Blocked: {reviewState.result.summary?.gate_counts?.blocked || 0}</Text>
@@ -98,7 +112,7 @@ export function CampaignPanel({assetOptions, assetTypes, values, onChange, onAct
                   <Text format={{fontWeight: "bold"}}>{label} ({assets.length})</Text>
                   <Text>Analyzed: {counts.analyzed || 0} · Metadata only: {counts.metadata_only || 0} · Fetch errors: {counts.fetch_error || 0}</Text>
                   {assets.slice(0, 4).map((asset) => (
-                    <Text key={`${assetType}-${asset.id || asset.name}`}>{asset.name || asset.id || "Unnamed asset"}: {asset.status || "unknown"}{asset.score !== undefined ? `, score ${asset.score}` : ""}</Text>
+                    <Text key={`${assetType}-${asset.id || asset.name}`}>{asset.name || asset.id || "Unnamed asset"}: {statusLabel(asset.status)}{asset.score !== undefined ? `, score ${asset.score}` : ""}</Text>
                   ))}
                 </Box>
               );
@@ -114,7 +128,6 @@ export function CampaignPanel({assetOptions, assetTypes, values, onChange, onAct
 export function MarketingEmailPanel({values, onChange, onAction, actionLoading, emailResults}) {
   return (
     <>
-      <Divider />
       <Text format={{fontWeight: "bold"}}>Marketing email draft</Text>
       <Text>Create, fetch, score, and attach a HubSpot marketing email draft without leaving the TextTraits app home page.</Text>
       <Flex direction="column" gap="sm">
@@ -149,7 +162,6 @@ export function MarketingEmailPanel({values, onChange, onAction, actionLoading, 
 export function SegmentPanel({values, onChange, onAction, actionLoading, segmentResults, segmentMemberships}) {
   return (
     <>
-      <Divider />
       <Text format={{fontWeight: "bold"}}>HubSpot segments</Text>
       <Text>Find existing HubSpot segments before creating review lists for ready, needs-review, or blocked records.</Text>
       <Flex direction="column" gap="sm">
@@ -194,13 +206,13 @@ export function HubSpotActionResult({state}) {
   const payload = state.result.payload || {};
   return (
     <Box>
-      <Text format={{fontWeight: "bold"}}>{state.result.action}: {state.result.status}</Text>
-      <Text>{payload?.sync?.status ? `Sync status: ${payload.sync.status}` : "HubSpot request completed."}</Text>
+      <Text format={{fontWeight: "bold"}}>{state.result.action}: Completed</Text>
+      <Text>{payload?.sync?.status ? `Sync status: ${statusLabel(payload.sync.status)}` : "HubSpot request completed."}</Text>
       {payload.campaigns ? <Text>Campaigns found: {payload.campaigns.length}</Text> : null}
       {payload.emails ? <Text>Emails found: {payload.emails.length}</Text> : null}
       {payload.lists ? <Text>Segments found: {payload.lists.length}</Text> : null}
       {payload.memberships ? <Text>Segment members: {payload.memberships.length}</Text> : null}
-      {payload.guardrail ? <Text>Guardrail: {payload.guardrail.gate} · score {payload.guardrail.score} · publish allowed: {String(payload.guardrail.publish_allowed)}</Text> : null}
+      {payload.guardrail ? <Text>Guardrail: {statusLabel(payload.guardrail.gate)} · score {payload.guardrail.score} · publish allowed: {payload.guardrail.publish_allowed ? "Yes" : "No"}</Text> : null}
       {payload.summary?.coverage ? <Text>Bulk coverage: {payload.summary.coverage.coverage_score}% · {payload.summary.coverage.coverage_label}</Text> : null}
       {payload.events ? <Text>Outcome events imported: {payload.events.length}</Text> : null}
       {payload.details?.operation ? <Text>Segment update: {payload.details.operation} ({payload.details.added || 0} added, {payload.details.removed || 0} removed)</Text> : null}

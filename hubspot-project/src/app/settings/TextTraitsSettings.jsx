@@ -1,8 +1,9 @@
 import React, {useEffect, useState} from "react";
-import {Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, Text, hubspot} from "@hubspot/ui-extensions";
+import {Accordion, Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, Select, StatusTag, Text, hubspot} from "@hubspot/ui-extensions";
 import {hubspotApi} from "../lib/api";
+import {portalIdFromContext} from "../lib/context";
 
-hubspot.extend(() => <TextTraitsSettings />);
+hubspot.extend(({context}) => <TextTraitsSettings context={context} />);
 
 function listLabel(items) {
   return Array.isArray(items) && items.length ? items.join(", ") : "None";
@@ -27,9 +28,16 @@ function statusLabel(value) {
   return value || "Unknown";
 }
 
-function TextTraitsSettings() {
+function statusVariant(value) {
+  if (value === "ready" || value === "connected") return "success";
+  if (value === "needs_setup" || value === "needs_scopes" || value === "needs_token_storage") return "warning";
+  if (value === "not_configured" || value === "needs_connection" || value === "disconnected") return "danger";
+  return "default";
+}
+
+function TextTraitsSettings({context}) {
   const [state, setState] = useState({loading: true, surfaces: [], connections: [], tokenStorage: {}, setupStatus: null, setupWizard: [], approvalChains: [], error: ""});
-  const [portalId, setPortalId] = useState("");
+  const [portalId, setPortalId] = useState(portalIdFromContext(context));
   const [appId, setAppId] = useState("");
   const [setup, setSetup] = useState({loading: "", message: "", error: ""});
   const [routing, setRouting] = useState({
@@ -47,8 +55,16 @@ function TextTraitsSettings() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      if (!portalId) {
+        setState({loading: false, surfaces: [], connections: [], tokenStorage: {}, setupStatus: null, setupWizard: [], approvalChains: [], error: "HubSpot portal context is unavailable for this settings page."});
+        return;
+      }
       try {
-        const {payload} = await hubspotApi("/api/enterprise/hubspot/settings-bootstrap", {timeout: 15000});
+        const {payload} = await hubspotApi("/v1/integrations/hubspot/settings/bootstrap", {
+          method: "POST",
+          body: {portal_id: portalId},
+          timeout: 15000,
+        });
         const nextConnections = payload.connections || [];
         if (!cancelled) {
           setState({
@@ -61,17 +77,16 @@ function TextTraitsSettings() {
             approvalChains: payload.approval_chains || [],
             error: "",
           });
-          if (!portalId && nextConnections[0]?.portal_id) setPortalId(String(nextConnections[0].portal_id));
         }
       } catch (error) {
-        if (!cancelled) setState({loading: false, surfaces: [], connections: [], tokenStorage: {}, setupStatus: null, setupWizard: [], approvalChains: [], error: "Connect a TextTraits admin session to view settings."});
+        if (!cancelled) setState({loading: false, surfaces: [], connections: [], tokenStorage: {}, setupStatus: null, setupWizard: [], approvalChains: [], error: error.message || "TextTraits settings could not load for this portal."});
       }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [portalId]);
 
   const selectedConnection = state.connections.find((connection) => String(connection.portal_id || "") === String(portalId || ""));
   const knownPortalIsMissing = Boolean(portalId && state.connections.length && !selectedConnection);
@@ -83,8 +98,12 @@ function TextTraitsSettings() {
   async function refreshSetupStatus(nextPortalId = portalId) {
     setSetup((current) => ({...current, loading: current.loading || "status", message: "", error: ""}));
     try {
-      const query = nextPortalId ? `?portal_id=${encodeURIComponent(nextPortalId)}` : "";
-      const {payload} = await hubspotApi(`/api/enterprise/hubspot/setup-status${query}`, {timeout: 15000, errorMessage: "Setup status refresh failed."});
+      const {payload} = await hubspotApi("/v1/integrations/hubspot/settings/bootstrap", {
+        method: "POST",
+        body: {portal_id: nextPortalId},
+        timeout: 15000,
+        errorMessage: "Setup status refresh failed.",
+      });
       setState((current) => ({...current, setupStatus: payload.setup_status || null}));
       setSetup((current) => ({...current, loading: "", message: "Setup status refreshed.", error: ""}));
     } catch (error) {
@@ -183,7 +202,7 @@ function TextTraitsSettings() {
       <Text>Review portal connection, granted scopes, enabled HubSpot surfaces, and readiness for writeback.</Text>
       <Divider />
       {state.loading ? <LoadingSpinner label="Loading TextTraits settings" /> : null}
-      {state.error ? <Alert variant="warning" title="Settings need a TextTraits admin session">{state.error}</Alert> : null}
+      {state.error ? <Alert variant="warning" title="Settings could not load for this portal">{state.error}</Alert> : null}
       <Flex direction="column" gap="sm">
         <Text>Connected portals: {state.connections.length}</Text>
         <Text>Token storage: {state.tokenStorage?.ready ? "Encrypted storage ready" : "Needs encryption configuration"}</Text>
@@ -192,7 +211,10 @@ function TextTraitsSettings() {
         {state.connections.map((connection) => (
           <Box key={connection.portal_id}>
             <Text format={{fontWeight: "bold"}}>{connection.account_name || connection.hub_domain || connection.portal_id}</Text>
-            <Text>Status: {connection.status || "unknown"} · Portal: {connection.portal_id}</Text>
+            <Flex align="center" gap="sm" wrap>
+              <StatusTag variant={statusVariant(connection.status)}>{statusLabel(connection.status)}</StatusTag>
+              <Text>Portal {connection.portal_id}</Text>
+            </Flex>
             <Text>Tokens: {connection.tokens_available ? "available" : "not stored"} · Scopes: {(connection.scopes || []).length}</Text>
             <Text>Granted scopes: {listLabel(connection.scopes)}</Text>
             <Text>Updated: {connection.updated_at || "not recorded"}</Text>
@@ -210,7 +232,10 @@ function TextTraitsSettings() {
       <Flex direction="column" gap="xs">
         {(setupStatus.groups || []).map((group) => (
           <Box key={group.label}>
-            <Text format={{fontWeight: "bold"}}>{group.label}: {statusLabel(group.status)}</Text>
+            <Flex align="center" gap="sm" wrap>
+              <Text format={{fontWeight: "bold"}}>{group.label}</Text>
+              <StatusTag variant={statusVariant(group.status)}>{statusLabel(group.status)}</StatusTag>
+            </Flex>
             <Text>Ready surfaces: {group.ready_count || 0} of {group.total || 0}</Text>
             {group.missing_required_scopes?.length ? <Text>Missing required scopes: {group.missing_required_scopes.join(", ")}</Text> : null}
             {group.last_sync_at ? <Text>Last sync: {group.last_sync_at}</Text> : null}
@@ -230,56 +255,61 @@ function TextTraitsSettings() {
         <Alert variant="success" title="No setup blockers">No admin attention items are currently reported for this portal.</Alert>
       )}
       <Divider />
-      <Text format={{fontWeight: "bold"}}>Guided HubSpot setup</Text>
-      <Text>Use this checklist to move from installed app to usable enterprise workflow: scopes, fields, analysis object, webhooks, owners, queues, and review segments.</Text>
-      <Flex direction="column" gap="xs">
-        {state.setupWizard.map((step) => (
-          <Box key={step.id}>
-            <Text format={{fontWeight: "bold"}}>{step.label}</Text>
-            <Text>{step.action}</Text>
-            <Text>{step.endpoint}</Text>
-          </Box>
-        ))}
-      </Flex>
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Approval chain templates</Text>
-      <Text>Pick the owner IDs below to match recruiter, marketing ops, compliance/legal, and regional owner review paths.</Text>
-      <Flex direction="column" gap="xs">
-        {state.approvalChains.map((chain) => (
-          <Box key={chain.id}>
-            <Text format={{fontWeight: "bold"}}>{chain.name}</Text>
-            <Text>Steps: {(chain.steps || []).join(" → ")}</Text>
-            <Text>Blocked routes: {(chain.blocked_routes || []).join(", ")}</Text>
-          </Box>
-        ))}
-      </Flex>
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Enabled HubSpot surfaces</Text>
-      <Flex direction="column" gap="xs">
-        {state.surfaces.map((surface) => {
-          const portalStatus = selectedPortalStatus(surface, portalId);
-          return (
-            <Box key={surface.id}>
-              <Text format={{fontWeight: "bold"}}>{surface.label}: {surface.readiness_label || surface.status_label || surface.status}</Text>
-              <Text>{surface.hubspot_area}</Text>
-              <Text>{surface.endpoint || "No endpoint"}</Text>
-              <Text>Required scopes: {listLabel(surface.required_scopes)}</Text>
-              <Text>Recommended scopes: {listLabel(surface.recommended_scopes)}</Text>
-              {portalStatus ? (
-                <Text>
-                  Selected portal: {portalStatus.ready ? "ready" : "needs setup"}
-                  {portalStatus.missing_required_scopes?.length ? ` · missing ${portalStatus.missing_required_scopes.join(", ")}` : ""}
-                </Text>
-              ) : null}
+      <Accordion title="Guided setup checklist" size="md">
+        <Flex direction="column" gap="xs">
+          {state.setupWizard.map((step) => (
+            <Box key={step.id}>
+              <Text format={{fontWeight: "bold"}}>{step.label}</Text>
+              <Text>{step.action}</Text>
             </Box>
-          );
-        })}
-      </Flex>
+          ))}
+        </Flex>
+      </Accordion>
+      <Accordion title="Approval chain templates" size="md">
+        <Flex direction="column" gap="xs">
+          {state.approvalChains.map((chain) => (
+            <Box key={chain.id}>
+              <Text format={{fontWeight: "bold"}}>{chain.name}</Text>
+              <Text>Steps: {(chain.steps || []).join(" → ")}</Text>
+              <Text>Blocked routes: {(chain.blocked_routes || []).join(", ")}</Text>
+            </Box>
+          ))}
+        </Flex>
+      </Accordion>
+      <Accordion title={`Integration surfaces (${state.surfaces.length})`} size="md">
+        <Flex direction="column" gap="xs">
+          {state.surfaces.map((surface) => {
+            const portalStatus = selectedPortalStatus(surface, portalId);
+            const readiness = portalStatus?.ready ? "ready" : portalStatus ? "needs_setup" : surface.status;
+            return (
+              <Box key={surface.id}>
+                <Flex align="center" gap="sm" wrap>
+                  <Text format={{fontWeight: "bold"}}>{surface.label}</Text>
+                  <StatusTag variant={statusVariant(readiness)}>{portalStatus?.ready ? "Ready" : surface.readiness_label || surface.status_label || statusLabel(surface.status)}</StatusTag>
+                </Flex>
+                <Text>{surface.hubspot_area}</Text>
+                <Text>Required scopes: {listLabel(surface.required_scopes)}</Text>
+                {portalStatus?.missing_required_scopes?.length ? <Text>Missing: {portalStatus.missing_required_scopes.join(", ")}</Text> : null}
+              </Box>
+            );
+          })}
+        </Flex>
+      </Accordion>
       <Divider />
       <Text format={{fontWeight: "bold"}}>Provision HubSpot setup</Text>
       <Text>Create the HubSpot fields, analysis schema, and webhook configuration TextTraits needs for native reporting and re-scoring.</Text>
       <Flex direction="column" gap="sm">
-        <Input label="Portal ID" name="portal_id" value={portalId} onInput={setPortalId} placeholder="246356639" />
+        {state.connections.length ? (
+          <Select
+            label="HubSpot portal"
+            name="portal_id"
+            value={portalId}
+            onChange={(value) => setPortalId(String(value))}
+            options={state.connections.map((connection) => ({label: connection.account_name || connection.hub_domain || connection.portal_id, value: String(connection.portal_id)}))}
+          />
+        ) : (
+          <Input label="Portal ID" name="portal_id" value={portalId} onInput={setPortalId} placeholder="HubSpot portal ID" />
+        )}
         <Input label="App ID" name="app_id" value={appId} onInput={setAppId} placeholder="HubSpot app ID for webhook setup" />
         <Button onClick={() => runSetup("properties")} disabled={setupDisabled}>
           {setup.loading === "properties" ? "Creating fields..." : "Create TextTraits CRM fields"}

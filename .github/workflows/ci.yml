@@ -21,14 +21,29 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: hubspot-project/package-lock.json
 
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
+      - name: Install HubSpot project dependencies
+        working-directory: hubspot-project
+        run: npm ci
+
       - name: Static syntax checks
         run: |
-          python -m py_compile texttraits_app/app.py texttraits_app/storage.py
+          python -m py_compile texttraits_app/*.py tests/*.py
           node --check texttraits_app/static/app.js
+
+      - name: HubSpot metadata and UI-extension build
+        working-directory: hubspot-project
+        run: npm run validate
+
+      - name: Dependency integrity and vulnerability checks
+        run: |
+          python -m pip check
+          npm --prefix hubspot-project audit --omit=dev --audit-level=high
 
       - name: Database migration smoke
         run: python scripts/migrate.py
@@ -40,6 +55,7 @@ jobs:
           python tests/accessibility_smoke_test.py
           python tests/production_smoke_test.py
           python tests/hubspot_unit_test.py
+          python tests/hubspot_performance_test.py
           python tests/security_regression_test.py
           python tests/security_attack_harness.py
           python tests/config_regression_test.py

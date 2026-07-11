@@ -30,6 +30,26 @@ services:
         sync: false
       - key: TEXTTRAITS_ALLOWED_PUBLIC_HOSTS
         sync: false
+      - key: HUBSPOT_CLIENT_ID
+        sync: false
+      - key: HUBSPOT_CLIENT_SECRET
+        sync: false
+      - key: TEXTTRAITS_STORE_OAUTH_TOKENS
+        value: true
+      - key: TEXTTRAITS_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: TEXTTRAITS_HUBSPOT_INGRESS_SECRET
+        sync: false
+      - key: TEXTTRAITS_REQUIRE_HUBSPOT_INGRESS_AUTH
+        value: true
+      - key: TEXTTRAITS_REQUIRE_HUBSPOT_SIGNATURE_TIMESTAMP
+        value: true
+      - key: TEXTTRAITS_CONTENT_HASH_SECRET
+        sync: false
+      - key: TEXTTRAITS_ENTERPRISE_ADMIN_EMAILS
+        sync: false
+      - key: TEXTTRAITS_HUBSPOT_RETENTION_DAYS
+        value: 90
       - key: DATABASE_URL
         sync: false
       - key: TEXTTRAITS_EMAIL_PROVIDER

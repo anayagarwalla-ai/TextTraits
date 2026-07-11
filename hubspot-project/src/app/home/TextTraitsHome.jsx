@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from "react";
-import {Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, Text, TextArea, hubspot} from "@hubspot/ui-extensions";
+import {Accordion, Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, Text, TextArea, hubspot} from "@hubspot/ui-extensions";
 import {hubspotApi} from "../lib/api";
 import {portalIdFromContext} from "../lib/context";
 import {useFormState} from "../lib/form-state";
@@ -21,6 +21,7 @@ const CAMPAIGN_ASSET_OPTIONS = [
 ];
 
 const DEFAULT_CAMPAIGN_ASSET_TYPES = CAMPAIGN_ASSET_OPTIONS.map((asset) => asset.value);
+const labelFromId = (value) => String(value || "Unmapped").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 const DEFAULT_FORM_VALUES = {
   portalId: "",
   campaignId: "",
@@ -78,8 +79,16 @@ function TextTraitsHome({context}) {
   useEffect(() => {
     let cancelled = false;
     async function loadDashboard() {
+      if (!portalId) {
+        setState({loading: false, dashboard: null, readiness: null, templates: [], error: "HubSpot portal context is unavailable for this app home."});
+        return;
+      }
       try {
-        const {payload} = await hubspotApi("/api/enterprise/hubspot/home-bootstrap", {timeout: 15000});
+        const {payload} = await hubspotApi("/v1/integrations/hubspot/app-home/bootstrap", {
+          method: "POST",
+          body: {portal_id: portalId},
+          timeout: 15000,
+        });
         if (!cancelled) {
           setState({
             loading: false,
@@ -97,7 +106,7 @@ function TextTraitsHome({context}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [portalId]);
 
   const dashboard = state.dashboard || {};
   const gateCounts = dashboard.gate_counts || {};
@@ -420,41 +429,10 @@ function TextTraitsHome({context}) {
         <Text>Ready: {gateCounts.ready || 0}</Text>
         <Text>Needs review: {gateCounts.needs_review || 0}</Text>
         <Text>Blocked: {gateCounts.blocked || 0}</Text>
-        {state.readiness ? <Text>Randstad-style usefulness: {state.readiness.overall_usefulness_score}/10 · HubSpot connection: {state.readiness.overall_connection_score}/10</Text> : null}
+        {state.readiness ? <Text>Implemented HubSpot surfaces: {state.readiness.implemented_surface_count || 0} · Measured analyses: {state.readiness.evidence_summary?.total_analyses || 0}</Text> : null}
       </Flex>
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Enterprise staffing context</Text>
-      <Text>Attach ATS, region, audience, job, recruiter, and client context to every score so dashboards and exports stay useful.</Text>
-      <EnterpriseContextFields
-        values={{audienceType, region, businessUnit, jobId, skillFamily, jobFamily, recruiter, clientAccount, candidateStatus, atsSystem, jobBoard}}
-        onChange={form.handlers}
-      />
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Staffing workflow templates</Text>
-      <Flex direction="column" gap="xs">
-        {state.templates.slice(0, 5).map((template) => (
-          <Box key={template.id}>
-            <Text format={{fontWeight: "bold"}}>{template.name} · {template.policy_pack}</Text>
-            <Text>Surfaces: {(template.hubspot_surfaces || []).join(", ")}</Text>
-            <Text>Required context: {(template.required_context || []).join(", ")}</Text>
-          </Box>
-        ))}
-      </Flex>
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Campaign dashboard rollups</Text>
-      <Flex direction="column" gap="xs">
-        {(dashboard.blocked_by_region || []).slice(0, 4).map((row) => (
-          <Text key={`region-${row.region}`}>Region {row.region}: {row.blocked || 0} blocked of {row.total || 0}</Text>
-        ))}
-        {(dashboard.send_ready_by_business_unit || []).slice(0, 4).map((row) => (
-          <Text key={`bu-${row.business_unit}`}>Business unit {row.business_unit}: {row.send_ready || 0} send-ready of {row.total || 0}</Text>
-        ))}
-        {(dashboard.risky_claim_types || []).slice(0, 3).map((row) => (
-          <Text key={`risk-${row.claim_type}`}>Risk type: {row.claim_type} ({row.count})</Text>
-        ))}
-        {dashboard.review_sla ? <Text>Review SLA: {dashboard.review_sla.open || 0} open · {dashboard.review_sla.overdue || 0} overdue · {dashboard.review_sla.resolved || 0} resolved</Text> : null}
-      </Flex>
-      <CampaignPanel
+      <Accordion title="Campaign review" size="md" defaultOpen>
+        <CampaignPanel
         assetOptions={CAMPAIGN_ASSET_OPTIONS}
         assetTypes={assetTypes}
         values={{portalId, campaignName, campaignId}}
@@ -472,23 +450,10 @@ function TextTraitsHome({context}) {
         actionLoading={actionState.loading}
         reviewState={reviewState}
         campaignResults={campaignResults}
-      />
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Single asset copy review</Text>
-      <Text>Score one HubSpot asset when a campaign, workflow action, or custom integration already has mapped copy.</Text>
-      <Flex direction="column" gap="sm">
-        <Input label="Asset type" name="asset_type" value={assetType} onInput={form.handlers.assetType} placeholder="FORM, LANDING_PAGE, SITE_PAGE, BLOG_POST, SMS, SOCIAL_BROADCAST" />
-        <Input label="Asset ID" name="asset_id" value={assetId} onInput={form.handlers.assetId} placeholder="HubSpot asset ID" />
-        <Input label="Asset name" name="asset_name" value={assetName} onInput={form.handlers.assetName} placeholder="Renewal landing page" />
-        <TextArea label="Mapped asset copy" name="asset_copy" value={assetCopy} onInput={form.handlers.assetCopy} placeholder="Paste form, page, SMS, social, or CTA copy for review." rows={4} />
-        <Button onClick={analyzeAssetCopy} disabled={actionState.loading || !portalId || (!assetName && !assetCopy)}>
-          {actionState.loading === "Analyze asset copy" ? "Analyzing..." : "Analyze mapped asset copy"}
-        </Button>
-        <Button onClick={fetchAndAnalyzeAsset} disabled={actionState.loading || !portalId || !assetType || !assetId}>
-          {actionState.loading === "Fetch and analyze asset" ? "Fetching..." : "Fetch and review supported asset"}
-        </Button>
-      </Flex>
-      <MarketingEmailPanel
+        />
+      </Accordion>
+      <Accordion title="Marketing email tools" size="md">
+        <MarketingEmailPanel
         values={{portalId, campaignId, emailId, emailName, emailSubject, emailBody, templatePath}}
         onChange={form.handlers}
         onAction={{
@@ -508,33 +473,60 @@ function TextTraitsHome({context}) {
         }}
         actionLoading={actionState.loading}
         emailResults={emailResults}
-      />
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Bulk asset import</Text>
-      <Text>Paste a CSV or warehouse export of campaign assets to score ads, SMS, social, CTAs, sequences, and workflow-step copy before scheduling.</Text>
-      <Flex direction="column" gap="sm">
+        />
+      </Accordion>
+      <Accordion title="Single asset copy review" size="md">
+        <Text>Score mapped copy or fetch a supported HubSpot asset for review.</Text>
+        <Flex direction="column" gap="sm">
+          <Input label="Asset type" name="asset_type" value={assetType} onInput={form.handlers.assetType} placeholder="FORM, LANDING_PAGE, SITE_PAGE, BLOG_POST, SMS, SOCIAL_BROADCAST" />
+          <Input label="Asset ID" name="asset_id" value={assetId} onInput={form.handlers.assetId} placeholder="HubSpot asset ID" />
+          <Input label="Asset name" name="asset_name" value={assetName} onInput={form.handlers.assetName} placeholder="Renewal landing page" />
+          <TextArea label="Mapped asset copy" name="asset_copy" value={assetCopy} onInput={form.handlers.assetCopy} placeholder="Paste form, page, SMS, social, or CTA copy for review." rows={4} />
+          <Button onClick={analyzeAssetCopy} disabled={actionState.loading || !portalId || (!assetName && !assetCopy)}>{actionState.loading === "Analyze asset copy" ? "Analyzing..." : "Analyze mapped asset copy"}</Button>
+          <Button onClick={fetchAndAnalyzeAsset} disabled={actionState.loading || !portalId || !assetType || !assetId}>{actionState.loading === "Fetch and analyze asset" ? "Fetching..." : "Fetch and review supported asset"}</Button>
+        </Flex>
+      </Accordion>
+      <Accordion title="Enterprise context and workflow templates" size="md">
+        <Text>Attach ATS, region, audience, job, recruiter, and client context so dashboards and exports remain actionable.</Text>
+        <EnterpriseContextFields values={{audienceType, region, businessUnit, jobId, skillFamily, jobFamily, recruiter, clientAccount, candidateStatus, atsSystem, jobBoard}} onChange={form.handlers} />
+        <Text format={{fontWeight: "bold"}}>Staffing workflow templates</Text>
+        <Flex direction="column" gap="xs">
+          {state.templates.slice(0, 5).map((template) => (
+            <Box key={template.id}>
+              <Text format={{fontWeight: "bold"}}>{template.name} · {template.policy_pack}</Text>
+              <Text>Surfaces: {(template.hubspot_surfaces || []).join(", ")}</Text>
+              <Text>Required context: {(template.required_context || []).join(", ")}</Text>
+            </Box>
+          ))}
+        </Flex>
+      </Accordion>
+      <Accordion title="Imports and outcome mapping" size="md">
+        <Text format={{fontWeight: "bold"}}>Bulk asset import</Text>
         <TextArea label="CSV rows" name="bulk_csv" value={bulkCsv} onInput={form.handlers.bulkCsv} placeholder="asset_type,asset_id,asset_name,asset_copy,region,business_unit,audience_type" rows={5} />
-        <Button onClick={bulkImportAssets} disabled={actionState.loading || !portalId || !bulkCsv}>
-          {actionState.loading === "Bulk import assets" ? "Importing..." : "Score imported assets"}
-        </Button>
-      </Flex>
-      <Divider />
-      <Text format={{fontWeight: "bold"}}>Salesforce outcome mapping</Text>
-      <Text>Import mapped Salesforce outcome rows after a HubSpot campaign touches pipeline, placement, or opportunity records.</Text>
-      <Flex direction="column" gap="sm">
+        <Button onClick={bulkImportAssets} disabled={actionState.loading || !portalId || !bulkCsv}>{actionState.loading === "Bulk import assets" ? "Importing..." : "Score imported assets"}</Button>
+        <Text format={{fontWeight: "bold"}}>Salesforce outcome mapping</Text>
         <TextArea label="Salesforce outcome JSON" name="salesforce_json" value={salesforceJson} onInput={form.handlers.salesforceJson} placeholder='{"event_type":"placement_created","salesforce_opportunity_id":"006..."}' rows={4} />
-        <Button onClick={importSalesforceOutcomes} disabled={actionState.loading || !portalId || !salesforceJson}>
-          {actionState.loading === "Import Salesforce outcomes" ? "Importing..." : "Import Salesforce outcome"}
-        </Button>
-      </Flex>
-      <SegmentPanel
+        <Button onClick={importSalesforceOutcomes} disabled={actionState.loading || !portalId || !salesforceJson}>{actionState.loading === "Import Salesforce outcomes" ? "Importing..." : "Import Salesforce outcome"}</Button>
+      </Accordion>
+      <Accordion title="HubSpot segments" size="md">
+        <SegmentPanel
         values={{portalId, segmentQuery, segmentObjectTypeId, segmentProcessingType, segmentId, segmentAddIds, segmentRemoveIds}}
         onChange={form.handlers}
         onAction={{searchSegments, previewSegmentMembers, updateSegmentMembers}}
         actionLoading={actionState.loading}
         segmentResults={segmentResults}
         segmentMemberships={segmentMemberships}
-      />
+        />
+      </Accordion>
+      <Accordion title="Campaign dashboard rollups" size="md">
+        <Flex direction="column" gap="xs">
+          {(dashboard.blocked_by_region || []).slice(0, 4).map((row) => <Text key={`region-${row.region}`}>Region {row.region}: {row.blocked || 0} blocked of {row.total || 0}</Text>)}
+          {(dashboard.send_ready_by_business_unit || []).slice(0, 4).map((row) => <Text key={`bu-${row.business_unit}`}>Business unit {row.business_unit}: {row.send_ready || 0} send-ready of {row.total || 0}</Text>)}
+          {(dashboard.risky_claim_types || []).slice(0, 3).map((row) => <Text key={`risk-${row.claim_type}`}>Risk type: {row.claim_type} ({row.count})</Text>)}
+          {(dashboard.rule_pack_health || []).slice(0, 4).map((row) => <Text key={`rule-pack-${row.rule_pack}`}>Rule pack {labelFromId(row.rule_pack)}: {row.blocked || 0} blocked · {row.needs_review || 0} needs review · {row.ready || 0} ready</Text>)}
+          {dashboard.review_sla ? <Text>Review SLA: {dashboard.review_sla.open || 0} open · {dashboard.review_sla.overdue || 0} overdue · {dashboard.review_sla.resolved || 0} resolved</Text> : null}
+        </Flex>
+      </Accordion>
       <HubSpotActionResult state={actionState} />
     </Box>
   );

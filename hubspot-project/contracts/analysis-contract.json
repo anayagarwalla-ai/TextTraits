@@ -15,6 +15,46 @@
     "texttraits_policy_version",
     "texttraits_analysis_engine"
   ],
+  "components": {
+    "src/app/cards/texttraits-email-fit-card-hsmeta.json": {
+      "type": "card",
+      "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+      "backendEndpoints": [
+        "/v1/integrations/hubspot/analyze-and-sync",
+        "/v1/integrations/hubspot/review-action"
+      ]
+    },
+    "src/app/home/texttraits-home-hsmeta.json": {
+      "type": "home",
+      "entrypoint": "/app/home/TextTraitsHome.jsx",
+      "backendEndpoints": [
+        "/v1/integrations/hubspot/app-home/bootstrap",
+        "/v1/integrations/hubspot/campaigns/review"
+      ]
+    },
+    "src/app/settings/texttraits-settings-hsmeta.json": {
+      "type": "settings",
+      "entrypoint": "/app/settings/TextTraitsSettings.jsx",
+      "backendEndpoints": [
+        "/v1/integrations/hubspot/settings/bootstrap",
+        "/v1/integrations/hubspot/properties/provision",
+        "/v1/integrations/hubspot/analysis-schema/provision"
+      ]
+    }
+  },
+  "backendEndpoints": [
+    "/v1/integrations/hubspot/crm-card/analyze-email",
+    "/v1/integrations/hubspot/workflow-actions/analyze-email",
+    "/v1/integrations/hubspot/workflow-actions/analyze-asset-copy",
+    "/v1/integrations/hubspot/workflow-actions/review-campaign-assets",
+    "/v1/integrations/hubspot/analyze-and-sync",
+    "/v1/integrations/hubspot/app-home/bootstrap",
+    "/v1/integrations/hubspot/settings/bootstrap",
+    "/v1/integrations/hubspot/review-action",
+    "/v1/integrations/hubspot/outcomes",
+    "/v1/integrations/hubspot/webhooks/receive",
+    "/v1/integrations/hubspot/app-uninstalled"
+  ],
   "workflowActions": {
     "src/app/workflow-actions/texttraits-analyze-email-hsmeta.json": {
       "endpoint": "/v1/integrations/hubspot/workflow-actions/analyze-email",
