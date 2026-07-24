@@ -73,6 +73,10 @@
     ],
     "outputFields": [
       {
+        "name": "hs_execution_state",
+        "type": "string"
+      },
+      {
         "name": "texttraits_score",
         "type": "number"
       },
@@ -86,6 +90,10 @@
       },
       {
         "name": "texttraits_next_step",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_reviewer_guidance",
         "type": "string"
       },
       {
@@ -119,10 +127,10 @@
     ],
     "labels": {
       "en": {
-        "appDisplayName": "TextTraits Email Fit",
-        "actionName": "Analyze email fit",
-        "actionDescription": "Scores an existing email draft and returns routing fields for ready, needs review, or blocked workflow branches.",
-        "actionCardContent": "Analyze {{email_subject}} with TextTraits",
+        "appDisplayName": "TextTraits",
+        "actionName": "Check copy with TextTraits",
+        "actionDescription": "Checks existing email copy and returns read-only decision fields for ready, review-required, or blocked workflow branches. It does not rewrite copy or update CRM records.",
+        "actionCardContent": "Check {{email_subject}} with TextTraits",
         "inputFieldLabels": {
           "email_subject": "Email subject",
           "email_body": "Email body",
@@ -135,13 +143,15 @@
           "email_body": "Existing draft body to score before send or review.",
           "campaign_id": "Optional campaign identifier for reporting.",
           "template_id": "Optional email/template identifier for reporting.",
-          "analysis_mode": "How this workflow will use the TextTraits decision."
+          "analysis_mode": "How this workflow will use the TextTraits decision. The action itself is read-only."
         },
         "outputFieldLabels": {
+          "hs_execution_state": "Workflow execution state",
           "texttraits_score": "TextTraits score",
           "texttraits_gate": "TextTraits gate",
           "texttraits_route": "TextTraits route",
-          "texttraits_next_step": "TextTraits next step",
+          "texttraits_next_step": "Reviewer guidance",
+          "texttraits_reviewer_guidance": "Reviewer guidance",
           "texttraits_owner_queue": "TextTraits owner queue",
           "texttraits_blocker_level": "TextTraits blocker level",
           "texttraits_blocker_reason": "TextTraits blocker reason",

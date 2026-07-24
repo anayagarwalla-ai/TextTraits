@@ -3,7 +3,7 @@
   "type": "home",
   "config": {
     "name": "TextTraits",
-    "description": "Campaign review health, review queues, and HubSpot writeback readiness.",
+    "description": "Review queue, campaign copy checks, and program health without editing source copy.",
     "entrypoint": "/app/home/TextTraitsHome.jsx"
   }
 }

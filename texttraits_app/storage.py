@@ -2584,10 +2584,23 @@ def hubspot_email_dashboard(
     ]
     now = datetime.now(timezone.utc)
     review_sla = {"open": 0, "overdue": 0, "resolved": 0, "missing_due_date": 0}
+    review_resolution_hours: list[float] = []
+    approved_reviews = 0
+    rejected_reviews = 0
     for state in review_states:
         status = str(state.get("status") or "")
+        if status == "approved":
+            approved_reviews += 1
+        elif status == "rejected":
+            rejected_reviews += 1
         if status in {"approved", "rejected", "resolved"} or state.get("resolved_at"):
             review_sla["resolved"] += 1
+            try:
+                started = datetime.fromisoformat(str(state.get("created_at") or "").replace("Z", "+00:00"))
+                finished = datetime.fromisoformat(str(state.get("resolved_at") or state.get("updated_at") or "").replace("Z", "+00:00"))
+                review_resolution_hours.append(max((finished - started).total_seconds() / 3600, 0))
+            except ValueError:
+                pass
             continue
         review_sla["open"] += 1
         due_at = str(state.get("sla_due_at") or "").strip()
@@ -2600,6 +2613,26 @@ def hubspot_email_dashboard(
                 review_sla["overdue"] += 1
         except ValueError:
             review_sla["missing_due_date"] += 1
+
+    review_resolution_hours.sort()
+    middle = len(review_resolution_hours) // 2
+    if not review_resolution_hours:
+        median_review_hours = 0.0
+    elif len(review_resolution_hours) % 2:
+        median_review_hours = review_resolution_hours[middle]
+    else:
+        median_review_hours = (review_resolution_hours[middle - 1] + review_resolution_hours[middle]) / 2
+    content_hashes = [str(item.get("content_hash") or "") for item in analyses if item.get("content_hash")]
+    repeated_checks = max(len(content_hashes) - len(set(content_hashes)), 0)
+    approval_decisions = approved_reviews + rejected_reviews
+    review_required_total = int(gates.get("needs_review", 0)) + int(gates.get("blocked", 0))
+    operating_metrics = {
+        "review_rate": round((review_required_total / total) * 100, 1) if total else 0.0,
+        "approval_rate": round((approved_reviews / approval_decisions) * 100, 1) if approval_decisions else 0.0,
+        "median_review_hours": round(median_review_hours, 1),
+        "repeat_check_rate": round((repeated_checks / len(content_hashes)) * 100, 1) if content_hashes else 0.0,
+        "most_common_failed_check": failed_check_rows[0] if failed_check_rows else None,
+    }
 
     def rollup_rows(target: dict[str, dict[str, int]], label_key: str) -> list[dict[str, Any]]:
         rows = [{label_key: segment, **counts} for segment, counts in target.items()]
@@ -2625,6 +2658,7 @@ def hubspot_email_dashboard(
             for claim_type, count in sorted(risky_claim_type.items(), key=lambda item: item[1], reverse=True)[:20]
         ],
         "review_sla": review_sla,
+        "operating_metrics": operating_metrics,
         "send_ready_by_business_unit": [
             {
                 "business_unit": row["business_unit"],

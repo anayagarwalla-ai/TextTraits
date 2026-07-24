@@ -3,7 +3,7 @@
   "type": "settings",
   "config": {
     "name": "TextTraits settings",
-    "description": "Manage TextTraits portal connection, scopes, surfaces, policy, webhooks, and writeback readiness.",
+    "description": "Manage connection, least-privilege permissions, policies, review owners, data controls, and confirmed setup actions.",
     "entrypoint": "/app/settings/TextTraitsSettings.jsx"
   }
 }

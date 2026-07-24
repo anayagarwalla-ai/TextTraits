@@ -74,10 +74,49 @@ class HubSpotContractTests(unittest.TestCase):
         fields = decision.output_fields({"texttraits_asset_id": "email-1"})
         self.assertEqual(fields["texttraits_analysis_engine"], HUBSPOT_EMAIL_RULES_ENGINE_ID)
         self.assertEqual(fields["texttraits_asset_id"], "email-1")
+        self.assertEqual(fields["hs_execution_state"], "SUCCESS")
+        self.assertEqual(fields["texttraits_reviewer_guidance"], "Proceed.")
         self.assertTrue(fields["texttraits_send_ready"])
         contract = json.loads((ROOT / "hubspot-project/contracts/analysis-contract.json").read_text())
         self.assertEqual(contract["analysisEngine"], HUBSPOT_EMAIL_RULES_ENGINE_ID)
         self.assertTrue(set(contract["commonOutputFields"]).issubset(fields))
+
+    def test_analyze_and_sync_rejects_unconfirmed_crm_side_effects(self) -> None:
+        response = app_module.app.test_client().post(
+            "/v1/integrations/hubspot/analyze-and-sync",
+            json={
+                "portal_id": "12345",
+                "inputFields": {
+                    "email_subject": "Renewal review",
+                    "email_body": "Please review the existing renewal details by Friday.",
+                },
+                "writeback_properties": True,
+                "create_review_task": True,
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertTrue(payload["requires_confirmation"])
+        self.assertEqual(
+            {item["key"] for item in payload["requested_actions"]},
+            {"writeback_properties", "create_review_task"},
+        )
+
+    def test_review_sync_rejects_unconfirmed_hubspot_write(self) -> None:
+        response = app_module.app.test_client().post(
+            "/v1/integrations/hubspot/review-action",
+            json={
+                "portal_id": "12345",
+                "request_id": "confirmation-check",
+                "action": "mark_reviewed",
+                "sync_hubspot": True,
+                "writeback_properties": True,
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertTrue(payload["requires_confirmation"])
+        self.assertEqual(payload["requested_actions"][0]["key"], "writeback_properties")
 
     def test_declared_hubspot_backend_contract_matches_flask_routes(self) -> None:
         contract = json.loads((ROOT / "hubspot-project/contracts/analysis-contract.json").read_text())
@@ -116,6 +155,41 @@ class HubSpotContractTests(unittest.TestCase):
         response = client.post("/v1/integrations/hubspot/crm-card/analyze-email", json=[{"subject": "No"}])
         self.assertEqual(response.status_code, 400)
         self.assertIn("JSON object", response.get_json()["error"])
+
+    def test_crm_card_rejects_empty_and_oversized_copy(self) -> None:
+        client = app_module.app.test_client()
+        empty = client.post("/v1/integrations/hubspot/crm-card/analyze-email", json={"inputFields": {}})
+        oversized = client.post(
+            "/v1/integrations/hubspot/crm-card/analyze-email",
+            json={"inputFields": {"body": "word " * (app_module.MAX_TEXT_WORDS + 1)}},
+        )
+        self.assertEqual(empty.status_code, 400)
+        self.assertEqual(oversized.status_code, 413)
+
+    def test_app_card_latest_returns_portal_scoped_history(self) -> None:
+        client = app_module.app.test_client()
+        context = {
+            "portal_id": "history-portal",
+            "object_type": "contacts",
+            "object_id": "history-contact",
+        }
+        checked = client.post(
+            "/v1/integrations/hubspot/crm-card/analyze-email",
+            json={
+                **context,
+                "inputFields": {
+                    "subject": "Renewal review",
+                    "body": "Please review the current renewal terms and confirm the owner by Friday.",
+                    **context,
+                },
+            },
+        )
+        self.assertEqual(checked.status_code, 200)
+        latest = client.post("/v1/integrations/hubspot/app-card/latest", json=context)
+        self.assertEqual(latest.status_code, 200)
+        payload = latest.get_json()
+        self.assertTrue(payload["analyses"])
+        self.assertEqual(payload["latest"]["request_id"], checked.get_json()["analysis"]["request_id"])
 
     def test_content_hash_is_tenant_scoped(self) -> None:
         text = "Same draft content"
@@ -426,6 +500,8 @@ class HubSpotStorageTests(unittest.TestCase):
         self.assertEqual(dashboard["outcome_counts"], {"clicked": 1})
         self.assertEqual(dashboard["review_sla"]["open"], 1)
         self.assertEqual(dashboard["review_sla"]["resolved"], 0)
+        self.assertEqual(dashboard["operating_metrics"]["review_rate"], 100.0)
+        self.assertIn("approval_rate", dashboard["operating_metrics"])
 
     def test_review_action_rejects_cross_portal_request_id(self) -> None:
         storage.save_hubspot_email_analysis(self.analysis_record("portal-a-review", "portal-a"))

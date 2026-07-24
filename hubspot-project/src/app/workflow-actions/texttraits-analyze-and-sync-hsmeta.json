@@ -3,7 +3,7 @@
   "type": "workflow-action",
   "config": {
     "actionUrl": "https://texttraits.onrender.com/v1/integrations/hubspot/analyze-and-sync",
-    "isPublished": true,
+    "isPublished": false,
     "supportedClients": [
       {
         "client": "WORKFLOWS"
@@ -107,10 +107,10 @@
     ],
     "labels": {
       "en": {
-        "appDisplayName": "TextTraits Email Fit",
-        "actionName": "Analyze and sync email fit",
-        "actionDescription": "Scores an existing email draft, writes TextTraits fields back to HubSpot, and opens review work when policy requires it.",
-        "actionCardContent": "Analyze and sync {{email_subject}} with TextTraits",
+        "appDisplayName": "TextTraits",
+        "actionName": "Legacy check and sync (disabled)",
+        "actionDescription": "Legacy writeback action retained only for migration. Use Check copy with TextTraits and an explicit review-decision step instead.",
+        "actionCardContent": "Legacy TextTraits action",
         "inputFieldLabels": {
           "email_subject": "Email subject",
           "email_body": "Email body",

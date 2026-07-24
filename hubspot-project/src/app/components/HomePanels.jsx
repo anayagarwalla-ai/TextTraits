@@ -1,6 +1,5 @@
 import React from "react";
-import {Alert, Box, Button, Flex, Input, Text, TextArea} from "@hubspot/ui-extensions";
-
+import {Accordion, Alert, Box, Button, Flex, Input, StatusTag, Text} from "@hubspot/ui-extensions";
 
 function statusCounts(assets) {
   return assets.reduce((counts, asset) => {
@@ -13,96 +12,110 @@ function statusLabel(value) {
   const labels = {
     ready: "Ready",
     blocked: "Blocked",
-    needs_review: "Needs review",
-    analyzed: "Analyzed",
-    metadata_only: "Metadata only",
-    fetch_error: "Fetch error",
-    analysis_error: "Analysis error",
+    needs_review: "Review required",
+    analyzed: "Checked",
+    metadata_only: "Copy unavailable",
+    fetch_error: "Could not load",
+    analysis_error: "Check failed",
     idempotency_conflict: "Import conflict",
-    not_reviewed: "Not reviewed",
+    not_reviewed: "Not checked",
+    analysis_only: "Read-only check",
   };
   return labels[value] || String(value || "Unknown").replaceAll("_", " ");
 }
 
+function gateVariant(value) {
+  if (value === "ready") return "success";
+  if (value === "blocked") return "danger";
+  if (value === "needs_review") return "warning";
+  return "default";
+}
 
 export function EnterpriseContextFields({values, onChange}) {
   return (
     <Flex direction="column" gap="sm">
-      <Input label="Audience type" name="audience_type" value={values.audienceType} onInput={onChange.audienceType} placeholder="candidate, client, employee" />
+      <Input label="Audience" name="audience_type" value={values.audienceType} onInput={onChange.audienceType} placeholder="Candidates, clients, employees" />
       <Input label="Region" name="region" value={values.region} onInput={onChange.region} placeholder="US, EU, APAC" />
       <Input label="Business unit" name="business_unit" value={values.businessUnit} onInput={onChange.businessUnit} placeholder="Staffing, Enterprise, Healthcare" />
-      <Input label="Job ID" name="job_id" value={values.jobId} onInput={onChange.jobId} placeholder="ATS or HubSpot job ID" />
-      <Input label="Skill family" name="skill_family" value={values.skillFamily} onInput={onChange.skillFamily} placeholder="Logistics, Nursing, Finance" />
-      <Input label="Job family" name="job_family" value={values.jobFamily} onInput={onChange.jobFamily} placeholder="Operations, Clinical, Technology" />
-      <Input label="Recruiter" name="recruiter" value={values.recruiter} onInput={onChange.recruiter} placeholder="Recruiter or delivery owner" />
-      <Input label="Client account" name="client_account" value={values.clientAccount} onInput={onChange.clientAccount} placeholder="Hiring client account" />
-      <Input label="Candidate status" name="candidate_status" value={values.candidateStatus} onInput={onChange.candidateStatus} placeholder="New, nurtured, passive, placed" />
-      <Input label="ATS system" name="ats_system" value={values.atsSystem} onInput={onChange.atsSystem} placeholder="Bullhorn, Workday, Greenhouse, custom" />
-      <Input label="Job board" name="job_board" value={values.jobBoard} onInput={onChange.jobBoard} placeholder="Indeed, LinkedIn, internal board" />
+      <Input label="Job or campaign reference" name="job_id" value={values.jobId} onInput={onChange.jobId} placeholder="Optional internal ID" />
+      <Input label="Skill or product family" name="skill_family" value={values.skillFamily} onInput={onChange.skillFamily} placeholder="Logistics, Nursing, Finance" />
+      <Input label="Reviewer" name="recruiter" value={values.recruiter} onInput={onChange.recruiter} placeholder="Reviewer or delivery owner" />
+      <Input label="Client account" name="client_account" value={values.clientAccount} onInput={onChange.clientAccount} placeholder="Customer or business account" />
     </Flex>
   );
 }
 
-
 export function CampaignPanel({assetOptions, assetTypes, values, onChange, onAction, actionLoading, reviewState, campaignResults}) {
   const assetMapEntries = Object.entries(reviewState.result?.asset_map || {});
-  const copyCoverage = reviewState.result?.summary?.copy_coverage || {};
+  const summary = reviewState.result?.summary || {};
+  const copyCoverage = summary.copy_coverage || {};
   return (
     <>
-      <Text format={{fontWeight: "bold"}}>Review a HubSpot campaign</Text>
-      <Text>Fetch campaign assets, score reviewable copy, and map unsupported assets clearly before scheduling.</Text>
+      <Text>Choose an existing campaign, then check the copy HubSpot can provide. TextTraits does not create or edit campaign assets.</Text>
       <Flex direction="column" gap="sm">
-        <Input label="Portal ID" name="portal_id" value={values.portalId} onInput={onChange.portalId} placeholder="246356639" />
-        <Input label="Campaign name" name="campaign_name" value={values.campaignName} onInput={onChange.campaignName} placeholder="Q3 lifecycle campaign" />
-        <Input label="Campaign ID" name="campaign_id" value={values.campaignId} onInput={onChange.campaignId} placeholder="Campaign GUID" />
-        <Text format={{fontWeight: "bold"}}>Asset types to review</Text>
+        <Input
+          label="Find a campaign"
+          name="campaign_name"
+          value={values.campaignName}
+          onInput={onChange.campaignName}
+          placeholder="Campaign name"
+        />
+        <Button onClick={onAction.searchCampaigns} disabled={actionLoading || !values.campaignName}>
+          {actionLoading === "Search campaigns" ? "Searching..." : "Search campaigns"}
+        </Button>
+        {campaignResults.length ? (
+          <Box>
+            <Text format={{fontWeight: "bold"}}>Matches</Text>
+            <Flex direction="column" gap="xs">
+              {campaignResults.slice(0, 6).map((campaign) => (
+                <Button key={campaign.id || campaign.name} onClick={() => onAction.selectCampaign(campaign)}>
+                  {campaign.name || campaign.id}
+                </Button>
+              ))}
+            </Flex>
+          </Box>
+        ) : null}
+        {values.campaignId ? (
+          <Alert variant="info" title="Selected campaign">
+            {values.campaignName || values.campaignId}
+          </Alert>
+        ) : null}
+        <Button variant="primary" onClick={onAction.reviewCampaign} disabled={reviewState.loading || !values.campaignId}>
+          {reviewState.loading ? "Checking campaign..." : "Check campaign copy"}
+        </Button>
+      </Flex>
+
+      <Accordion title="Copy sources included" size="sm">
+        <Text>Select only the source types used by this campaign.</Text>
         <Flex direction="column" gap="xs">
           {assetOptions.map((asset) => (
-            <Button key={asset.value} variant={assetTypes.includes(asset.value) ? "primary" : undefined} onClick={() => onAction.toggleAssetType(asset.value)}>
-              {assetTypes.includes(asset.value) ? "Selected: " : "Add: "}{asset.label}
+            <Button
+              key={asset.value}
+              variant={assetTypes.includes(asset.value) ? "primary" : undefined}
+              onClick={() => onAction.toggleAssetType(asset.value)}
+            >
+              {assetTypes.includes(asset.value) ? "Included: " : "Include: "}{asset.label}
             </Button>
           ))}
         </Flex>
-        <Button onClick={onAction.searchCampaigns} disabled={actionLoading || !values.portalId}>
-          {actionLoading === "Search campaigns" ? "Searching..." : "Find HubSpot campaigns"}
-        </Button>
-        <Button onClick={onAction.createCampaign} disabled={actionLoading || !values.portalId || !values.campaignName}>
-          {actionLoading === "Create campaign" ? "Creating..." : "Create HubSpot campaign"}
-        </Button>
-        <Button variant="primary" onClick={onAction.reviewCampaign} disabled={reviewState.loading || !values.portalId || !values.campaignId}>
-          {reviewState.loading ? "Reviewing..." : "Review campaign assets"}
-        </Button>
-      </Flex>
-      {campaignResults.length ? (
-        <Box>
-          <Text format={{fontWeight: "bold"}}>Campaign matches</Text>
-          <Flex direction="column" gap="xs">
-            {campaignResults.slice(0, 6).map((campaign) => (
-              <Button key={campaign.id || campaign.name} onClick={() => onAction.selectCampaign(campaign)}>{campaign.name || campaign.id}</Button>
-            ))}
-          </Flex>
-        </Box>
-      ) : null}
-      {reviewState.error ? <Alert variant="error" title="Campaign review unavailable">{reviewState.error}</Alert> : null}
+      </Accordion>
+
+      {reviewState.error ? <Alert variant="error" title="Campaign check unavailable">{reviewState.error}</Alert> : null}
       {reviewState.result ? (
         <Box>
-          <Text format={{fontWeight: "bold"}}>Campaign health: {statusLabel(reviewState.result.summary?.health || "not_reviewed")}</Text>
-          <Text>Asset types: {(reviewState.result.summary?.asset_types || []).join(", ") || "Marketing emails"}</Text>
-          <Text>Analyzed: {reviewState.result.summary?.analyzed || 0} · Skipped: {reviewState.result.summary?.skipped || 0}</Text>
-          <Text>Ready: {reviewState.result.summary?.gate_counts?.ready || 0} · Needs review: {reviewState.result.summary?.gate_counts?.needs_review || 0} · Blocked: {reviewState.result.summary?.gate_counts?.blocked || 0}</Text>
-          <Text>Coverage: {copyCoverage.coverage_score ?? 0}% · {copyCoverage.coverage_label || "No coverage label"}</Text>
-          <Text>Reviewed asset types: {(copyCoverage.reviewed_asset_types || []).join(", ") || "None yet"}</Text>
-          <Text>Metadata-only asset types: {(copyCoverage.metadata_only_asset_types || []).join(", ") || "None"}</Text>
-          {(copyCoverage.coverage_gap_assets || []).slice(0, 4).map((gap) => (
-            <Text key={`${gap.asset_type}-gap`}>{gap.label || gap.asset_type}: {gap.metadata_only_assets || 0} asset(s) need mapped copy.</Text>
-          ))}
-          <Text>{copyCoverage.note || "Marketing emails are fetched directly; other assets are scored when HubSpot returns reviewable copy."}</Text>
+          <Flex align="center" justify="between" gap="sm" wrap>
+            <Text format={{fontWeight: "bold"}}>Campaign decision</Text>
+            <StatusTag variant={gateVariant(summary.health)}>{statusLabel(summary.health)}</StatusTag>
+          </Flex>
+          <Text>Ready: {summary.gate_counts?.ready || 0} · Review required: {summary.gate_counts?.needs_review || 0} · Blocked: {summary.gate_counts?.blocked || 0}</Text>
+          <Text>Checked: {summary.analyzed || 0} · Copy unavailable: {summary.skipped || 0}</Text>
+          <Text>Copy coverage: {copyCoverage.coverage_score ?? 0}% · {copyCoverage.coverage_label || "Not measured"}</Text>
+          <Text>{copyCoverage.note || "TextTraits checks only copy returned by HubSpot or deliberately mapped by your team."}</Text>
         </Box>
       ) : null}
       {assetMapEntries.length ? (
-        <Box>
-          <Text format={{fontWeight: "bold"}}>Campaign asset map</Text>
-          <Flex direction="column" gap="xs">
+        <Accordion title="Asset-level results" size="sm">
+          <Flex direction="column" gap="sm">
             {assetMapEntries.map(([assetType, group]) => {
               const assets = Array.isArray(group.assets) ? group.assets : [];
               const counts = statusCounts(assets);
@@ -110,87 +123,104 @@ export function CampaignPanel({assetOptions, assetTypes, values, onChange, onAct
               return (
                 <Box key={assetType}>
                   <Text format={{fontWeight: "bold"}}>{label} ({assets.length})</Text>
-                  <Text>Analyzed: {counts.analyzed || 0} · Metadata only: {counts.metadata_only || 0} · Fetch errors: {counts.fetch_error || 0}</Text>
+                  <Text>Checked: {counts.analyzed || 0} · Copy unavailable: {counts.metadata_only || 0} · Errors: {counts.fetch_error || 0}</Text>
                   {assets.slice(0, 4).map((asset) => (
-                    <Text key={`${assetType}-${asset.id || asset.name}`}>{asset.name || asset.id || "Unnamed asset"}: {statusLabel(asset.status)}{asset.score !== undefined ? `, score ${asset.score}` : ""}</Text>
+                    <Text key={`${assetType}-${asset.id || asset.name}`}>
+                      {asset.name || asset.id || "Unnamed asset"}: {statusLabel(asset.status)}{asset.score !== undefined ? ` · ${asset.score}/100` : ""}
+                    </Text>
                   ))}
                 </Box>
               );
             })}
           </Flex>
-        </Box>
+        </Accordion>
       ) : null}
     </>
   );
 }
-
 
 export function MarketingEmailPanel({values, onChange, onAction, actionLoading, emailResults}) {
   return (
     <>
-      <Text format={{fontWeight: "bold"}}>Marketing email draft</Text>
-      <Text>Create, fetch, score, and attach a HubSpot marketing email draft without leaving the TextTraits app home page.</Text>
+      <Text>Find an existing HubSpot marketing email and run a read-only pre-send check.</Text>
       <Flex direction="column" gap="sm">
-        <Input label="Email ID" name="email_id" value={values.emailId} onInput={onChange.emailId} placeholder="HubSpot marketing email ID" />
-        <Input label="Email name" name="email_name" value={values.emailName} onInput={onChange.emailName} placeholder="Renewal workflow follow-up" />
-        <Input label="Subject" name="email_subject" value={values.emailSubject} onInput={onChange.emailSubject} placeholder="Renewal workflow follow-up" />
-        <Input label="Template path" name="template_path" value={values.templatePath} onInput={onChange.templatePath} placeholder="@hubspot/email/dnd/welcome.html" />
-        <TextArea label="Draft body for review" name="email_body" value={values.emailBody} onInput={onChange.emailBody} placeholder="Paste the existing draft body before routing." rows={5} />
-        <Button onClick={onAction.searchMarketingEmails} disabled={actionLoading || !values.portalId}>{actionLoading === "Search marketing emails" ? "Searching..." : "Find marketing email drafts"}</Button>
-        <Button onClick={onAction.createMarketingEmail} disabled={actionLoading || !values.portalId || !values.emailName || !values.emailSubject || !values.templatePath}>{actionLoading === "Create marketing email" ? "Creating..." : "Create marketing email draft"}</Button>
-        <Button onClick={onAction.updateMarketingEmail} disabled={actionLoading || !values.portalId || !values.emailId || (!values.emailName && !values.emailSubject && !values.emailBody)}>{actionLoading === "Update marketing email" ? "Updating..." : "Update marketing email draft"}</Button>
-        <Button onClick={onAction.fetchMarketingEmail} disabled={actionLoading || !values.portalId || !values.emailId}>{actionLoading === "Fetch marketing email" ? "Fetching..." : "Fetch and review email draft"}</Button>
-        <Button variant="primary" onClick={onAction.prePublishGuardrail} disabled={actionLoading || !values.portalId || !values.emailId}>{actionLoading === "Pre-publish guardrail" ? "Checking..." : "Run pre-publish guardrail"}</Button>
-        <Button onClick={onAction.analyzeAndSyncDraft} disabled={actionLoading || !values.portalId || (!values.emailSubject && !values.emailBody)}>{actionLoading === "Analyze and sync draft" ? "Syncing..." : "Analyze and sync draft"}</Button>
-        <Button onClick={onAction.associateEmailToCampaign} disabled={actionLoading || !values.portalId || !values.campaignId || !values.emailId}>{actionLoading === "Associate email to campaign" ? "Associating..." : "Attach email to campaign"}</Button>
+        <Input
+          label="Find a marketing email"
+          name="email_name"
+          value={values.emailName}
+          onInput={onChange.emailName}
+          placeholder="Email name or subject"
+        />
+        <Button onClick={onAction.searchMarketingEmails} disabled={actionLoading || !values.emailName}>
+          {actionLoading === "Search marketing emails" ? "Searching..." : "Search marketing emails"}
+        </Button>
+        {emailResults.length ? (
+          <Box>
+            <Text format={{fontWeight: "bold"}}>Matches</Text>
+            <Flex direction="column" gap="xs">
+              {emailResults.slice(0, 6).map((email) => (
+                <Button key={email.id || email.name} onClick={() => onAction.selectEmail(email)}>
+                  {email.name || email.subject || email.id}
+                </Button>
+              ))}
+            </Flex>
+          </Box>
+        ) : null}
+        {values.emailId ? (
+          <Alert variant="info" title="Selected email">
+            {values.emailName || values.emailSubject || values.emailId}
+          </Alert>
+        ) : null}
+        <Button variant="primary" onClick={onAction.prePublishGuardrail} disabled={actionLoading || !values.emailId}>
+          {actionLoading === "Pre-send check" ? "Checking..." : "Run pre-send check"}
+        </Button>
       </Flex>
-      {emailResults.length ? (
-        <Box>
-          <Text format={{fontWeight: "bold"}}>Marketing email matches</Text>
-          <Flex direction="column" gap="xs">
-            {emailResults.slice(0, 6).map((email) => (
-              <Button key={email.id || email.name} onClick={() => onAction.selectEmail(email)}>{email.name || email.subject || email.id}</Button>
-            ))}
-          </Flex>
-        </Box>
-      ) : null}
+      <Accordion title="Use an email ID instead" size="sm">
+        <Input
+          label="Marketing email ID"
+          name="email_id"
+          value={values.emailId}
+          onInput={onChange.emailId}
+          placeholder="HubSpot marketing email ID"
+        />
+      </Accordion>
     </>
   );
 }
-
 
 export function SegmentPanel({values, onChange, onAction, actionLoading, segmentResults, segmentMemberships}) {
   return (
     <>
-      <Text format={{fontWeight: "bold"}}>HubSpot segments</Text>
-      <Text>Find existing HubSpot segments before creating review lists for ready, needs-review, or blocked records.</Text>
+      <Text>Inspect existing HubSpot segments used for review routing. TextTraits will not add or remove members here.</Text>
       <Flex direction="column" gap="sm">
-        <Input label="Segment search" name="segment_query" value={values.segmentQuery} onInput={onChange.segmentQuery} placeholder="TextTraits, needs review, blocked" />
-        <Input label="Object type ID" name="segment_object_type_id" value={values.segmentObjectTypeId} onInput={onChange.segmentObjectTypeId} placeholder="0-1 for contacts" />
-        <Input label="Processing type" name="segment_processing_type" value={values.segmentProcessingType} onInput={onChange.segmentProcessingType} placeholder="Optional: MANUAL, DYNAMIC, SNAPSHOT" />
-        <Input label="Segment ID" name="segment_id" value={values.segmentId} onInput={onChange.segmentId} placeholder="HubSpot list or segment ID" />
-        <Button onClick={onAction.searchSegments} disabled={actionLoading || !values.portalId}>{actionLoading === "Search segments" ? "Searching..." : "Find segments"}</Button>
-        <Button onClick={onAction.previewSegmentMembers} disabled={actionLoading || !values.portalId || !values.segmentId}>{actionLoading === "Preview segment members" ? "Loading..." : "Preview segment members"}</Button>
-        <Input label="Record IDs to add" name="segment_add_ids" value={values.segmentAddIds} onInput={onChange.segmentAddIds} placeholder="Comma-separated HubSpot record IDs" />
-        <Input label="Record IDs to remove" name="segment_remove_ids" value={values.segmentRemoveIds} onInput={onChange.segmentRemoveIds} placeholder="Optional record IDs to remove" />
-        <Button onClick={onAction.updateSegmentMembers} disabled={actionLoading || !values.portalId || !values.segmentId || (!values.segmentAddIds && !values.segmentRemoveIds)}>{actionLoading === "Update segment members" ? "Updating..." : "Update segment members"}</Button>
+        <Input label="Find a segment" name="segment_query" value={values.segmentQuery} onInput={onChange.segmentQuery} placeholder="Needs review, blocked, ready" />
+        <Button onClick={onAction.searchSegments} disabled={actionLoading || !values.segmentQuery}>
+          {actionLoading === "Search segments" ? "Searching..." : "Search segments"}
+        </Button>
+        {segmentResults.length ? (
+          <Box>
+            <Text format={{fontWeight: "bold"}}>Matches</Text>
+            <Flex direction="column" gap="xs">
+              {segmentResults.slice(0, 6).map((segment) => (
+                <Button key={segment.list_id || segment.name} onClick={() => onChange.segmentId(String(segment.list_id || ""))}>
+                  {segment.name || segment.list_id} · {segment.size ?? "Unknown size"}
+                </Button>
+              ))}
+            </Flex>
+          </Box>
+        ) : null}
+        <Button onClick={onAction.previewSegmentMembers} disabled={actionLoading || !values.segmentId}>
+          {actionLoading === "Preview segment members" ? "Loading..." : "Preview selected segment"}
+        </Button>
       </Flex>
-      {segmentResults.length ? (
-        <Box>
-          <Text format={{fontWeight: "bold"}}>Segment matches</Text>
-          <Flex direction="column" gap="xs">
-            {segmentResults.slice(0, 6).map((segment) => (
-              <Button key={segment.list_id || segment.name} onClick={() => onChange.segmentId(String(segment.list_id || ""))}>{segment.name || segment.list_id} · {segment.processing_type || "Unknown type"} · {segment.size ?? "Unknown size"}</Button>
-            ))}
-          </Flex>
-        </Box>
-      ) : null}
       {segmentMemberships.length ? (
         <Box>
-          <Text format={{fontWeight: "bold"}}>Segment member preview</Text>
+          <Text format={{fontWeight: "bold"}}>Member preview</Text>
           <Flex direction="column" gap="xs">
             {segmentMemberships.slice(0, 6).map((member, index) => (
-              <Text key={member.recordId || member.record_id || index}>Record {member.recordId || member.record_id || member.id || "unknown"}{member.membershipTimestamp ? ` · ${member.membershipTimestamp}` : ""}</Text>
+              <Text key={member.recordId || member.record_id || index}>
+                Record {member.recordId || member.record_id || member.id || "unknown"}
+              </Text>
             ))}
           </Flex>
         </Box>
@@ -198,24 +228,26 @@ export function SegmentPanel({values, onChange, onAction, actionLoading, segment
     </>
   );
 }
-
 
 export function HubSpotActionResult({state}) {
   if (state.error) return <Alert variant="error" title="HubSpot action unavailable">{state.error}</Alert>;
   if (!state.result) return null;
   const payload = state.result.payload || {};
   return (
-    <Box>
-      <Text format={{fontWeight: "bold"}}>{state.result.action}: Completed</Text>
-      <Text>{payload?.sync?.status ? `Sync status: ${statusLabel(payload.sync.status)}` : "HubSpot request completed."}</Text>
+    <Alert variant="success" title={`${state.result.action} complete`}>
+      {payload.guardrail ? (
+        <Text>
+          Decision: {statusLabel(payload.guardrail.gate)} · score {payload.guardrail.score}/100 · send allowed: {payload.guardrail.publish_allowed ? "Yes" : "No"}
+        </Text>
+      ) : null}
       {payload.campaigns ? <Text>Campaigns found: {payload.campaigns.length}</Text> : null}
       {payload.emails ? <Text>Emails found: {payload.emails.length}</Text> : null}
       {payload.lists ? <Text>Segments found: {payload.lists.length}</Text> : null}
-      {payload.memberships ? <Text>Segment members: {payload.memberships.length}</Text> : null}
-      {payload.guardrail ? <Text>Guardrail: {statusLabel(payload.guardrail.gate)} · score {payload.guardrail.score} · publish allowed: {payload.guardrail.publish_allowed ? "Yes" : "No"}</Text> : null}
-      {payload.summary?.coverage ? <Text>Bulk coverage: {payload.summary.coverage.coverage_score}% · {payload.summary.coverage.coverage_label}</Text> : null}
-      {payload.events ? <Text>Outcome events imported: {payload.events.length}</Text> : null}
-      {payload.details?.operation ? <Text>Segment update: {payload.details.operation} ({payload.details.added || 0} added, {payload.details.removed || 0} removed)</Text> : null}
-    </Box>
+      {payload.memberships ? <Text>Segment members shown: {payload.memberships.length}</Text> : null}
+      {payload.summary?.coverage ? <Text>Imported copy coverage: {payload.summary.coverage.coverage_score}%</Text> : null}
+      {!payload.guardrail && !payload.campaigns && !payload.emails && !payload.lists && !payload.memberships && !payload.summary?.coverage ? (
+        <Text>HubSpot request completed.</Text>
+      ) : null}
+    </Alert>
   );
 }

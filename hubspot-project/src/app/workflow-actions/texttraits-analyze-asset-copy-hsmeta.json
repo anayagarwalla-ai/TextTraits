@@ -120,6 +120,10 @@
     ],
     "outputFields": [
       {
+        "name": "hs_execution_state",
+        "type": "string"
+      },
+      {
         "name": "texttraits_score",
         "type": "number"
       },
@@ -133,6 +137,10 @@
       },
       {
         "name": "texttraits_next_step",
+        "type": "string"
+      },
+      {
+        "name": "texttraits_reviewer_guidance",
         "type": "string"
       },
       {
@@ -178,10 +186,10 @@
     ],
     "labels": {
       "en": {
-        "appDisplayName": "TextTraits Email Fit",
-        "actionName": "Analyze asset copy",
-        "actionDescription": "Scores mapped copy from a HubSpot form, page, SMS, social post, CTA, or other campaign asset and returns routing fields for workflow branches.",
-        "actionCardContent": "Analyze {{asset_type}} copy with TextTraits",
+        "appDisplayName": "TextTraits",
+        "actionName": "Check mapped asset copy",
+        "actionDescription": "Checks existing mapped copy from a HubSpot form, page, SMS, social post, CTA, or other campaign asset and returns read-only routing fields.",
+        "actionCardContent": "Check {{asset_type}} copy with TextTraits",
         "inputFieldLabels": {
           "asset_type": "Asset type",
           "asset_id": "Asset ID",
@@ -199,10 +207,12 @@
           "analysis_mode": "How this workflow will use the TextTraits decision."
         },
         "outputFieldLabels": {
+          "hs_execution_state": "Workflow execution state",
           "texttraits_score": "TextTraits score",
           "texttraits_gate": "TextTraits gate",
           "texttraits_route": "TextTraits route",
-          "texttraits_next_step": "TextTraits next step",
+          "texttraits_next_step": "Reviewer guidance",
+          "texttraits_reviewer_guidance": "Reviewer guidance",
           "texttraits_owner_queue": "TextTraits owner queue",
           "texttraits_blocker_level": "TextTraits blocker level",
           "texttraits_blocker_reason": "TextTraits blocker reason",

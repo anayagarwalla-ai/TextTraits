@@ -1,0 +1,11 @@
+{
+  "uid": "texttraits_email_fit_helpdesk",
+  "type": "card",
+  "config": {
+    "name": "TextTraits reply check",
+    "description": "Check existing support reply copy without changing the ticket or generating a replacement.",
+    "location": "helpdesk.sidebar",
+    "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+    "objectTypes": ["tickets"]
+  }
+}

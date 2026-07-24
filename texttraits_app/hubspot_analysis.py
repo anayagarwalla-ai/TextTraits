@@ -66,6 +66,7 @@ class HubSpotAnalysisDecision:
 
     def output_fields(self, asset_fields: dict[str, Any] | None = None) -> dict[str, Any]:
         fields = {
+            "hs_execution_state": "SUCCESS",
             "texttraits_request_id": self.request_id,
             "texttraits_content_hash": self.content_hash,
             "texttraits_idempotency_key": self.idempotency_key,
@@ -74,6 +75,7 @@ class HubSpotAnalysisDecision:
             "texttraits_route": self.route,
             "texttraits_send_ready": self.gate == "ready",
             "texttraits_next_step": self.next_step,
+            "texttraits_reviewer_guidance": self.next_step,
             "texttraits_owner_queue": self.owner_queue,
             "texttraits_blocker_level": self.blocker_level,
             "texttraits_blocker_reason": self.blocker_reason,

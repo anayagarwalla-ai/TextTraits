@@ -2,6 +2,7 @@
   "version": "2026-07",
   "analysisEngine": "texttraits-email-quality-rules/2026-07",
   "commonOutputFields": [
+    "hs_execution_state",
     "texttraits_request_id",
     "texttraits_content_hash",
     "texttraits_score",
@@ -9,6 +10,7 @@
     "texttraits_route",
     "texttraits_send_ready",
     "texttraits_next_step",
+    "texttraits_reviewer_guidance",
     "texttraits_owner_queue",
     "texttraits_blocker_level",
     "texttraits_blocker_reason",
@@ -20,8 +22,30 @@
       "type": "card",
       "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
       "backendEndpoints": [
-        "/v1/integrations/hubspot/analyze-and-sync",
+        "/v1/integrations/hubspot/crm-card/analyze-email",
         "/v1/integrations/hubspot/review-action"
+      ]
+    },
+    "src/app/cards/texttraits-email-fit-preview-hsmeta.json": {
+      "type": "card",
+      "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+      "backendEndpoints": [
+        "/v1/integrations/hubspot/crm-card/analyze-email"
+      ]
+    },
+    "src/app/cards/texttraits-email-fit-tab-hsmeta.json": {
+      "type": "card",
+      "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+      "backendEndpoints": [
+        "/v1/integrations/hubspot/crm-card/analyze-email",
+        "/v1/integrations/hubspot/review-action"
+      ]
+    },
+    "src/app/cards/texttraits-email-fit-helpdesk-hsmeta.json": {
+      "type": "card",
+      "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+      "backendEndpoints": [
+        "/v1/integrations/hubspot/crm-card/analyze-email"
       ]
     },
     "src/app/home/texttraits-home-hsmeta.json": {
@@ -59,12 +83,12 @@
     "src/app/workflow-actions/texttraits-analyze-email-hsmeta.json": {
       "endpoint": "/v1/integrations/hubspot/workflow-actions/analyze-email",
       "requiredInputs": ["email_subject", "email_body"],
-      "requiredOutputs": ["texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_request_id", "texttraits_content_hash", "texttraits_analysis_engine"]
+      "requiredOutputs": ["hs_execution_state", "texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_reviewer_guidance", "texttraits_request_id", "texttraits_content_hash", "texttraits_analysis_engine"]
     },
     "src/app/workflow-actions/texttraits-analyze-asset-copy-hsmeta.json": {
       "endpoint": "/v1/integrations/hubspot/workflow-actions/analyze-asset-copy",
       "requiredInputs": ["asset_type", "asset_id", "asset_name", "asset_copy", "campaign_id", "analysis_mode"],
-      "requiredOutputs": ["texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_asset_type", "texttraits_asset_id", "texttraits_asset_name", "texttraits_request_id", "texttraits_content_hash", "texttraits_analysis_engine"]
+      "requiredOutputs": ["hs_execution_state", "texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_reviewer_guidance", "texttraits_asset_type", "texttraits_asset_id", "texttraits_asset_name", "texttraits_request_id", "texttraits_content_hash", "texttraits_analysis_engine"]
     },
     "src/app/workflow-actions/texttraits-analyze-and-sync-hsmeta.json": {
       "endpoint": "/v1/integrations/hubspot/analyze-and-sync",
@@ -74,7 +98,7 @@
     "src/app/workflow-actions/texttraits-review-campaign-assets-hsmeta.json": {
       "endpoint": "/v1/integrations/hubspot/workflow-actions/review-campaign-assets",
       "requiredInputs": ["portal_id", "campaign_id", "asset_types"],
-      "requiredOutputs": ["texttraits_campaign_health", "texttraits_gate", "texttraits_route", "texttraits_analyzed_count", "texttraits_blocked_count", "texttraits_copy_coverage", "texttraits_coverage_score", "texttraits_coverage_label"]
+      "requiredOutputs": ["hs_execution_state", "texttraits_campaign_health", "texttraits_gate", "texttraits_route", "texttraits_reviewer_guidance", "texttraits_analyzed_count", "texttraits_blocked_count", "texttraits_copy_coverage", "texttraits_coverage_score", "texttraits_coverage_label"]
     }
   }
 }

@@ -7,6 +7,9 @@ const requiredFiles = [
   "contracts/analysis-contract.json",
   "src/app/app-hsmeta.json",
   "src/app/cards/texttraits-email-fit-card-hsmeta.json",
+  "src/app/cards/texttraits-email-fit-preview-hsmeta.json",
+  "src/app/cards/texttraits-email-fit-tab-hsmeta.json",
+  "src/app/cards/texttraits-email-fit-helpdesk-hsmeta.json",
   "src/app/cards/TextTraitsEmailFitCard.jsx",
   "src/app/workflow-actions/texttraits-analyze-email-hsmeta.json",
   "src/app/workflow-actions/texttraits-analyze-asset-copy-hsmeta.json",
@@ -43,7 +46,7 @@ for (const fetchUrl of appConfig.config?.permittedUrls?.fetch || []) {
     throw new Error(`HubSpot production fetch allowlist must use HTTPS: ${fetchUrl}`);
   }
 }
-for (const requiredScope of ["oauth", "marketing-email", "marketing.campaigns.read", "marketing.campaigns.write", "crm.lists.read", "crm.lists.write"]) {
+for (const requiredScope of ["oauth", "marketing-email", "marketing.campaigns.read", "crm.lists.read"]) {
   if (!scopes.includes(requiredScope)) {
     throw new Error(`Missing expected HubSpot scope: ${requiredScope}`);
   }
@@ -61,58 +64,48 @@ for (const expected of [
   "/v1/integrations/hubspot/app-home/bootstrap",
   "/v1/integrations/hubspot/campaigns/review",
   "/v1/integrations/hubspot/campaigns/list",
-  "/v1/integrations/hubspot/campaigns/create",
   "/v1/integrations/hubspot/marketing-emails/list",
-  "/v1/integrations/hubspot/marketing-emails/create-draft",
-  "/v1/integrations/hubspot/marketing-emails/update-draft",
-  "/v1/integrations/hubspot/marketing-emails/fetch",
   "/v1/integrations/hubspot/marketing-emails/pre-publish-guardrail",
   "/v1/integrations/hubspot/bulk/import-assets",
-  "/v1/integrations/hubspot/salesforce/outcomes/import",
   "/v1/integrations/hubspot/lists/search",
   "/v1/integrations/hubspot/lists/memberships",
-  "/v1/integrations/hubspot/lists/memberships/update",
   "/v1/integrations/hubspot/assets/analyze",
   "/v1/integrations/hubspot/assets/fetch-and-analyze",
-  "/v1/integrations/hubspot/analyze-and-sync",
-  "Review campaign assets",
-  "Find HubSpot campaigns",
-  "Find marketing email drafts",
-  "Create HubSpot campaign",
-  "Update marketing email draft",
-  "Run pre-publish guardrail",
-  "Enterprise context and workflow templates",
-  "Staffing workflow templates",
-  "Campaign dashboard rollups",
-  "Bulk asset import",
-  "Score imported assets",
-  "Salesforce outcome mapping",
-  "Import Salesforce outcome",
-  "Single asset copy review",
-  "Analyze mapped asset copy",
-  "Fetch and review supported asset",
-  "Marketing email draft",
-  "HubSpot segments",
-  "Find segments",
-  "Preview segment members",
-  "Update segment members",
-  "Record IDs to add",
-  "Record IDs to remove",
-  "Segment matches",
-  "Segment member preview",
-  "WEB_INTERACTIVE",
-  "AUTOMATION_PLATFORM_FLOW",
-  "OBJECT_LIST",
+  "Today’s review work",
+  "Check a campaign",
+  "Search campaigns",
+  "Search marketing emails",
+  "Run pre-send check",
+  "Review context",
+  "Bulk copy import",
+  "Import and check copy",
+  "Other copy sources",
+  "Check pasted asset copy",
+  "Fetch supported asset from HubSpot",
+  "Read-only segment inspection",
+  "Search segments",
+  "Preview selected segment",
+  "TextTraits never rewrites source copy",
   "SOCIAL_BROADCAST",
   "MARKETING_SMS",
-  "AD_CAMPAIGN",
   "SEQUENCE",
-  "Coverage:",
-  "Reviewed asset types",
-  "Metadata-only asset types",
+  "Copy coverage:",
+  "Asset-level results",
 ]) {
   if (!homeSources.includes(expected)) {
     throw new Error(`HubSpot home page missing campaign review control: ${expected}`);
+  }
+}
+for (const forbidden of [
+  "Create HubSpot campaign",
+  "Create marketing email draft",
+  "Update marketing email draft",
+  "Attach email to campaign",
+  "Update segment members",
+  "/v1/integrations/hubspot/analyze-and-sync",
+]) {
+  if (homeSources.includes(forbidden)) {
+    throw new Error(`HubSpot home must not expose copy or campaign mutation control: ${forbidden}`);
   }
 }
 
@@ -123,23 +116,24 @@ for (const expected of [
   "/v1/integrations/hubspot/lists/create-review-segments",
   "/v1/integrations/hubspot/webhooks/configure",
   "/v1/integrations/hubspot/settings/bootstrap",
-  "Setup status",
-  "Guided setup checklist",
-  "Approval chain templates",
-  "Campaign sync",
-  "Workflow actions",
-  "Webhook re-scoring",
-  "Admin attention",
-  "Refresh setup status",
-  "Required scopes",
+  "Connection and permissions",
+  "Read-only by default",
+  "Policies and approval paths",
+  "Setup checklist",
+  "Workflow readiness",
+  "Refresh readiness",
+  "Permissions needed",
   "HubSpot portal",
-  "Portal has no stored tokens",
+  "Tokens unavailable",
   "/v1/integrations/hubspot/owners/list",
   "/v1/integrations/hubspot/review-routing/config",
-  "Review routing owners",
-  "Marketing review owner ID",
-  "Compliance review owner ID",
-  "Regional owner review ID",
+  "Review owners",
+  "Marketing review",
+  "Compliance review",
+  "Regional review",
+  "CRM fields and automation setup",
+  "Confirm portal change",
+  "Data controls",
 ]) {
   if (!settingsSource.includes(expected)) {
     throw new Error(`HubSpot settings page missing setup endpoint: ${expected}`);
@@ -147,22 +141,25 @@ for (const expected of [
 }
 
 const cardSource = fs.readFileSync(path.join(root, "src/app/cards/TextTraitsEmailFitCard.jsx"), "utf8");
-if (!cardSource.includes("Open campaign analysis")) {
-  throw new Error("HubSpot card should expose an Open campaign analysis action.");
-}
-for (const expected of ["/v1/integrations/hubspot/analyze-and-sync", "texttraits_sync_status"]) {
+for (const expected of [
+  "/v1/integrations/hubspot/crm-card/analyze-email",
+  "/v1/integrations/hubspot/marketing-emails/fetch",
+  "useCrmProperties",
+  "useAssociations",
+  "Check email",
+  "This check is read-only",
+  "Reviewer guidance",
+  "Confirm and record",
+  "confirm_side_effects",
+  "writeback_properties",
+]) {
   if (!cardSource.includes(expected)) {
-    throw new Error(`HubSpot card missing synced analysis behavior: ${expected}`);
+    throw new Error(`HubSpot card missing safe review behavior: ${expected}`);
   }
 }
-for (const expected of ["approve_review", "reject_review", "Approve", "Reject"]) {
-  if (!cardSource.includes(expected)) {
-    throw new Error(`HubSpot card missing approval workflow control: ${expected}`);
-  }
-}
-for (const expected of ["sync_hubspot", "task_id", "taskIdFromSync"]) {
-  if (!cardSource.includes(expected)) {
-    throw new Error(`HubSpot card missing approval workflow sync behavior: ${expected}`);
+for (const forbidden of ["/v1/integrations/hubspot/analyze-and-sync", "Analyze draft", "Open campaign analysis", "Generate rewrite", "Replace copy"]) {
+  if (cardSource.includes(forbidden)) {
+    throw new Error(`HubSpot card contains forbidden or misleading behavior: ${forbidden}`);
   }
 }
 

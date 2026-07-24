@@ -881,11 +881,11 @@ HUBSPOT_INTEGRATION_SURFACES = (
     },
     {
         "id": "analyze_and_sync",
-        "label": "Analyze and sync",
-        "hubspot_area": "Campaigns, marketing emails, CRM records, tasks, custom objects, timelines",
-        "status": "implemented_requires_oauth",
+        "label": "Explicit decision sync API",
+        "hubspot_area": "Admin-managed CRM fields, tasks, custom objects, and timelines",
+        "status": "implemented_admin_only",
         "endpoint": "/v1/integrations/hubspot/analyze-and-sync",
-        "purpose": "Analyze an existing draft and perform the HubSpot-native writeback, task, custom-object, timeline, and asset sync steps in one workflow-safe call.",
+        "purpose": "Run a check and perform only explicitly requested HubSpot changes after confirm_side_effects is supplied. The published workflow action is disabled.",
         "mapping": ("portal_id", "subject", "body", "campaign_id", "template_id", "object_type", "object_id", "analysis_object_type"),
     },
     {
@@ -908,11 +908,11 @@ HUBSPOT_INTEGRATION_SURFACES = (
     },
     {
         "id": "campaign_create_update",
-        "label": "Campaign create/update",
+        "label": "Campaign administration API",
         "hubspot_area": "Campaigns",
-        "status": "implemented_requires_oauth",
+        "status": "backend_only_not_exposed",
         "endpoint": "/v1/integrations/hubspot/campaigns/create",
-        "purpose": "Create or update HubSpot campaigns from TextTraits-managed campaign metadata.",
+        "purpose": "Administrative API retained for controlled integrations. It is not exposed in the TextTraits review UI.",
         "mapping": ("portal_id", "properties.hs_name", "properties.hs_start_date", "properties.hs_notes"),
     },
     {
@@ -928,18 +928,18 @@ HUBSPOT_INTEGRATION_SURFACES = (
         "id": "campaign_asset_association",
         "label": "Campaign asset association",
         "hubspot_area": "Campaigns and campaign assets",
-        "status": "implemented_requires_oauth",
+        "status": "backend_only_not_exposed",
         "endpoint": "/v1/integrations/hubspot/campaigns/associate-asset",
-        "purpose": "Attach reviewed HubSpot assets such as marketing emails, forms, landing pages, workflows, and lists to a campaign.",
+        "purpose": "Administrative API retained for controlled integrations. The TextTraits review UI never associates assets automatically.",
         "mapping": ("portal_id", "campaign_id", "asset_type", "asset_id"),
     },
     {
         "id": "marketing_email_draft_sync",
-        "label": "Marketing email draft sync",
+        "label": "Marketing email read-only fetch",
         "hubspot_area": "Marketing Emails v3 assets",
         "status": "implemented_requires_oauth",
         "endpoint": "/v1/integrations/hubspot/marketing-emails/fetch",
-        "purpose": "Create, update, fetch, score, and sync HubSpot marketing email drafts.",
+        "purpose": "Fetch and check existing HubSpot marketing email drafts. Creation and editing APIs are not exposed in the TextTraits review UI.",
         "mapping": ("portal_id", "email_id", "name", "subject", "templatePath"),
     },
     {
@@ -1011,7 +1011,7 @@ HUBSPOT_INTEGRATION_SURFACES = (
         "hubspot_area": "Tasks, CRM properties, and custom objects",
         "status": "implemented_requires_oauth",
         "endpoint": "/v1/integrations/hubspot/review-action",
-        "purpose": "Sync approved, rejected, resolved, assigned, and queued TextTraits review states back into HubSpot tasks, CRM properties, and Analysis custom-object records.",
+        "purpose": "Sync an explicitly confirmed review decision into selected HubSpot fields, tasks, or analysis records.",
         "mapping": ("portal_id", "request_id", "action", "object_type", "object_id", "task_id", "analysis_object_type"),
     },
     {
@@ -4166,6 +4166,7 @@ def hubspot_analysis_result(
         "email_quality": public_quality,
         "policy": public_policy,
         "context": public_context,
+        "checked_at": analysis_record["created_at"],
         "model_inference_used": False,
     }
     delivery_context = context.get("delivery_context") if isinstance(context.get("delivery_context"), dict) else {}
@@ -4981,7 +4982,7 @@ def hubspot_sync_review_action_to_portal(payload: dict[str, Any], event: dict[st
 
     properties = hubspot_review_sync_properties(analysis, event)
     object_type, object_id = hubspot_analysis_object_target(payload, analysis)
-    if hubspot_payload_flag(payload, "writeback_properties", True):
+    if hubspot_payload_flag(payload, "writeback_properties", False):
         if object_type and object_id:
             try:
                 response = client.update_crm_object_properties(
@@ -4997,7 +4998,7 @@ def hubspot_sync_review_action_to_portal(payload: dict[str, Any], event: dict[st
             sync_skipped.append({"action": "review_crm_property_writeback", "reason": "object_type and object_id were not supplied."})
 
     task_id = hubspot_task_id_from_payload(payload, event)
-    if hubspot_payload_flag(payload, "update_review_task", True):
+    if hubspot_payload_flag(payload, "update_review_task", False):
         if task_id:
             try:
                 response = client.update_task(
@@ -5012,7 +5013,7 @@ def hubspot_sync_review_action_to_portal(payload: dict[str, Any], event: dict[st
             sync_skipped.append({"action": "review_task_updated", "reason": "task_id was not supplied."})
 
     analysis_object_type = hubspot_analysis_object_type_from_payload(payload)
-    if hubspot_payload_flag(payload, "sync_analysis_object", True):
+    if hubspot_payload_flag(payload, "sync_analysis_object", False):
         if analysis_object_type:
             try:
                 search_response = client.search_crm_objects(analysis_object_type, hubspot_search_analysis_record_payload(str(event.get("request_id") or "")))
@@ -5260,6 +5261,7 @@ def hubspot_app_card_latest():
         {
             "ok": True,
             "latest": latest,
+            "analyses": analyses,
             "review_states": review_states,
             "context": public_hubspot_context(context),
             "connections": hubspot_portal_connections_for_context(context),
@@ -5267,13 +5269,44 @@ def hubspot_app_card_latest():
     )
 
 
-def hubspot_payload_flag(payload: dict[str, Any], key: str, default: bool = True) -> bool:
+def hubspot_payload_flag(payload: dict[str, Any], key: str, default: bool = False) -> bool:
     value = payload.get(key)
     if value is None:
         return default
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "no", "off"}
     return bool(value)
+
+
+HUBSPOT_ANALYZE_SYNC_SIDE_EFFECTS = {
+    "writeback_properties": "Update TextTraits fields on the current CRM record",
+    "record_review_state": "Record a review decision in TextTraits",
+    "create_review_task": "Create a HubSpot review task",
+    "create_analysis_record": "Create a TextTraits analysis object in HubSpot",
+    "create_timeline_event": "Add a TextTraits event to the HubSpot timeline",
+    "associate_campaign_asset": "Associate the source asset with a HubSpot campaign",
+}
+
+
+def hubspot_requested_side_effects(payload: dict[str, Any], definitions: dict[str, str]) -> list[dict[str, str]]:
+    return [
+        {"key": key, "label": label}
+        for key, label in definitions.items()
+        if hubspot_payload_flag(payload, key, False)
+    ]
+
+
+def hubspot_side_effect_confirmation_error(requested: list[dict[str, str]]):
+    return (
+        jsonify(
+            {
+                "error": "Confirm the requested HubSpot changes before TextTraits writes to CRM data.",
+                "requires_confirmation": True,
+                "requested_actions": requested,
+            }
+        ),
+        409,
+    )
 
 
 def hubspot_analyze_sync_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -5339,6 +5372,9 @@ def hubspot_analyze_and_sync():
     payload, error = hubspot_payload_or_error()
     if error:
         return error
+    requested_side_effects = hubspot_requested_side_effects(payload, HUBSPOT_ANALYZE_SYNC_SIDE_EFFECTS)
+    if requested_side_effects and not hubspot_payload_flag(payload, "confirm_side_effects", False):
+        return hubspot_side_effect_confirmation_error(requested_side_effects)
     client, context, error = hubspot_client_and_context(payload)
     if error:
         return error
@@ -5362,7 +5398,7 @@ def hubspot_analyze_and_sync():
     object_type, object_id = hubspot_analysis_object_target(payload, analysis)
     extra_properties = payload.get("properties") if isinstance(payload.get("properties"), dict) else {}
 
-    if hubspot_payload_flag(payload, "writeback_properties", True):
+    if hubspot_payload_flag(payload, "writeback_properties", False):
         if object_type and object_id:
             def sync_property_writeback(
                 object_type=object_type,
@@ -5381,7 +5417,7 @@ def hubspot_analyze_and_sync():
         else:
             sync_skipped.append({"action": "crm_property_writeback", "reason": "object_type and object_id were not supplied by HubSpot context."})
 
-    if hubspot_payload_flag(payload, "record_review_state", True) and analysis.get("gate") != "ready":
+    if hubspot_payload_flag(payload, "record_review_state", False) and analysis.get("gate") != "ready":
         finding = hubspot_best_finding(analysis)
         try:
             review_event = save_hubspot_review_event(
@@ -5400,7 +5436,7 @@ def hubspot_analyze_and_sync():
         except ValueError as sync_error:
             sync_errors.append({"action": "review_state_queued", "error": str(sync_error), "status_code": 400, "details": {}})
 
-    if hubspot_payload_flag(payload, "create_review_task", True) and analysis.get("gate") != "ready":
+    if hubspot_payload_flag(payload, "create_review_task", False) and analysis.get("gate") != "ready":
         finding = hubspot_best_finding(analysis)
         task_properties = {
             "hs_timestamp": first_text_value(payload.get("due_at"), payload.get("hs_timestamp"), utc_now(), max_length=80),
@@ -5438,7 +5474,7 @@ def hubspot_analyze_and_sync():
         os.getenv("TEXTTRAITS_HUBSPOT_ANALYSIS_OBJECT_TYPE"),
         max_length=160,
     )
-    if hubspot_payload_flag(payload, "create_analysis_record", True):
+    if hubspot_payload_flag(payload, "create_analysis_record", False):
         if analysis_object_type:
             properties = hubspot_writeback_properties(analysis, extra=extra_properties)
             properties.update(
@@ -5482,7 +5518,7 @@ def hubspot_analyze_and_sync():
     app_id = first_text_value(payload.get("app_id"), payload.get("appId"), os.getenv("TEXTTRAITS_HUBSPOT_APP_ID"), max_length=160)
     event_template_id = first_text_value(payload.get("eventTemplateId"), payload.get("event_template_id"), os.getenv("TEXTTRAITS_HUBSPOT_TIMELINE_EVENT_TEMPLATE_ID"), max_length=160)
     timeline_object_id = first_text_value(payload.get("timeline_object_id"), payload.get("objectId"), object_id, max_length=160)
-    if hubspot_payload_flag(payload, "create_timeline_event", True):
+    if hubspot_payload_flag(payload, "create_timeline_event", False):
         if app_id and event_template_id and timeline_object_id:
             timeline_payload = {
                 "eventTemplateId": event_template_id,
@@ -5839,10 +5875,12 @@ def hubspot_campaign_workflow_output(result: dict[str, Any], payload: dict[str, 
         workspace_id,
     )
     return {
+        "hs_execution_state": "SUCCESS",
         "texttraits_campaign_health": health,
         "texttraits_gate": health,
         "texttraits_route": route,
         "texttraits_next_step": next_step,
+        "texttraits_reviewer_guidance": next_step,
         "texttraits_campaign_id": str(summary.get("campaign_id") or ""),
         "texttraits_asset_types": ", ".join(asset_types)[:500],
         "texttraits_assets_seen": int(summary.get("assets_seen") or 0),
@@ -7245,6 +7283,21 @@ def hubspot_review_action():
     payload = request.get_json(silent=True) or {}
     if len(json.dumps(payload, default=str).encode("utf-8")) > MAX_EVENT_BYTES:
         return jsonify({"error": f"Review action payloads must stay under {MAX_EVENT_BYTES} bytes."}), 413
+    sync_hubspot = hubspot_payload_flag(payload, "sync_hubspot", False)
+    requested_side_effects = hubspot_requested_side_effects(
+        payload,
+        {
+            "writeback_properties": "Update TextTraits review fields on the current CRM record",
+            "update_review_task": "Update the linked HubSpot review task",
+            "sync_analysis_object": "Update the TextTraits analysis object in HubSpot",
+        },
+    )
+    if sync_hubspot and not requested_side_effects:
+        requested_side_effects = [
+            {"key": "sync_hubspot", "label": "Record this review decision in HubSpot"}
+        ]
+    if sync_hubspot and not hubspot_payload_flag(payload, "confirm_side_effects", False):
+        return hubspot_side_effect_confirmation_error(requested_side_effects)
     analysis, analysis_error = hubspot_analysis_for_action(payload)
     if analysis_error:
         return analysis_error
@@ -7259,7 +7312,7 @@ def hubspot_review_action():
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     sync = {"status": "local_only", "actions": [], "skipped": [], "errors": []}
-    if hubspot_payload_flag(payload, "sync_hubspot", bool(hubspot_portal_from_payload(payload) or analysis.get("portal_id"))):
+    if sync_hubspot:
         sync = hubspot_sync_review_action_to_portal(payload, event, analysis)
     log_event(current_user_id(), "hubspot_review_action", {"request_id": event["request_id"], "action": event["action"], "sync_status": sync.get("status")})
     return jsonify({"ok": True, "event": event, "sync": sync})
@@ -8288,12 +8341,27 @@ def api_integration_oauth_start(provider: str):
     session[f"oauth_nonce_{provider_slug(entry.name)}"] = nonce
     redirect_uri = public_url(f"/api/integrations/{provider_slug(entry.name)}/oauth/callback")
     payload = request.get_json(silent=True) or {}
-    scope_mode = str(payload.get("scope_mode") or "all").strip().lower()
+    default_scope_mode = "selected" if entry.name == "HubSpot" else "all"
+    scope_mode = str(payload.get("scope_mode") or default_scope_mode).strip().lower()
     requested_optional_scopes = payload.get("optional_scopes")
     if requested_optional_scopes is not None and not isinstance(requested_optional_scopes, list):
         return jsonify({"error": "optional_scopes must be a list of approved provider scopes."}), 400
     if scope_mode == "minimum":
         requested_optional_scopes = []
+    elif scope_mode == "selected" and requested_optional_scopes is None and entry.name == "HubSpot":
+        requested_optional_scopes = [
+            "crm.objects.contacts.read",
+            "crm.objects.companies.read",
+            "crm.objects.deals.read",
+            "tickets",
+            "crm.objects.owners.read",
+            "crm.lists.read",
+            "marketing.campaigns.read",
+            "marketing-email",
+            "forms",
+            "content",
+            "automation",
+        ]
     elif scope_mode not in {"all", "selected"}:
         return jsonify({"error": "scope_mode must be minimum, selected, or all."}), 400
     elif scope_mode == "selected" and requested_optional_scopes is None:

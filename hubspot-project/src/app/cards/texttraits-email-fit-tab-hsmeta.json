@@ -1,0 +1,11 @@
+{
+  "uid": "texttraits_email_fit_tab",
+  "type": "card",
+  "config": {
+    "name": "TextTraits review history",
+    "description": "Check existing copy and inspect TextTraits decisions and audit details on the CRM record.",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+    "objectTypes": ["contacts", "companies", "deals", "tickets"]
+  }
+}

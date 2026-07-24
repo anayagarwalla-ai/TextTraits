@@ -1,28 +1,61 @@
-# TextTraits HubSpot Project
+# TextTraits for HubSpot
 
-This folder contains the HubSpot developer-platform project that installs TextTraits inside HubSpot instead of leaving it as only external Flask endpoints.
+This HubSpot project installs TextTraits as a copy decision and review layer inside HubSpot.
+
+## Product contract
+
+TextTraits checks existing copy. It does **not** generate, rewrite, edit, replace, publish, or send the source content.
+
+- Running **Check email** is read-only.
+- A check may store a structured TextTraits audit record and source hash.
+- It does not update HubSpot fields, create tasks, or change an email.
+- Recording a decision in HubSpot is a separate action with an explicit confirmation.
+- Server-side writeback flags default to off and require `confirm_side_effects: true`.
+- Reviewer guidance describes what must be verified; it never supplies replacement copy.
 
 ## Included surfaces
 
-- CRM record sidebar app card for contacts, companies, deals, and tickets.
-- Custom workflow action that returns score, gate, route, next step, owner queue, blocker level, policy version, request ID, and content hash.
-- Synced workflow action that scores a draft, writes TextTraits results back to HubSpot, and opens review work in one step.
-- Campaign asset workflow action that fetches a campaign asset map, scores reviewable assets, and returns branchable campaign-health fields.
-- App settings page for portal connection, token storage, scopes, enabled surfaces, owner routing, property/schema/segment/webhook setup provisioning, and admin readiness.
-- App home page for campaign search/selection, campaign review health, campaign creation, marketing-email search/draft review, asset association, multi-asset campaign maps, and governance summaries.
+- CRM record sidebar card for contacts, companies, deals, and tickets.
+- Compact CRM preview card for the latest decision.
+- CRM record tab for checking copy and reading audit detail.
+- Help desk sidebar card for existing support-reply copy.
+- App home centered on the review queue, campaign checks, and read-only source lookup.
+- Settings page for connection status, least-privilege permissions, policy paths, named review owners, feature readiness, and confirmed admin provisioning.
+- Flagship **Check copy with TextTraits** workflow action with branchable outputs.
+- Read-only asset-copy and campaign-copy workflow actions.
 
-The campaign review UI sends current HubSpot Campaigns API asset type IDs such as `MARKETING_EMAIL`, `FORM`, `LANDING_PAGE`, `WEB_INTERACTIVE`, `AUTOMATION_PLATFORM_FLOW`, `OBJECT_LIST`, `SOCIAL_BROADCAST`, `MARKETING_SMS`, `SITE_PAGE`, and `BLOG_POST`. The backend still accepts legacy-friendly labels like `WORKFLOW`, `STATIC_LIST`, `SOCIAL_POST`, `SMS`, and `WEBSITE_PAGE`, then normalizes them before calling HubSpot.
+The legacy analyze-and-sync workflow definition is unpublished. It remains in source only to make existing-install migration explicit.
+
+## Source handling
+
+The CRM card prefers associated email engagements, supports marketing email drafts by ID, and falls back to manual paste. It shows source type, source ID, owner, modified time, CRM record, source hash, checker, and check time when those values are available.
+
+The backend stores structured checks, findings, decisions, policy context, and a tenant-scoped content hash. It does not have a separate raw subject/body column in the HubSpot analysis table.
+
+## Workflow outputs
+
+Successful checks return `hs_execution_state=SUCCESS`, including checks whose policy decision is `blocked`. Workflows should branch on:
+
+- `texttraits_gate`
+- `texttraits_route`
+- `texttraits_reviewer_guidance`
+- `texttraits_blocker_level`
+- `texttraits_blocker_reason`
+- `texttraits_policy_version`
+- `texttraits_request_id`
+- `texttraits_content_hash`
+
+A blocked content decision means the check succeeded and the workflow should route it for review.
 
 ## Backend dependency
 
-The UI extension calls the deployed TextTraits backend:
+The extension calls:
 
 ```text
 https://texttraits.onrender.com
 ```
 
-For local testing, run Flask on port `5001` and use HubSpot's local-development proxy. Production `permittedUrls.fetch` stays HTTPS-only; do not add localhost URLs to the uploaded app manifest.
-Copy `src/app/local.json.example` to the HubSpot CLI's expected `local.json` location for this project, upload the project configuration, and run `hs project dev`. The example remaps the real production origin to local Flask without changing committed production URLs.
+For local testing, run Flask on port `5001`, copy `src/app/local.json.example` to the HubSpot CLI location, and use `hs project dev`. Production `permittedUrls.fetch` remains HTTPS-only.
 
 ## Commands
 
@@ -33,11 +66,11 @@ hs project upload
 hs project dev
 ```
 
-The home and settings extensions load portal-scoped bootstrap data from signed `/v1/integrations/hubspot/app-home/bootstrap` and `/v1/integrations/hubspot/settings/bootstrap` requests. They do not depend on a separate browser login to TextTraits and never receive data for another portal. Settings can load `/v1/integrations/hubspot/owners/list` and save `/v1/integrations/hubspot/review-routing/config` so review tasks route to real HubSpot owners.
+## Permissions
 
-When creating TextTraits Analysis custom-object records, associations require real portal-specific HubSpot association type IDs. Configure the synced workflow input `analysis_association_type_ids` or set `TEXTTRAITS_HUBSPOT_ANALYSIS_ASSOCIATION_TYPE_IDS` to JSON such as `{"contacts":123,"companies":456}`. TextTraits will not invent these IDs; without them it creates the analysis record and reports association setup as skipped.
+OAuth starts with the safe read-oriented HubSpot scope set by default. Write scopes stay optional and are needed only for explicitly enabled features such as CRM decision fields, custom analysis objects, review segments, or timelines.
 
-Live HubSpot API calls write scrubbed audit events with method, path template, API version, status, attempts, required scopes, and idempotency-key presence. Tokens, raw email content, request bodies, and the idempotency key itself are not logged.
+The settings page shows readiness by feature. Customer admins should grant only the scopes for the surfaces they plan to use.
 
 ## Required production environment
 
@@ -51,4 +84,15 @@ Live HubSpot API calls write scrubbed audit events with method, path template, A
 - `TEXTTRAITS_CONTENT_HASH_SECRET`
 - `TEXTTRAITS_ENTERPRISE_ADMIN_EMAILS`
 
-The app requests optional HubSpot marketing/campaign/content/forms/revenue/timeline/automation/owners scopes so portals can install the CRM-only subset first, then reconnect when they want campaign creation, marketing email sync, form or CMS asset scoring, campaign revenue reporting, timeline events, workflow automation, or owner-aware review routing. `npm run validate` verifies that the manifest scope list matches the backend OAuth allowlist.
+## Pilot checklist
+
+1. Install in a HubSpot sandbox.
+2. Confirm read-only checks create no CRM changes.
+3. Confirm a review decision requires the in-card confirmation.
+4. Map review routes to named HubSpot owners.
+5. Verify policy version and retention settings.
+6. Test one contact, company, deal, and ticket.
+7. Test associated-email, marketing-email, and manual-paste sources.
+8. Test workflow branches for ready, review-required, blocked, and technical error.
+9. Export an audit sample and verify no raw copy appears in logs.
+10. Capture pilot metrics: checks, review rate, blocked rate, median review time, repeat checks, and resolved reviews.

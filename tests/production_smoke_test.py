@@ -584,6 +584,10 @@ def main() -> int:
                 "task_id": "task-101",
                 "analysis_object_type": "2-123456",
                 "sync_hubspot": True,
+                "confirm_side_effects": True,
+                "writeback_properties": True,
+                "update_review_task": True,
+                "sync_analysis_object": True,
                 "payload": {"notes": "Approved and synced.", "owner_queue": "Marketing review"},
             },
         )
@@ -1039,6 +1043,9 @@ def main() -> int:
         "hsproject.json",
         "src/app/app-hsmeta.json",
         "src/app/cards/texttraits-email-fit-card-hsmeta.json",
+        "src/app/cards/texttraits-email-fit-preview-hsmeta.json",
+        "src/app/cards/texttraits-email-fit-tab-hsmeta.json",
+        "src/app/cards/texttraits-email-fit-helpdesk-hsmeta.json",
         "src/app/cards/TextTraitsEmailFitCard.jsx",
         "src/app/workflow-actions/texttraits-analyze-email-hsmeta.json",
         "src/app/workflow-actions/texttraits-analyze-asset-copy-hsmeta.json",
@@ -1054,8 +1061,10 @@ def main() -> int:
             json.loads(project_file.read_text())
     workflow_definition = json.loads((hubspot_project / "src/app/workflow-actions/texttraits-analyze-email-hsmeta.json").read_text())
     output_names = {field["name"] for field in workflow_definition["config"]["outputFields"]}
-    assert_true({"texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_blocker_reason", "texttraits_request_id", "texttraits_content_hash"}.issubset(output_names), "HubSpot workflow action should expose branchable TextTraits output fields")
+    assert_true({"hs_execution_state", "texttraits_score", "texttraits_gate", "texttraits_route", "texttraits_reviewer_guidance", "texttraits_blocker_reason", "texttraits_request_id", "texttraits_content_hash"}.issubset(output_names), "HubSpot workflow action should expose branchable TextTraits output fields")
+    assert_true(workflow_definition["config"]["labels"]["en"]["actionName"] == "Check copy with TextTraits", "HubSpot should expose one clearly named read-only copy check")
     synced_workflow_definition = json.loads((hubspot_project / "src/app/workflow-actions/texttraits-analyze-and-sync-hsmeta.json").read_text())
+    assert_true(synced_workflow_definition["config"]["isPublished"] is False, "Legacy analyze-and-sync workflow must not remain published")
     synced_input_names = {field["typeDefinition"]["name"] for field in synced_workflow_definition["config"]["inputFields"]}
     assert_true("analysis_association_type_ids" in synced_input_names, "HubSpot synced workflow action should allow association type ID configuration for analysis custom objects")
     synced_output_names = {field["name"] for field in synced_workflow_definition["config"]["outputFields"]}

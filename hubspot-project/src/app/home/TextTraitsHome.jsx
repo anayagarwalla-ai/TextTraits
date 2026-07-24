@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from "react";
-import {Accordion, Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, Text, TextArea, hubspot} from "@hubspot/ui-extensions";
+import {Accordion, Alert, Box, Button, Divider, Flex, Input, LoadingSpinner, StatusTag, Text, TextArea, hubspot} from "@hubspot/ui-extensions";
 import {hubspotApi} from "../lib/api";
 import {portalIdFromContext} from "../lib/context";
 import {useFormState} from "../lib/form-state";
@@ -9,65 +9,60 @@ const CAMPAIGN_ASSET_OPTIONS = [
   {value: "MARKETING_EMAIL", label: "Marketing email"},
   {value: "FORM", label: "Form"},
   {value: "LANDING_PAGE", label: "Landing page"},
-  {value: "AD_CAMPAIGN", label: "Ad campaign"},
-  {value: "WEB_INTERACTIVE", label: "CTA"},
-  {value: "AUTOMATION_PLATFORM_FLOW", label: "Workflow"},
-  {value: "OBJECT_LIST", label: "Static list"},
-  {value: "SOCIAL_BROADCAST", label: "Social post"},
   {value: "MARKETING_SMS", label: "SMS"},
+  {value: "SOCIAL_BROADCAST", label: "Social post"},
   {value: "SEQUENCE", label: "Sequence"},
   {value: "SITE_PAGE", label: "Website page"},
   {value: "BLOG_POST", label: "Blog post"},
 ];
 
-const DEFAULT_CAMPAIGN_ASSET_TYPES = CAMPAIGN_ASSET_OPTIONS.map((asset) => asset.value);
-const labelFromId = (value) => String(value || "Unmapped").replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 const DEFAULT_FORM_VALUES = {
-  portalId: "",
   campaignId: "",
   campaignName: "",
   emailId: "",
   emailName: "",
   emailSubject: "",
-  emailBody: "",
-  templatePath: "@hubspot/email/dnd/welcome.html",
   assetType: "LANDING_PAGE",
   assetId: "",
   assetName: "",
   assetCopy: "",
-  assetTypes: DEFAULT_CAMPAIGN_ASSET_TYPES,
-  segmentQuery: "TextTraits",
-  segmentObjectTypeId: "0-1",
-  segmentProcessingType: "",
+  assetTypes: ["MARKETING_EMAIL", "FORM", "LANDING_PAGE"],
+  segmentQuery: "",
   segmentId: "",
-  segmentAddIds: "",
-  segmentRemoveIds: "",
-  audienceType: "candidate",
-  region: "US",
-  businessUnit: "Staffing",
+  audienceType: "",
+  region: "",
+  businessUnit: "",
   jobId: "",
   skillFamily: "",
-  jobFamily: "",
   recruiter: "",
   clientAccount: "",
-  candidateStatus: "",
-  atsSystem: "",
-  jobBoard: "",
-  bulkCsv: "asset_type,asset_id,asset_name,asset_copy,region,business_unit,audience_type\nMARKETING_SMS,sms-1,Job alert SMS,\"Hi {{first_name}}, reply by Friday if you want details on job JR-204 in logistics.\",US,Staffing,candidate",
-  salesforceJson: '{"event_type":"placement_created","salesforce_campaign_id":"701-demo","salesforce_opportunity_id":"006-demo","audience_type":"client","region":"US","skill_family":"Logistics"}',
+  bulkCsv: "",
 };
 
 hubspot.extend(({context}) => <TextTraitsHome context={context} />);
 
+function decisionVariant(gate) {
+  if (gate === "ready") return "success";
+  if (gate === "blocked") return "danger";
+  if (gate === "needs_review") return "warning";
+  return "default";
+}
+
+function decisionLabel(gate) {
+  if (gate === "ready") return "Ready";
+  if (gate === "blocked") return "Blocked";
+  if (gate === "needs_review") return "Review required";
+  return "Not checked";
+}
+
 function TextTraitsHome({context}) {
-  const [state, setState] = useState({loading: true, dashboard: null, readiness: null, templates: [], error: ""});
-  const form = useFormState({...DEFAULT_FORM_VALUES, portalId: portalIdFromContext(context)});
+  const portalId = portalIdFromContext(context);
+  const [state, setState] = useState({loading: true, dashboard: null, readiness: null, error: ""});
+  const form = useFormState(DEFAULT_FORM_VALUES);
   const {
-    portalId, campaignId, campaignName, emailId, emailName, emailSubject, emailBody, templatePath,
-    assetType, assetId, assetName, assetCopy, assetTypes, segmentQuery, segmentObjectTypeId,
-    segmentProcessingType, segmentId, segmentAddIds, segmentRemoveIds, audienceType, region,
-    businessUnit, jobId, skillFamily, jobFamily, recruiter, clientAccount, candidateStatus,
-    atsSystem, jobBoard, bulkCsv, salesforceJson,
+    campaignId, campaignName, emailId, emailName, emailSubject, assetType, assetId, assetName,
+    assetCopy, assetTypes, segmentQuery, segmentId, audienceType, region, businessUnit, jobId,
+    skillFamily, recruiter, clientAccount, bulkCsv,
   } = form.values;
   const [campaignResults, setCampaignResults] = useState([]);
   const [emailResults, setEmailResults] = useState([]);
@@ -80,7 +75,7 @@ function TextTraitsHome({context}) {
     let cancelled = false;
     async function loadDashboard() {
       if (!portalId) {
-        setState({loading: false, dashboard: null, readiness: null, templates: [], error: "HubSpot portal context is unavailable for this app home."});
+        setState({loading: false, dashboard: null, readiness: null, error: "HubSpot portal context is unavailable for this app home."});
         return;
       }
       try {
@@ -93,13 +88,19 @@ function TextTraitsHome({context}) {
           setState({
             loading: false,
             dashboard: payload.dashboard || {},
-            templates: payload.templates || [],
             readiness: payload.readiness || null,
             error: "",
           });
         }
       } catch (error) {
-        if (!cancelled) setState({loading: false, dashboard: null, readiness: null, templates: [], error: "Open TextTraits as an admin to load the governance dashboard."});
+        if (!cancelled) {
+          setState({
+            loading: false,
+            dashboard: null,
+            readiness: null,
+            error: error.message || "The TextTraits review dashboard could not load.",
+          });
+        }
       }
     }
     loadDashboard();
@@ -110,6 +111,9 @@ function TextTraitsHome({context}) {
 
   const dashboard = state.dashboard || {};
   const gateCounts = dashboard.gate_counts || {};
+  const reviewSla = dashboard.review_sla || {};
+  const operatingMetrics = dashboard.operating_metrics || {};
+  const blockedDrafts = dashboard.recent_blocked_drafts || [];
 
   function enterpriseContextPayload() {
     return {
@@ -118,12 +122,8 @@ function TextTraitsHome({context}) {
       business_unit: businessUnit,
       job_id: jobId,
       skill_family: skillFamily,
-      job_family: jobFamily,
       recruiter,
       client_account: clientAccount,
-      candidate_status: candidateStatus,
-      ats_system: atsSystem,
-      job_board: jobBoard,
     };
   }
 
@@ -138,219 +138,73 @@ function TextTraitsHome({context}) {
         errorMessage: `${action} failed.`,
       });
       setActionState({loading: "", result: {action, status, payload}, error: ""});
-      const nextCampaignId = payload?.hubspot?.id || payload?.hubspot?.guid || payload?.campaign_id || payload?.summary?.campaign_id || "";
-      const nextEmailId = payload?.hubspot?.id || payload?.email?.id || payload?.analysis?.context?.template_id || "";
-      if (action === "Create campaign" && nextCampaignId) form.setField("campaignId", String(nextCampaignId));
-      if ((action === "Create marketing email" || action === "Fetch marketing email") && nextEmailId) form.setField("emailId", String(nextEmailId));
+      return payload;
     } catch (error) {
       setActionState({loading: "", result: null, error: error.message || `${action} failed.`});
+      return null;
     }
-  }
-
-  function createCampaign() {
-    runHubSpotAction("Create campaign", "/v1/integrations/hubspot/campaigns/create", {
-      portal_id: portalId,
-      name: campaignName,
-      ...enterpriseContextPayload(),
-      properties: {hs_name: campaignName},
-    });
   }
 
   async function searchCampaigns() {
-    setActionState({loading: "Search campaigns", result: null, error: ""});
-    try {
-      const {payload, status} = await hubspotApi("/v1/integrations/hubspot/campaigns/list", {
-        method: "POST",
-        body: {portal_id: portalId, query: campaignName, limit: 10},
-        timeout: 30000,
-        errorMessage: "Campaign search failed.",
-      });
-      setCampaignResults(payload.campaigns || []);
-      setActionState({loading: "", result: {action: "Search campaigns", status, payload}, error: ""});
-    } catch (error) {
-      setActionState({loading: "", result: null, error: error.message || "Campaign search failed."});
-    }
+    const payload = await runHubSpotAction("Search campaigns", "/v1/integrations/hubspot/campaigns/list", {
+      portal_id: portalId,
+      query: campaignName,
+      limit: 10,
+    });
+    setCampaignResults(payload?.campaigns || []);
   }
 
   async function searchMarketingEmails() {
-    setActionState({loading: "Search marketing emails", result: null, error: ""});
-    try {
-      const {payload, status} = await hubspotApi("/v1/integrations/hubspot/marketing-emails/list", {
-        method: "POST",
-        body: {portal_id: portalId, query: emailName || emailSubject, limit: 10},
-        timeout: 30000,
-        errorMessage: "Marketing email search failed.",
-      });
-      setEmailResults(payload.emails || []);
-      setActionState({loading: "", result: {action: "Search marketing emails", status, payload}, error: ""});
-    } catch (error) {
-      setActionState({loading: "", result: null, error: error.message || "Marketing email search failed."});
-    }
+    const payload = await runHubSpotAction("Search marketing emails", "/v1/integrations/hubspot/marketing-emails/list", {
+      portal_id: portalId,
+      query: emailName,
+      limit: 10,
+    });
+    setEmailResults(payload?.emails || []);
   }
 
   async function searchSegments() {
-    setActionState({loading: "Search segments", result: null, error: ""});
-    try {
-      const body = {
-        portal_id: portalId,
-        query: segmentQuery,
-        objectTypeId: segmentObjectTypeId,
-        limit: 10,
-        includeFilters: false,
-      };
-      if (segmentProcessingType) body.processingTypes = [segmentProcessingType];
-      const {payload, status} = await hubspotApi("/v1/integrations/hubspot/lists/search", {
-        method: "POST",
-        body,
-        timeout: 30000,
-        errorMessage: "Segment search failed.",
-      });
-      const lists = payload.lists || [];
-      setSegmentResults(lists);
-      if (lists[0]?.list_id) form.setField("segmentId", String(lists[0].list_id));
-      setActionState({loading: "", result: {action: "Search segments", status, payload}, error: ""});
-    } catch (error) {
-      setActionState({loading: "", result: null, error: error.message || "Segment search failed."});
-    }
+    const payload = await runHubSpotAction("Search segments", "/v1/integrations/hubspot/lists/search", {
+      portal_id: portalId,
+      query: segmentQuery,
+      objectTypeId: "0-1",
+      limit: 10,
+      includeFilters: false,
+    });
+    setSegmentResults(payload?.lists || []);
   }
 
   async function previewSegmentMembers() {
-    setActionState({loading: "Preview segment members", result: null, error: ""});
-    try {
-      const {payload, status} = await hubspotApi("/v1/integrations/hubspot/lists/memberships", {
-        method: "POST",
-        body: {portal_id: portalId, list_id: segmentId, limit: 25},
-        timeout: 30000,
-        errorMessage: "Segment membership preview failed.",
-      });
-      setSegmentMemberships(payload.memberships || []);
-      setActionState({loading: "", result: {action: "Preview segment members", status, payload}, error: ""});
-    } catch (error) {
-      setActionState({loading: "", result: null, error: error.message || "Segment membership preview failed."});
-    }
-  }
-
-  async function updateSegmentMembers() {
-    setActionState({loading: "Update segment members", result: null, error: ""});
-    try {
-      const {payload, status} = await hubspotApi("/v1/integrations/hubspot/lists/memberships/update", {
-        method: "POST",
-        body: {
-          portal_id: portalId,
-          list_id: segmentId,
-          recordIdsToAdd: segmentAddIds.split(/[\s,]+/).filter(Boolean),
-          recordIdsToRemove: segmentRemoveIds.split(/[\s,]+/).filter(Boolean),
-        },
-        timeout: 30000,
-        errorMessage: "Segment membership update failed.",
-      });
-      try {
-        const {payload: previewPayload} = await hubspotApi("/v1/integrations/hubspot/lists/memberships", {
-          method: "POST",
-          body: {portal_id: portalId, list_id: segmentId, limit: 25},
-          timeout: 30000,
-        });
-        setSegmentMemberships(previewPayload.memberships || []);
-      } catch (_error) {
-        // Keep the update result visible even if the follow-up preview cannot refresh.
-      }
-      setActionState({loading: "", result: {action: "Update segment members", status, payload}, error: ""});
-    } catch (error) {
-      setActionState({loading: "", result: null, error: error.message || "Segment membership update failed."});
-    }
-  }
-
-  function createMarketingEmail() {
-    runHubSpotAction("Create marketing email", "/v1/integrations/hubspot/marketing-emails/create-draft", {
+    const payload = await runHubSpotAction("Preview segment members", "/v1/integrations/hubspot/lists/memberships", {
       portal_id: portalId,
-      name: emailName,
-      subject: emailSubject,
-      templatePath,
-      campaign_id: campaignId,
-      ...enterpriseContextPayload(),
-      analyze_after_create: true,
+      list_id: segmentId,
+      limit: 25,
     });
-  }
-
-  function updateMarketingEmail() {
-    runHubSpotAction("Update marketing email", "/v1/integrations/hubspot/marketing-emails/update-draft", {
-      portal_id: portalId,
-      email_id: emailId,
-      ...enterpriseContextPayload(),
-      email: {
-        name: emailName,
-        subject: emailSubject,
-        templatePath,
-        html: emailBody,
-      },
-    });
-  }
-
-  function fetchMarketingEmail() {
-    runHubSpotAction("Fetch marketing email", "/v1/integrations/hubspot/marketing-emails/fetch", {
-      portal_id: portalId,
-      email_id: emailId,
-      campaign_id: campaignId,
-      ...enterpriseContextPayload(),
-      analyze: true,
-    });
+    setSegmentMemberships(payload?.memberships || []);
   }
 
   function prePublishGuardrail() {
-    runHubSpotAction("Pre-publish guardrail", "/v1/integrations/hubspot/marketing-emails/pre-publish-guardrail", {
+    runHubSpotAction("Pre-send check", "/v1/integrations/hubspot/marketing-emails/pre-publish-guardrail", {
       portal_id: portalId,
       email_id: emailId,
       campaign_id: campaignId,
       ...enterpriseContextPayload(),
-    });
-  }
-
-  function analyzeAndSyncDraft() {
-    runHubSpotAction("Analyze and sync draft", "/v1/integrations/hubspot/analyze-and-sync", {
-      portal_id: portalId,
-      campaign_id: campaignId,
-      email_id: emailId,
-      template_id: emailId,
-      ...enterpriseContextPayload(),
-      inputFields: {
-        email_subject: emailSubject,
-        email_body: emailBody,
-        ...enterpriseContextPayload(),
-      },
-      writeback_properties: false,
-      record_review_state: true,
-      create_review_task: true,
-      create_analysis_record: true,
-      create_timeline_event: true,
-    });
-  }
-
-  function associateEmailToCampaign() {
-    runHubSpotAction("Associate email to campaign", "/v1/integrations/hubspot/campaigns/associate-asset", {
-      portal_id: portalId,
-      campaign_id: campaignId,
-      asset_type: "MARKETING_EMAIL",
-      asset_id: emailId,
     });
   }
 
   function analyzeAssetCopy() {
-    runHubSpotAction("Analyze asset copy", "/v1/integrations/hubspot/assets/analyze", {
+    runHubSpotAction("Check mapped asset copy", "/v1/integrations/hubspot/assets/analyze", {
       portal_id: portalId,
       campaign_id: campaignId,
       asset_type: assetType,
       asset_id: assetId,
       ...enterpriseContextPayload(),
-      asset: {
-        id: assetId,
-        name: assetName,
-        html: assetCopy,
-      },
+      asset: {id: assetId, name: assetName, html: assetCopy},
     });
   }
 
   function fetchAndAnalyzeAsset() {
-    runHubSpotAction("Fetch and analyze asset", "/v1/integrations/hubspot/assets/fetch-and-analyze", {
+    runHubSpotAction("Fetch and check asset", "/v1/integrations/hubspot/assets/fetch-and-analyze", {
       portal_id: portalId,
       campaign_id: campaignId,
       asset_type: assetType,
@@ -360,7 +214,7 @@ function TextTraitsHome({context}) {
   }
 
   function bulkImportAssets() {
-    runHubSpotAction("Bulk import assets", "/v1/integrations/hubspot/bulk/import-assets", {
+    runHubSpotAction("Import copy for checking", "/v1/integrations/hubspot/bulk/import-assets", {
       portal_id: portalId,
       campaign_id: campaignId,
       import_id: campaignId ? `hubspot-campaign-${campaignId}` : "hubspot-app-home-import",
@@ -369,30 +223,13 @@ function TextTraitsHome({context}) {
     }, 45000);
   }
 
-  function importSalesforceOutcomes() {
-    let parsed = {};
-    try {
-      parsed = JSON.parse(salesforceJson || "{}");
-    } catch (_error) {
-      parsed = {raw: salesforceJson};
-    }
-    runHubSpotAction("Import Salesforce outcomes", "/v1/integrations/hubspot/salesforce/outcomes/import", {
-      portal_id: portalId,
-      tenant_id: portalId,
-      workspace_id: portalId ? `hubspot_${portalId}` : "hubspot_salesforce_import",
-      campaign_id: campaignId,
-      ...enterpriseContextPayload(),
-      ...parsed,
-    });
-  }
-
-  function toggleAssetType(assetType) {
+  function toggleAssetType(value) {
     form.setField("assetTypes", (current) => {
-      if (current.includes(assetType)) {
-        const next = current.filter((item) => item !== assetType);
-        return next.length ? next : [assetType];
+      if (current.includes(value)) {
+        const next = current.filter((item) => item !== value);
+        return next.length ? next : [value];
       }
-      return [...current, assetType];
+      return [...current, value];
     });
   }
 
@@ -409,124 +246,149 @@ function TextTraitsHome({context}) {
           limit: 25,
         },
         timeout: 30000,
-        errorMessage: "Campaign review failed.",
+        errorMessage: "Campaign check failed.",
       });
       setReviewState({loading: false, result: payload, error: ""});
     } catch (error) {
-      setReviewState({loading: false, result: null, error: error.message || "Campaign review failed."});
+      setReviewState({loading: false, result: null, error: error.message || "Campaign check failed."});
     }
   }
 
   return (
     <Box>
-      <Text format={{fontWeight: "bold"}}>TextTraits campaign review</Text>
-      <Text>Governance health for HubSpot campaign and email workflows.</Text>
+      <Text format={{fontWeight: "bold"}}>Today’s review work</Text>
+      <Text>Check existing HubSpot copy, route exceptions, and keep an auditable decision trail. TextTraits never rewrites source copy.</Text>
       <Divider />
+
       {state.loading ? <LoadingSpinner label="Loading TextTraits dashboard" /> : null}
       {state.error ? <Alert variant="warning" title="Dashboard unavailable">{state.error}</Alert> : null}
+
       <Flex direction="column" gap="sm">
-        <Text>Total analyses: {dashboard.total_analyses || 0}</Text>
-        <Text>Ready: {gateCounts.ready || 0}</Text>
-        <Text>Needs review: {gateCounts.needs_review || 0}</Text>
-        <Text>Blocked: {gateCounts.blocked || 0}</Text>
-        {state.readiness ? <Text>Implemented HubSpot surfaces: {state.readiness.implemented_surface_count || 0} · Measured analyses: {state.readiness.evidence_summary?.total_analyses || 0}</Text> : null}
+        <Box>
+          <Text format={{fontWeight: "bold"}}>{reviewSla.open || 0} reviews open</Text>
+          <Text>{reviewSla.overdue || 0} overdue · {gateCounts.blocked || 0} blocked checks · {gateCounts.needs_review || 0} needing review</Text>
+        </Box>
+        {blockedDrafts.slice(0, 4).map((item) => (
+          <Box key={item.request_id}>
+            <Flex align="center" justify="between" gap="sm" wrap>
+              <Text format={{fontWeight: "bold"}}>{item.context?.asset_name || item.template_id || item.campaign_id || "Blocked copy"}</Text>
+              <StatusTag variant={decisionVariant(item.gate)}>{decisionLabel(item.gate)}</StatusTag>
+            </Flex>
+            <Text>{item.route || "Review owner not assigned"} · score {item.score ?? "not available"}</Text>
+          </Box>
+        ))}
+        {!blockedDrafts.length && !state.loading ? (
+          <Alert variant="success" title="No blocked copy in the current review window">
+            Start by choosing an existing campaign below.
+          </Alert>
+        ) : null}
       </Flex>
-      <Accordion title="Campaign review" size="md" defaultOpen>
+
+      <Divider />
+      <Accordion title="Check a campaign" size="md" defaultOpen>
         <CampaignPanel
-        assetOptions={CAMPAIGN_ASSET_OPTIONS}
-        assetTypes={assetTypes}
-        values={{portalId, campaignName, campaignId}}
-        onChange={form.handlers}
-        onAction={{
-          toggleAssetType,
-          searchCampaigns,
-          createCampaign,
-          reviewCampaign,
-          selectCampaign: (campaign) => {
-            form.setField("campaignId", String(campaign.id || ""));
-            form.setField("campaignName", String(campaign.name || ""));
-          },
-        }}
-        actionLoading={actionState.loading}
-        reviewState={reviewState}
-        campaignResults={campaignResults}
+          assetOptions={CAMPAIGN_ASSET_OPTIONS}
+          assetTypes={assetTypes}
+          values={{campaignName, campaignId}}
+          onChange={form.handlers}
+          onAction={{
+            toggleAssetType,
+            searchCampaigns,
+            reviewCampaign,
+            selectCampaign: (campaign) => {
+              form.setField("campaignId", String(campaign.id || ""));
+              form.setField("campaignName", String(campaign.name || ""));
+            },
+          }}
+          actionLoading={actionState.loading}
+          reviewState={reviewState}
+          campaignResults={campaignResults}
         />
       </Accordion>
-      <Accordion title="Marketing email tools" size="md">
+
+      <Accordion title="Check one marketing email" size="md">
         <MarketingEmailPanel
-        values={{portalId, campaignId, emailId, emailName, emailSubject, emailBody, templatePath}}
-        onChange={form.handlers}
-        onAction={{
-          searchMarketingEmails,
-          createMarketingEmail,
-          updateMarketingEmail,
-          fetchMarketingEmail,
-          prePublishGuardrail,
-          analyzeAndSyncDraft,
-          associateEmailToCampaign,
-          selectEmail: (email) => {
-            form.setField("emailId", String(email.id || ""));
-            form.setField("emailName", String(email.name || ""));
-            form.setField("emailSubject", String(email.subject || email.name || ""));
-            if (email.campaign_id) form.setField("campaignId", String(email.campaign_id));
-          },
-        }}
-        actionLoading={actionState.loading}
-        emailResults={emailResults}
+          values={{emailId, emailName, emailSubject}}
+          onChange={form.handlers}
+          onAction={{
+            searchMarketingEmails,
+            prePublishGuardrail,
+            selectEmail: (email) => {
+              form.setField("emailId", String(email.id || ""));
+              form.setField("emailName", String(email.name || email.subject || ""));
+              form.setField("emailSubject", String(email.subject || ""));
+              if (email.campaign_id) form.setField("campaignId", String(email.campaign_id));
+            },
+          }}
+          actionLoading={actionState.loading}
+          emailResults={emailResults}
         />
       </Accordion>
-      <Accordion title="Single asset copy review" size="md">
-        <Text>Score mapped copy or fetch a supported HubSpot asset for review.</Text>
+
+      <Accordion title="Other copy sources" size="md">
+        <Text>Use this only when HubSpot cannot return the copy directly.</Text>
         <Flex direction="column" gap="sm">
-          <Input label="Asset type" name="asset_type" value={assetType} onInput={form.handlers.assetType} placeholder="FORM, LANDING_PAGE, SITE_PAGE, BLOG_POST, SMS, SOCIAL_BROADCAST" />
+          <Input label="Asset type" name="asset_type" value={assetType} onInput={form.handlers.assetType} placeholder="FORM, LANDING_PAGE, SITE_PAGE, BLOG_POST, SMS" />
           <Input label="Asset ID" name="asset_id" value={assetId} onInput={form.handlers.assetId} placeholder="HubSpot asset ID" />
-          <Input label="Asset name" name="asset_name" value={assetName} onInput={form.handlers.assetName} placeholder="Renewal landing page" />
-          <TextArea label="Mapped asset copy" name="asset_copy" value={assetCopy} onInput={form.handlers.assetCopy} placeholder="Paste form, page, SMS, social, or CTA copy for review." rows={4} />
-          <Button onClick={analyzeAssetCopy} disabled={actionState.loading || !portalId || (!assetName && !assetCopy)}>{actionState.loading === "Analyze asset copy" ? "Analyzing..." : "Analyze mapped asset copy"}</Button>
-          <Button onClick={fetchAndAnalyzeAsset} disabled={actionState.loading || !portalId || !assetType || !assetId}>{actionState.loading === "Fetch and analyze asset" ? "Fetching..." : "Fetch and review supported asset"}</Button>
+          <Input label="Asset name" name="asset_name" value={assetName} onInput={form.handlers.assetName} placeholder="Existing asset name" />
+          <TextArea label="Mapped copy" name="asset_copy" value={assetCopy} onInput={form.handlers.assetCopy} placeholder="Existing copy to check" rows={4} />
+          <Button onClick={analyzeAssetCopy} disabled={actionState.loading || (!assetName && !assetCopy)}>
+            {actionState.loading === "Check mapped asset copy" ? "Checking..." : "Check pasted asset copy"}
+          </Button>
+          <Button onClick={fetchAndAnalyzeAsset} disabled={actionState.loading || !assetType || !assetId}>
+            {actionState.loading === "Fetch and check asset" ? "Fetching..." : "Fetch supported asset from HubSpot"}
+          </Button>
         </Flex>
       </Accordion>
-      <Accordion title="Enterprise context and workflow templates" size="md">
-        <Text>Attach ATS, region, audience, job, recruiter, and client context so dashboards and exports remain actionable.</Text>
-        <EnterpriseContextFields values={{audienceType, region, businessUnit, jobId, skillFamily, jobFamily, recruiter, clientAccount, candidateStatus, atsSystem, jobBoard}} onChange={form.handlers} />
-        <Text format={{fontWeight: "bold"}}>Staffing workflow templates</Text>
-        <Flex direction="column" gap="xs">
-          {state.templates.slice(0, 5).map((template) => (
-            <Box key={template.id}>
-              <Text format={{fontWeight: "bold"}}>{template.name} · {template.policy_pack}</Text>
-              <Text>Surfaces: {(template.hubspot_surfaces || []).join(", ")}</Text>
-              <Text>Required context: {(template.required_context || []).join(", ")}</Text>
-            </Box>
-          ))}
-        </Flex>
-      </Accordion>
-      <Accordion title="Imports and outcome mapping" size="md">
-        <Text format={{fontWeight: "bold"}}>Bulk asset import</Text>
-        <TextArea label="CSV rows" name="bulk_csv" value={bulkCsv} onInput={form.handlers.bulkCsv} placeholder="asset_type,asset_id,asset_name,asset_copy,region,business_unit,audience_type" rows={5} />
-        <Button onClick={bulkImportAssets} disabled={actionState.loading || !portalId || !bulkCsv}>{actionState.loading === "Bulk import assets" ? "Importing..." : "Score imported assets"}</Button>
-        <Text format={{fontWeight: "bold"}}>Salesforce outcome mapping</Text>
-        <TextArea label="Salesforce outcome JSON" name="salesforce_json" value={salesforceJson} onInput={form.handlers.salesforceJson} placeholder='{"event_type":"placement_created","salesforce_opportunity_id":"006..."}' rows={4} />
-        <Button onClick={importSalesforceOutcomes} disabled={actionState.loading || !portalId || !salesforceJson}>{actionState.loading === "Import Salesforce outcomes" ? "Importing..." : "Import Salesforce outcome"}</Button>
-      </Accordion>
-      <Accordion title="HubSpot segments" size="md">
-        <SegmentPanel
-        values={{portalId, segmentQuery, segmentObjectTypeId, segmentProcessingType, segmentId, segmentAddIds, segmentRemoveIds}}
-        onChange={form.handlers}
-        onAction={{searchSegments, previewSegmentMembers, updateSegmentMembers}}
-        actionLoading={actionState.loading}
-        segmentResults={segmentResults}
-        segmentMemberships={segmentMemberships}
+
+      <Accordion title="Review context" size="md">
+        <Text>Add optional context only when it changes the policy or review route.</Text>
+        <EnterpriseContextFields
+          values={{audienceType, region, businessUnit, jobId, skillFamily, recruiter, clientAccount}}
+          onChange={form.handlers}
         />
       </Accordion>
-      <Accordion title="Campaign dashboard rollups" size="md">
-        <Flex direction="column" gap="xs">
-          {(dashboard.blocked_by_region || []).slice(0, 4).map((row) => <Text key={`region-${row.region}`}>Region {row.region}: {row.blocked || 0} blocked of {row.total || 0}</Text>)}
-          {(dashboard.send_ready_by_business_unit || []).slice(0, 4).map((row) => <Text key={`bu-${row.business_unit}`}>Business unit {row.business_unit}: {row.send_ready || 0} send-ready of {row.total || 0}</Text>)}
-          {(dashboard.risky_claim_types || []).slice(0, 3).map((row) => <Text key={`risk-${row.claim_type}`}>Risk type: {row.claim_type} ({row.count})</Text>)}
-          {(dashboard.rule_pack_health || []).slice(0, 4).map((row) => <Text key={`rule-pack-${row.rule_pack}`}>Rule pack {labelFromId(row.rule_pack)}: {row.blocked || 0} blocked · {row.needs_review || 0} needs review · {row.ready || 0} ready</Text>)}
-          {dashboard.review_sla ? <Text>Review SLA: {dashboard.review_sla.open || 0} open · {dashboard.review_sla.overdue || 0} overdue · {dashboard.review_sla.resolved || 0} resolved</Text> : null}
-        </Flex>
+
+      <Accordion title="Read-only segment inspection" size="md">
+        <SegmentPanel
+          values={{segmentQuery, segmentId}}
+          onChange={form.handlers}
+          onAction={{searchSegments, previewSegmentMembers}}
+          actionLoading={actionState.loading}
+          segmentResults={segmentResults}
+          segmentMemberships={segmentMemberships}
+        />
       </Accordion>
+
+      <Accordion title="Bulk copy import" size="md">
+        <Text>Import mapped source copy for checking. This does not create or edit HubSpot campaign assets.</Text>
+        <TextArea
+          label="CSV rows"
+          name="bulk_csv"
+          value={bulkCsv}
+          onInput={form.handlers.bulkCsv}
+          placeholder="asset_type,asset_id,asset_name,asset_copy,region,business_unit,audience_type"
+          rows={5}
+        />
+        <Button onClick={bulkImportAssets} disabled={actionState.loading || !bulkCsv}>
+          {actionState.loading === "Import copy for checking" ? "Importing..." : "Import and check copy"}
+        </Button>
+      </Accordion>
+
+      <Accordion title="Program health" size="md">
+        <Text>Total checks: {dashboard.total_analyses || 0}</Text>
+        <Text>Ready: {gateCounts.ready || 0} · Review required: {gateCounts.needs_review || 0} · Blocked: {gateCounts.blocked || 0}</Text>
+        <Text>Resolved reviews: {reviewSla.resolved || 0}</Text>
+        <Text>Review rate: {operatingMetrics.review_rate ?? 0}% · Approval rate: {operatingMetrics.approval_rate ?? 0}%</Text>
+        <Text>Median review time: {operatingMetrics.median_review_hours ?? 0} hours · Repeat-check rate: {operatingMetrics.repeat_check_rate ?? 0}%</Text>
+        {operatingMetrics.most_common_failed_check ? (
+          <Text>Most common finding: {operatingMetrics.most_common_failed_check.check} ({operatingMetrics.most_common_failed_check.count})</Text>
+        ) : null}
+        {state.readiness ? (
+          <Text>Configured HubSpot surfaces: {state.readiness.implemented_surface_count || 0}</Text>
+        ) : null}
+      </Accordion>
+
       <HubSpotActionResult state={actionState} />
     </Box>
   );

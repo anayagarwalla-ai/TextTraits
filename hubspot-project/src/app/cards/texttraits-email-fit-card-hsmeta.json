@@ -2,8 +2,8 @@
   "uid": "texttraits_email_fit_card",
   "type": "card",
   "config": {
-    "name": "TextTraits email fit",
-    "description": "Score draft email quality, route review work, and write structured results back to HubSpot.",
+    "name": "TextTraits pre-send check",
+    "description": "Check existing email copy, review the decision, and explicitly record approved review outcomes in HubSpot.",
     "location": "crm.record.sidebar",
     "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
     "objectTypes": ["contacts", "companies", "deals", "tickets"]

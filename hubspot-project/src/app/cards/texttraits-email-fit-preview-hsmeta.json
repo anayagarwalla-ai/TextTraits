@@ -1,0 +1,11 @@
+{
+  "uid": "texttraits_email_fit_preview",
+  "type": "card",
+  "config": {
+    "name": "TextTraits decision",
+    "description": "Preview the latest read-only TextTraits copy decision for this CRM record.",
+    "location": "crm.preview",
+    "entrypoint": "/app/cards/TextTraitsEmailFitCard.jsx",
+    "objectTypes": ["contacts", "companies", "deals", "tickets"]
+  }
+}

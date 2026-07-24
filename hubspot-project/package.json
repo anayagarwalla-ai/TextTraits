@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "validate": "node scripts/validate-project.mjs && npm run build-check",
-    "build-check": "esbuild src/app/cards/TextTraitsEmailFitCard.jsx src/app/home/TextTraitsHome.jsx src/app/settings/TextTraitsSettings.jsx --bundle --platform=browser --format=esm --external:@hubspot/ui-extensions --outdir=.build-check",
+    "build-check": "esbuild src/app/cards/TextTraitsEmailFitCard.jsx src/app/home/TextTraitsHome.jsx src/app/settings/TextTraitsSettings.jsx --bundle --platform=browser --format=esm --external:@hubspot/ui-extensions --external:@hubspot/ui-extensions/* --outdir=.build-check",
     "upload": "hs project upload",
     "dev": "hs project dev"
   },

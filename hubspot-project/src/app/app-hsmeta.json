@@ -2,8 +2,8 @@
   "uid": "texttraits_email_fit_app",
   "type": "app",
   "config": {
-    "name": "TextTraits Email Fit",
-    "description": "Pre-send campaign and email governance for HubSpot workflows.",
+    "name": "TextTraits Copy Review",
+    "description": "Read-only copy checks, policy decisions, and review routing inside HubSpot.",
     "distribution": "marketplace",
     "permittedUrls": {
       "fetch": [
